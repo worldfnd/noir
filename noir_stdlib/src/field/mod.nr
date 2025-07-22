@@ -312,7 +312,7 @@ pub(crate) unconstrained fn field_less_than(x: Field, y: Field) -> bool {
 //     low + high * v
 // }
 
-pub (crate) fn lt_fallback(x: Field, y: Field) -> bool {
+fn lt_fallback(x: Field, y: Field) -> bool {
     if is_unconstrained() {
         // Safety: unconstrained context
         unsafe {
@@ -346,7 +346,7 @@ mod tests {
     // docs:start:to_be_bits_example
     fn test_to_be_bits() {
         let field = 2;
-        let bits: [u1; 8] = field.to_be_bits(); 
+        let bits: [u1; 8] = field.to_be_bits();
         assert_eq(bits, [0, 0, 0, 0, 0, 0, 1, 0]);
     }
     // docs:end:to_be_bits_example
@@ -363,24 +363,22 @@ mod tests {
     // docs:start:to_le_bits_example
     fn test_to_le_bits() {
         let field = 2;
-        let bits: [u1; 8] = field.to_le_bits(); 
+        let bits: [u1; 8] = field.to_le_bits();
         assert_eq(bits, [0, 1, 0, 0, 0, 0, 0, 0]);
     }
     // docs:end:to_le_bits_example
 
-     #[test]
+    #[test]
     unconstrained fn test_to_le_bits_unconstrained() {
         let field = 2;
         let bits: [u1; 8] = field.to_le_bits(); 
-        assert_eq(bits, [0, 0, 0, 0, 0, 0, 1, 0]);
+        assert_eq(bits, [0, 1, 0, 0, 0, 0, 0, 0]);
     }
-    // docs:end:to_le_bits_example
-
 
     #[test]
     // docs:start:to_be_bytes_example
     fn test_to_be_bytes() {
-        let field: Field = 2;
+        let field = 2;
         let bytes: [u8; 4] = field.to_be_bytes();
         assert_eq(bytes, [0, 0, 0, 2]);
         assert_eq(Field::from_be_bytes::<4>(bytes), field);
@@ -389,7 +387,7 @@ mod tests {
 
     #[test]
     unconstrained fn test_to_be_bytes_unconstrained(){
-        let field: Field = 2;
+        let field = 2;
         let bytes: [u8; 4] = field.to_be_bytes();
         assert_eq(bytes, [0, 0, 0, 2]);
         assert_eq(Field::from_be_bytes::<4>(bytes), field);
