@@ -312,21 +312,21 @@ pub(crate) unconstrained fn field_less_than(x: Field, y: Field) -> bool {
 //     low + high * v
 // }
 
-fn lt_fallback(x: Field, y: Field) -> bool {
+pub (crate) fn lt_fallback(x: Field, y: Field) -> bool {
     if is_unconstrained() {
         // Safety: unconstrained context
         unsafe {
             field_less_than(x, y)
         }
     } else {
-        let x_bytes: [u8; 32] = x.to_le_bytes();
-        let y_bytes: [u8; 32] = y.to_le_bytes();
+        let x_bytes: [u8; 4] = x.to_le_bytes();
+        let y_bytes: [u8; 4] = y.to_le_bytes();
         let mut x_is_lt = false;
         let mut done = false;
-        for i in 0..32 {
+        for i in 0..4 {
             if (!done) {
-                let x_byte = x_bytes[32 - 1 - i] as u8;
-                let y_byte = y_bytes[32 - 1 - i] as u8;
+                let x_byte = x_bytes[4 - 1 - i] as u8;
+                let y_byte = y_bytes[4 - 1 - i] as u8;
                 let bytes_match = x_byte == y_byte;
                 if !bytes_match {
                     x_is_lt = x_byte < y_byte;
@@ -340,45 +340,85 @@ fn lt_fallback(x: Field, y: Field) -> bool {
 
 mod tests {
     use crate::{panic::panic, runtime};
-    use super::field_less_than;
+    use super::{field_less_than, lt_fallback, modulus_be_bits, modulus_le_bits};
 
     #[test]
     // docs:start:to_be_bits_example
     fn test_to_be_bits() {
         let field = 2;
-        let bits: [u1; 8] = field.to_be_bits();
+        let bits: [u1; 8] = field.to_be_bits(); 
         assert_eq(bits, [0, 0, 0, 0, 0, 0, 1, 0]);
     }
     // docs:end:to_be_bits_example
 
     #[test]
+    unconstrained fn test_to_be_bits_unconstrained() {
+        // TODO : test unconstraint after brillingvm is fixed
+        let field = 2;
+        let bits: [u1; 8] = field.to_be_bits(); 
+        assert_eq(bits, [0, 0, 0, 0, 0, 0, 1, 0]);
+    }
+
+    #[test]
     // docs:start:to_le_bits_example
     fn test_to_le_bits() {
         let field = 2;
-        let bits: [u1; 8] = field.to_le_bits();
+        let bits: [u1; 8] = field.to_le_bits(); 
         assert_eq(bits, [0, 1, 0, 0, 0, 0, 0, 0]);
     }
     // docs:end:to_le_bits_example
 
+     #[test]
+    unconstrained fn test_to_le_bits_unconstrained() {
+        let field = 2;
+        let bits: [u1; 8] = field.to_le_bits(); 
+        assert_eq(bits, [0, 0, 0, 0, 0, 0, 1, 0]);
+    }
+    // docs:end:to_le_bits_example
+
+
     #[test]
     // docs:start:to_be_bytes_example
     fn test_to_be_bytes() {
-        let field = 2;
-        let bytes: [u8; 8] = field.to_be_bytes();
-        assert_eq(bytes, [0, 0, 0, 0, 0, 0, 0, 2]);
-        assert_eq(Field::from_be_bytes::<8>(bytes), field);
+        let field: Field = 2;
+        let bytes: [u8; 4] = field.to_be_bytes();
+        assert_eq(bytes, [0, 0, 0, 2]);
+        assert_eq(Field::from_be_bytes::<4>(bytes), field);
     }
     // docs:end:to_be_bytes_example
+
+    #[test]
+    unconstrained fn test_to_be_bytes_unconstrained(){
+        let field: Field = 2;
+        let bytes: [u8; 4] = field.to_be_bytes();
+        assert_eq(bytes, [0, 0, 0, 2]);
+        assert_eq(Field::from_be_bytes::<4>(bytes), field);
+    }
 
     #[test]
     // docs:start:to_le_bytes_example
     fn test_to_le_bytes() {
         let field = 2;
-        let bytes: [u8; 8] = field.to_le_bytes();
-        assert_eq(bytes, [2, 0, 0, 0, 0, 0, 0, 0]);
-        assert_eq(Field::from_le_bytes::<8>(bytes), field);
+        let bytes: [u8; 4] = field.to_le_bytes();
+        assert_eq(bytes, [2, 0, 0, 0]);
+        assert_eq(Field::from_le_bytes::<4>(bytes), field);
     }
     // docs:end:to_le_bytes_example
+
+    #[test]
+    unconstrained fn test_to_le_bytes_unconstrained(){
+        let field = 2;
+        let bytes: [u8; 4] = field.to_le_bytes();
+        assert_eq(bytes, [2, 0, 0, 0]);
+        assert_eq(Field::from_le_bytes::<4>(bytes), field);
+    }
+
+    #[test]
+    fn test_le_be_bits_m31(){
+        let p_be = modulus_be_bits();
+        let p_le = modulus_le_bits();
+        assert_eq(p_be, p_le);
+    }
 
     #[test]
     // docs:start:to_be_radix_example
@@ -390,9 +430,9 @@ mod tests {
         // The radix (in this example, 256) must be a power of 2.
         // The length of the returned byte array can be specified to be
         // >= the amount of space needed.
-        let bytes: [u8; 8] = field.to_be_radix(256);
-        assert_eq(bytes, [0, 0, 0, 0, 0, 0, 1, 3]);
-        assert_eq(Field::from_be_bytes::<8>(bytes), field);
+        let bytes: [u8; 4] = field.to_be_radix(256);
+        assert_eq(bytes, [ 0, 0, 1, 3]);
+        assert_eq(Field::from_be_bytes::<4>(bytes), field);
     }
     // docs:end:to_be_radix_example
 
@@ -406,9 +446,9 @@ mod tests {
         // The radix (in this example, 256) must be a power of 2.
         // The length of the returned byte array can be specified to be
         // >= the amount of space needed.
-        let bytes: [u8; 8] = field.to_le_radix(256);
-        assert_eq(bytes, [3, 1, 0, 0, 0, 0, 0, 0]);
-        assert_eq(Field::from_le_bytes::<8>(bytes), field);
+        let bytes: [u8; 4] = field.to_le_radix(256);
+        assert_eq(bytes, [3, 1, 0, 0]);
+        assert_eq(Field::from_le_bytes::<4>(bytes), field);
     }
     // docs:end:to_le_radix_example
 
@@ -471,28 +511,28 @@ mod tests {
     }
 
     
-    // #[test(should_fail_with = "Field failed to decompose into specified 16 limbs")]
-    // unconstrained fn not_enough_limbs_brillig() {
-    //     let _: [u8; 16] = 0x100000000000000000000000000000000.to_le_bytes();
-    // }
+    #[test(should_fail_with = "Field failed to decompose into specified 3 limbs")]
+    unconstrained fn not_enough_limbs_brillig() {
+        let _: [u8; 3] = 0x40000000.to_le_bytes();
+    }
 
-    // #[test(should_fail_with = "Field failed to decompose into specified 16 limbs")]
-    // fn not_enough_limbs() {
-    //     let _: [u8; 16] = 0x100000000000000000000000000000000.to_le_bytes();
-    // }
+    #[test(should_fail_with = "Field failed to decompose into specified 3 limbs")]
+    fn not_enough_limbs() {
+        let _: [u8; 3] = 0x40000000.to_le_bytes();
+    }
 
     // TODO: Update this test to account for the Brillig restriction that the radix must be less than 512
-    //#[test]
-    //fn test_to_le_radix_brillig_512() {
-    //    // this test should only fail in constrained mode
-    //    if runtime::is_unconstrained() {
-    //        let field = 1;
-    //        let out: [u8; 8] = field.to_le_radix(512);
-    //        let mut expected = [0; 8];
-    //        expected[0] = 1;
-    //        assert(out == expected, "unexpected result");
-    //    }
-    //}
+    #[test]
+    fn test_to_le_radix_brillig_512() {
+       // this test should only fail in constrained mode
+       if runtime::is_unconstrained() {
+           let field = 1;
+           let out: [u8; 8] = field.to_le_radix(512);
+           let mut expected = [0; 8];
+           expected[0] = 1;
+           assert(out == expected, "unexpected result");
+       }
+    }
 
     #[test]
     unconstrained fn test_field_less_than() {
@@ -500,6 +540,14 @@ mod tests {
         assert(field_less_than(0, 0x100));
         assert(field_less_than(0x100, 0 - 1));
         assert(!field_less_than(0 - 1, 0));
+    }
+
+    #[test]
+    fn test_lt_fallback() {
+        assert(lt_fallback(0, 1));
+        assert(lt_fallback(0, 0x100));
+        assert(lt_fallback(0x100, 0 - 1));
+        assert(!lt_fallback(0 - 1, 0));
     }
 
     #[test]
