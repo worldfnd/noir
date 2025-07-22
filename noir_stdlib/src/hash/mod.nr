@@ -1,5 +1,5 @@
 // Exposed only for usage in `std::meta`
-// pub(crate) mod poseidon2;
+pub(crate) mod poseidon2;
 
 use crate::default::Default;
 // use crate::embedded_curve_ops::{

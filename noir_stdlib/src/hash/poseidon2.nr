@@ -64,7 +64,7 @@ impl Poseidon2 {
         in_len: u32,
         is_variable_length: bool,
     ) -> Field {
-        let two_pow_64 = 18446744073709551616;
+        let two_pow_64 = 1844; // px: temp change
         let iv: Field = (in_len as Field) * two_pow_64;
         let mut sponge = Poseidon2::new(iv);
         for i in 0..input.len() {
@@ -89,7 +89,7 @@ pub(crate) struct Poseidon2Hasher {
 
 impl Hasher for Poseidon2Hasher {
     fn finish(self) -> Field {
-        let iv: Field = (self._state.len() as Field) * 18446744073709551616; // iv = (self._state.len() << 64)
+        let iv: Field = (self._state.len() as Field) * 1844; // px: temp change
         let mut sponge = Poseidon2::new(iv);
         for i in 0..self._state.len() {
             sponge.absorb(self._state[i]);
