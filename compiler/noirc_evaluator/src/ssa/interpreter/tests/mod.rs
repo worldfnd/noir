@@ -69,7 +69,7 @@ pub fn from_constant(constant: BigInt, typ: NumericType) -> Value {
     Value::from_constant(constant, typ).unwrap()
 }
 
-fn from_u32_slice(slice: &[u32], typ: NumericType) -> Value {
+pub fn from_u32_slice(slice: &[u32], typ: NumericType) -> Value {
     let values = slice.iter().map(|v| from_constant((*v as u128).into(), typ)).collect();
     Value::array(values, vec![Type::Numeric(typ)])
 }
