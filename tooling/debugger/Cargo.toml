@@ -28,6 +28,7 @@ easy-repl = "0.2.1"
 owo-colors = "^4.2.2"
 m31_blackbox_solver.workspace = true
 num-bigint.workspace = true
+noirc_evaluator.workspace = true
 
 
 [dev-dependencies]

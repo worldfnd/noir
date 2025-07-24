@@ -255,7 +255,9 @@ impl<'a> From<&'a StackFrame<'a>> for DebugStackFrame {
             variables: value
                 .variables
                 .iter()
-                .map(|(name, value, var_type)| (name.to_string(), value.clone(), var_type.clone()))
+                .map(|(name, value, var_type)| {
+                    (name.to_string(), (*value).clone(), (*var_type).clone())
+                })
                 .collect(),
         }
     }
