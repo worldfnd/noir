@@ -496,12 +496,8 @@ impl<W: Write> Interpreter<'_, W> {
             }));
         };
 
-        let Some(limbs) = dfg::simplify::constant_to_radix(
-            endian,
-            NumericValue::from_field_to_bigint(field),
-            radix,
-            limb_count,
-        ) else {
+        let Some(limbs) = dfg::simplify::constant_to_radix(endian, field.into(), radix, limb_count)
+        else {
             return Err(InterpreterError::ToRadixFailed { field_id, field, radix });
         };
 
@@ -772,10 +768,9 @@ fn new_embedded_curve_point(
     y: FieldElement,
     is_infinite: FieldElement,
 ) -> IResult<Value> {
-    let x = Value::from_constant(NumericValue::from_field_to_bigint(x), NumericType::NativeField)?;
-    let y = Value::from_constant(NumericValue::from_field_to_bigint(y), NumericType::NativeField)?;
-    let is_infinite =
-        Value::from_constant(NumericValue::from_field_to_bigint(is_infinite), NumericType::bool())?;
+    let x = Value::from_constant(x.into(), NumericType::NativeField)?;
+    let y = Value::from_constant(y.into(), NumericType::NativeField)?;
+    let is_infinite = Value::from_constant(is_infinite.into(), NumericType::bool())?;
     Ok(Value::array(
         vec![x, y, is_infinite],
         vec![

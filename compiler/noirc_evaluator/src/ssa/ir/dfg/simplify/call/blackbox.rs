@@ -1,4 +1,3 @@
-
 use acvm::blackbox_solver::sha256_compression;
 use acvm::{BlackBoxFunctionSolver, BlackBoxResolutionError, FieldElement};
 use noirc_errors::call_stack::CallStackId;
@@ -6,11 +5,7 @@ use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 
 use crate::ssa::ir::types::NumericType;
-use crate::ssa::ir::{
-    basic_block::BasicBlockId,
-    dfg::DataFlowGraph,
-    value::ValueId,
-};
+use crate::ssa::ir::{basic_block::BasicBlockId, dfg::DataFlowGraph, value::ValueId};
 
 use super::{SimplifyResult, array_is_constant, make_constant_array, to_u8_vec};
 

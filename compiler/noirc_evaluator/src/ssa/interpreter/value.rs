@@ -3,7 +3,7 @@ use std::sync::Arc;
 use acvm::{AcirField, FieldElement};
 use iter_extended::{try_vecmap, vecmap};
 use noirc_frontend::Shared;
-use num_bigint::{BigInt, Sign};
+use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 use num_traits::{One, Zero};
 
@@ -290,18 +290,6 @@ impl NumericValue {
         }
     }
 
-    pub fn from_bigint_to_field(constant: BigInt) -> FieldElement {
-        if constant.sign() == Sign::Minus {
-            -FieldElement::from_be_bytes_reduce(&constant.to_bytes_be().1)
-        } else {
-            FieldElement::from_be_bytes_reduce(&constant.to_bytes_be().1)
-        }
-    }
-
-    pub fn from_field_to_bigint(field: FieldElement) -> BigInt {
-        BigInt::from_bytes_be(Sign::Plus, &field.to_be_bytes())
-    }
-
     pub fn from_constant(constant: BigInt, typ: NumericType) -> IResult<NumericValue> {
         use super::InternalError::{ConstantDoesNotFitInType, UnsupportedNumericType};
         use super::InterpreterError::Internal;
@@ -309,7 +297,7 @@ impl NumericValue {
         let does_not_fit = Internal(ConstantDoesNotFitInType { constant: constant.clone(), typ });
 
         match typ {
-            NumericType::NativeField => Ok(Self::Field(Self::from_bigint_to_field(constant))),
+            NumericType::NativeField => Ok(Self::Field(constant.into())),
             NumericType::Unsigned { bit_size: 1 } => {
                 if constant.is_zero() || constant.is_one() {
                     Ok(Self::U1(constant.is_one()))
@@ -427,7 +415,7 @@ impl NumericValue {
 
     pub(crate) fn convert_to_bigint(&self) -> BigInt {
         match self {
-            NumericValue::Field(field) => Self::from_field_to_bigint(*field),
+            NumericValue::Field(field) => (*field).into(),
             NumericValue::U1(value) => BigInt::from(*value),
             NumericValue::U8(value) => BigInt::from(*value),
             NumericValue::U16(value) => BigInt::from(*value),

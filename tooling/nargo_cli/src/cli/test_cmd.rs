@@ -13,10 +13,10 @@ use std::{
 };
 
 use acvm::{BlackBoxFunctionSolver, FieldElement};
-use m31_blackbox_solver::M31BlackBoxSolver;
-use clap::Args;     
+use clap::Args;
 use fm::FileManager;
 use formatters::{Formatter, JsonFormatter, PrettyFormatter, TerseFormatter};
+use m31_blackbox_solver::M31BlackBoxSolver;
 use nargo::{
     FuzzExecutionConfig, FuzzFolderConfig,
     foreign_calls::DefaultForeignCallBuilder,

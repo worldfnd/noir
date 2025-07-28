@@ -31,6 +31,7 @@ pub(crate) mod ssa;
 mod tests;
 mod types;
 
+use crate::brillig::BrilligOptions;
 use crate::brillig::brillig_gen::gen_brillig_for;
 use crate::brillig::{
     Brillig,
@@ -55,7 +56,6 @@ use crate::ssa::{
     },
     ssa_gen::Ssa,
 };
-use crate::{brillig::BrilligOptions, ssa::interpreter::value::NumericValue};
 
 use acir_context::{AcirContext, BrilligStdLib, BrilligStdlibFunc, power_of_two};
 use types::{AcirType, AcirVar};
@@ -990,11 +990,7 @@ impl<'a> Context<'a> {
         let acir_value = match value {
             Value::NumericConstant { constant, typ } => {
                 let typ = AcirType::from(Type::Numeric(*typ));
-                AcirValue::Var(
-                    self.acir_context
-                        .add_constant(NumericValue::from_bigint_to_field(constant.clone())),
-                    typ,
-                )
+                AcirValue::Var(self.acir_context.add_constant(constant.clone()), typ)
             }
             Value::Intrinsic(..) => todo!(),
             Value::Function(function_id) => {

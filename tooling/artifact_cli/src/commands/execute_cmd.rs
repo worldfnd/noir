@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
-use m31_blackbox_solver::M31BlackBoxSolver;
 use clap::Args;
+use m31_blackbox_solver::M31BlackBoxSolver;
 
 use crate::{
     Artifact,

@@ -120,7 +120,6 @@ impl SignedInteger {
     pub fn to_biguint(self) -> BigUint {
         self.integer.clone()
     }
-    
 }
 
 impl std::ops::Add for SignedInteger {

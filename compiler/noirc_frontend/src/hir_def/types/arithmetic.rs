@@ -133,11 +133,8 @@ impl Type {
         // Maps each term to the number of times that term was used.
         let mut sorted = BTreeMap::new();
 
-        let zero_value = if op == BinaryTypeOperator::Addition {
-            BigUint::zero()
-        } else {
-            BigUint::one()
-        };
+        let zero_value =
+            if op == BinaryTypeOperator::Addition { BigUint::zero() } else { BigUint::one() };
         let mut constant = zero_value.clone();
 
         // Push each non-constant term to `sorted` to sort them. Recur on InfixExprs with the same operator.

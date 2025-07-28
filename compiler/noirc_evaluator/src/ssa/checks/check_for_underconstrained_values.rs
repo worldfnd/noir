@@ -634,8 +634,6 @@ impl DependencyContext {
         element_results: &[ValueId],
         function: &Function,
     ) {
-        
-
         // Only allow numeric constant indices
         if let Some(value) = function.dfg.get_numeric_constant(index) {
             if let Some(index) = value.to_u32() {

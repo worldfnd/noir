@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
 
-use acvm::AcirField;
 use acvm::acir::circuit::ErrorSelector;
 use iter_extended::vecmap;
 use noirc_abi::{

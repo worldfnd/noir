@@ -4,10 +4,10 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 
 use acvm::{FieldElement, acir::native_types::WitnessStack};
+use m31_blackbox_solver::M31BlackBoxSolver;
 use nargo::{foreign_calls::DefaultForeignCallBuilder, ops::execute_program};
 use noirc_abi::input_parser::InputValue;
 use proptest::prelude::*;
-use m31_blackbox_solver::M31BlackBoxSolver;
 
 /// Inputs and expected output of a snippet encoded in ABI format.
 #[derive(Debug)]

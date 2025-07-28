@@ -154,7 +154,7 @@ impl FuzzerContext {
         let mut brillig_ids = HashMap::new();
 
         for (value, type_) in values.into_iter().zip(&types) {
-            let element = NumericValue::from_field_to_bigint(value.into());
+            let element = value.into();
             acir_ids
                 .entry(*type_)
                 .or_insert(Vec::new())
@@ -206,7 +206,7 @@ impl FuzzerContext {
         value: impl Into<FieldElement> + Clone,
         type_: ValueType,
     ) -> TypedValue {
-        let element = NumericValue::from_field_to_bigint(value.clone().into());
+        let element = value.clone().into();
         let typed_value = self.acir_builder.insert_constant(element.clone(), type_);
         assert_eq!(typed_value, self.brillig_builder.insert_constant(element, type_));
         typed_value

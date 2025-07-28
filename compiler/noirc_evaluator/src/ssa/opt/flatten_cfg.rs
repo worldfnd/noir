@@ -854,10 +854,10 @@ impl<'f> Context<'f> {
                                     .map(|v| {
                                         use crate::ssa::interpreter::value::NumericValue;
 
-                                        self.inserter.function.dfg.make_constant(
-                                            NumericValue::from_field_to_bigint(*v),
-                                            NumericType::NativeField,
-                                        )
+                                        self.inserter
+                                            .function
+                                            .dfg
+                                            .make_constant((*v).into(), NumericType::NativeField)
                                     })
                                     .collect::<Vec<ValueId>>();
                                 let (point1_x, point2_x) = self.predicate_argument(

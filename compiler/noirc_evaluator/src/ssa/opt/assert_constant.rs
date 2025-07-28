@@ -1,4 +1,4 @@
-use acvm::{FieldElement, acir::brillig::ForeignCallParam};
+use acvm::acir::brillig::ForeignCallParam;
 use fxhash::FxHashSet as HashSet;
 use iter_extended::vecmap;
 use noirc_printable_type::{PrintableValueDisplay, TryFromParamsError};
@@ -8,7 +8,6 @@ use num_traits::ToPrimitive;
 use crate::{
     errors::RuntimeError,
     ssa::{
-        interpreter::value::NumericValue,
         ir::{
             cfg::ControlFlowGraph,
             dfg::DataFlowGraph,

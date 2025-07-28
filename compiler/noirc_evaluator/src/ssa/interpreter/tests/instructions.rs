@@ -1,26 +1,3 @@
-use std::sync::Arc;
-
-use iter_extended::vecmap;
-use noirc_frontend::Shared;
-
-use crate::ssa::{
-    interpreter::{
-        InterpreterError, NumericValue, Value,
-        tests::{
-            expect_value, expect_value_with_args, expect_values, expect_values_with_args,
-            from_constant,
-        },
-        value::ReferenceValue,
-    },
-    ir::{
-        integer::IntegerConstant,
-        types::{NumericType, Type},
-        value::ValueId,
-    },
-};
-
-use super::{executes_with_no_errors, expect_error};
-
 #[test]
 fn add_unsigned() {
     let value = expect_value(

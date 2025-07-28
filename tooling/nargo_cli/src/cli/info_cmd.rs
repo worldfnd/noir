@@ -1,7 +1,7 @@
 use acvm::acir::circuit::ExpressionWidth;
-use m31_blackbox_solver::M31BlackBoxSolver;
 use clap::Args;
 use iter_extended::vecmap;
+use m31_blackbox_solver::M31BlackBoxSolver;
 use nargo::{
     constants::PROVER_INPUT_FILE, foreign_calls::DefaultForeignCallBuilder, package::Package,
     workspace::Workspace,

@@ -21,9 +21,9 @@ use acvm::{
     acir::AcirField,
     brillig_vm::{MemoryValue, VM, VMStatus},
 };
-use m31_blackbox_solver::M31BlackBoxSolver;
 use im::Vector;
 use iter_extended::vecmap;
+use m31_blackbox_solver::M31BlackBoxSolver;
 use num_bigint::BigInt;
 use num_traits::One;
 
@@ -34,7 +34,6 @@ use crate::{
         brillig_ir::{artifact::BrilligParameter, brillig_variable::get_bit_size_from_ssa_type},
     },
     ssa::{
-        interpreter::value::NumericValue,
         ir::{
             basic_block::BasicBlockId,
             dfg::{DataFlowGraph, InsertInstructionResult},
@@ -688,7 +687,7 @@ impl<'brillig> Context<'brillig> {
                 *memory_index += 1;
 
                 let field_value = memory.to_field();
-                dfg.make_constant(NumericValue::from_field_to_bigint(field_value), typ)
+                dfg.make_constant(field_value.into(), typ)
             }
             Type::Array(types, length) => {
                 let mut new_array_values = Vector::new();
@@ -866,7 +865,7 @@ pub(crate) fn type_to_brillig_parameter(typ: &Type) -> Option<BrilligParameter> 
 
 fn value_id_to_calldata(value_id: ValueId, dfg: &DataFlowGraph, calldata: &mut Vec<FieldElement>) {
     if let Some(value) = dfg.get_numeric_constant(value_id) {
-        calldata.push(NumericValue::from_bigint_to_field(value));
+        calldata.push(value.into());
         return;
     }
 

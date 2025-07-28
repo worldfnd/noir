@@ -4,8 +4,6 @@ use num_traits::ToPrimitive as _;
 use num_traits::{One, Zero};
 use serde::{Deserialize, Serialize};
 
-use crate::ssa::interpreter::value::NumericValue;
-
 use super::{InstructionResultType, NumericType, Type, ValueId};
 
 /// Binary Operations allowed in the IR.
@@ -122,10 +120,10 @@ pub(crate) fn eval_constant_binary_op(
             let Some(function) = operator.get_field_function() else {
                 return CouldNotEvaluate;
             };
-            let lhs = NumericValue::from_bigint_to_field(lhs);
-            let rhs = NumericValue::from_bigint_to_field(rhs);
+            let lhs: FieldElement = lhs.into();
+            let rhs: FieldElement = rhs.into();
             let result = function(lhs, rhs);
-            NumericValue::from_field_to_bigint(result)
+            result.into()
         }
         NumericType::Unsigned { bit_size } => {
             let function = operator.get_u128_function();

@@ -2,8 +2,8 @@ use async_lsp::{
     concurrency::ConcurrencyLayer, panic::CatchUnwindLayer, server::LifecycleLayer,
     tracing::TracingLayer,
 };
-use m31_blackbox_solver::M31BlackBoxSolver;
 use clap::Args;
+use m31_blackbox_solver::M31BlackBoxSolver;
 use noir_lsp::NargoLspService;
 use tower::ServiceBuilder;
 

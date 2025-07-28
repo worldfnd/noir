@@ -1,6 +1,6 @@
 use acvm::{AcirField, FieldElement};
-use num_bigint::BigInt;
 use arbitrary::Unstructured;
+use num_bigint::BigInt;
 
 use dictionary::build_dictionary_from_ssa;
 use noir_greybox_fuzzer::build_dictionary_from_program;

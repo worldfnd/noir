@@ -1,16 +1,9 @@
 #![allow(dead_code)]
 
-use std::sync::Arc;
-
-use acvm::{AcirField, FieldElement};
 // use insta::assert_snapshot;
 use num_bigint::BigInt;
-use num_traits::{One, Zero};
 
-use crate::ssa::{
-    interpreter::value::NumericValue,
-    ir::types::{NumericType, Type},
-};
+use crate::ssa::ir::types::{NumericType, Type};
 
 use super::{InterpreterError, Ssa, Value};
 

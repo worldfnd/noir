@@ -10,7 +10,6 @@ use nargo::foreign_calls::{
 };
 use noirc_artifacts::debug::{DebugArtifact, DebugVars, StackFrame};
 use noirc_errors::debug_info::{DebugFnId, DebugVarId};
-use noirc_evaluator::ssa::interpreter::value::NumericValue;
 use num_bigint::BigInt;
 
 pub(crate) enum DebugForeignCall {
@@ -139,8 +138,7 @@ impl ForeignCallExecutor<FieldElement> for DefaultDebugForeignCallExecutor {
                     let var_id = debug_var_id(var_id_value);
                     let values: Vec<FieldElement> =
                         foreign_call.inputs[1..].iter().flat_map(|x| x.fields()).collect();
-                    let values_bigint: Vec<BigInt> =
-                        values.iter().map(|f| NumericValue::from_field_to_bigint(*f)).collect();
+                    let values_bigint: Vec<BigInt> = values.iter().map(|f| (*f).into()).collect();
                     self.debug_vars.assign_var(var_id, &values_bigint);
                 }
                 Ok(ForeignCallResult::default())
@@ -188,11 +186,8 @@ impl ForeignCallExecutor<FieldElement> for DefaultDebugForeignCallExecutor {
                 let fcp_value = &foreign_call.inputs[1];
                 if let ForeignCallParam::Single(var_id_value) = fcp_var_id {
                     let var_id = debug_var_id(var_id_value);
-                    let values_bigint: Vec<BigInt> = fcp_value
-                        .fields()
-                        .iter()
-                        .map(|f| NumericValue::from_field_to_bigint(*f))
-                        .collect();
+                    let values_bigint: Vec<BigInt> =
+                        fcp_value.fields().iter().map(|f| (*f).into()).collect();
                     self.debug_vars.assign_deref(var_id, &values_bigint);
                 }
                 Ok(ForeignCallResult::default())
