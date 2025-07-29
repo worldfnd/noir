@@ -829,7 +829,6 @@ impl<'block, Registers: RegisterAllocator> BrilligBlock<'block, Registers> {
                 self.convert_cast(destination_variable, source_variable);
             }
             Instruction::ArrayGet { array, index, offset } => {
-                println!("instruction: {:?}", &dfg[*array]);
                 let result_ids = dfg.instruction_results(instruction_id);
                 let destination_variable = self.variables.define_variable(
                     self.function_context,

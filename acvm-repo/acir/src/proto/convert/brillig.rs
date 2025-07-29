@@ -139,7 +139,7 @@ impl<F: AcirField> ProtoCodec<brillig::Opcode<F>, BrilligOpcode> for ProtoSchema
             brillig::Opcode::Stop { return_data } => {
                 Value::Stop(Stop { return_data: Self::encode_some(return_data) })
             }
-            &_ => todo!(),
+            &_ => todo!(), // px: for phantom data
         };
         BrilligOpcode { value: Some(value) }
     }

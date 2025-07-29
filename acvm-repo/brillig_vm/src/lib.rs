@@ -631,7 +631,7 @@ impl<'a, F: AcirField, B: BlackBoxFunctionSolver<F>> VM<'a, F, B> {
                     Err(e) => self.fail(e.to_string()),
                 }
             }
-            &_ => todo!(),
+            &_ => todo!(), // px: for phantom data
         }
     }
 

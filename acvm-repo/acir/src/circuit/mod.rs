@@ -609,6 +609,8 @@ mod tests {
             result.unwrap();
         }
 
+        // px: proto changes not required for now
+
         // #[test]
         // fn prop_program_proto_roundtrip() {
         //     run_with_max_size_range(100, |program: Program<TestField>| {

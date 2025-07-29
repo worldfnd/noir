@@ -1,3 +1,10 @@
+#![allow(dead_code)]
+
+use crate::ssa::interpreter::{
+    tests::{expect_printed_output, expect_value},
+    value::{NumericValue, Value},
+};
+
 #[test]
 fn to_le_bits() {
     let value = expect_value(

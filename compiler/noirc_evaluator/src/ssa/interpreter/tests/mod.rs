@@ -1,11 +1,19 @@
 #![allow(dead_code)]
 
+use std::sync::Arc;
+
+use acvm::{AcirField, FieldElement};
 // use insta::assert_snapshot;
 use num_bigint::BigInt;
+use num_traits::{One, Zero};
 
-use crate::ssa::ir::types::{NumericType, Type};
-
-use super::{InterpreterError, Ssa, Value};
+use crate::ssa::{
+    interpreter::{
+        InterpreterError, Ssa,
+        value::{NumericValue, Value},
+    },
+    ir::types::{NumericType, Type},
+};
 
 mod black_box;
 mod instructions;
@@ -1576,15 +1584,15 @@ fn signed_integer_conversions() {
     let src = r#"
         acir(inline) fn main f0 {
           b0():
-            v1 = call f1() -> i8                                // test_programs/execution_success/a_1_mul/src/main.nr:2:5
-            v2 = cast v1 as u8                                  // test_programs/execution_success/a_1_mul/src/main.nr:2:5
-            v4 = lt v2, u8 128                                  // test_programs/execution_success/a_1_mul/src/main.nr:2:5
-            v5 = not v4                                         // test_programs/execution_success/a_1_mul/src/main.nr:2:5
-            v6 = cast v5 as u16                                 // test_programs/execution_success/a_1_mul/src/main.nr:2:5
-            v8 = unchecked_mul u16 65280, v6                    // test_programs/execution_success/a_1_mul/src/main.nr:2:5
-            v9 = cast v1 as u16                                 // test_programs/execution_success/a_1_mul/src/main.nr:2:5
-            v10 = unchecked_add v8, v9                          // test_programs/execution_success/a_1_mul/src/main.nr:2:5
-            v11 = cast v10 as i16                               // test_programs/execution_success/a_1_mul/src/main.nr:2:5
+            v1 = call f1() -> i8
+            v2 = cast v1 as u8
+            v4 = lt v2, u8 128
+            v5 = not v4
+            v6 = cast v5 as u16
+            v8 = unchecked_mul u16 65280, v6
+            v9 = cast v1 as u16
+            v10 = unchecked_add v8, v9
+            v11 = cast v10 as i16
             return v11
         }
         acir(inline) fn foo f1 {

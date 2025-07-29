@@ -1,3 +1,13 @@
+#![allow(dead_code)]
+
+use crate::ssa::{
+    interpreter::{
+        tests::{expect_values, expect_values_with_args, from_constant, from_u32_slice},
+        value::Value,
+    },
+    ir::types::NumericType,
+};
+
 #[test]
 fn test_msm() {
     let src = "
