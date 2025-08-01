@@ -14,7 +14,6 @@
 //! Currently only 1 is unimplemented.
 use std::collections::HashSet;
 
-use acvm::acir::AcirField;
 use num_traits::Zero;
 
 use crate::ssa::{

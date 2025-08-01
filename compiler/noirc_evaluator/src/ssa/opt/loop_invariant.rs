@@ -64,7 +64,6 @@ use crate::ssa::{
     },
     opt::pure::Purity,
 };
-use acvm::acir::AcirField;
 use fxhash::{FxHashMap as HashMap, FxHashSet as HashSet};
 use noirc_errors::call_stack::CallStackId;
 use num_bigint::BigInt;

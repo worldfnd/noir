@@ -1,4 +1,3 @@
-use acvm::AcirField;
 use num_traits::Zero;
 
 use crate::ssa::{

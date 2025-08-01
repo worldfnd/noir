@@ -20,7 +20,6 @@
 //! only used by Brillig bytecode.
 use std::collections::BTreeSet;
 
-use acvm::acir::AcirField;
 use im::HashSet;
 use noirc_errors::call_stack::{CallStack, CallStackId};
 use num_traits::Zero;

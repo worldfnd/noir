@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use acvm::{AcirField, FieldElement};
+use acvm::FieldElement;
 use iter_extended::{try_vecmap, vecmap};
 use noirc_frontend::Shared;
 use num_bigint::BigInt;
@@ -391,25 +391,6 @@ impl NumericValue {
                 constant.to_i128().map(|x| Self::I64(x as i64)).ok_or(does_not_fit)
             }
             typ => Err(Internal(UnsupportedNumericType { typ })),
-        }
-    }
-
-    pub(crate) fn convert_to_field(&self) -> FieldElement {
-        match self {
-            NumericValue::Field(field) => *field,
-            NumericValue::U1(boolean) if *boolean => FieldElement::one(),
-            NumericValue::U1(_) => FieldElement::zero(),
-            NumericValue::U8(value) => FieldElement::from(*value as u32),
-            NumericValue::U16(value) => FieldElement::from(*value as u32),
-            NumericValue::U32(value) => FieldElement::from(*value),
-            NumericValue::U64(value) => FieldElement::from(*value),
-            NumericValue::U128(value) => FieldElement::from(*value),
-            // Need to cast possibly negative values to the unsigned variants
-            // first to ensure they are zero-extended rather than sign-extended
-            NumericValue::I8(value) => FieldElement::from(*value as u8 as i128),
-            NumericValue::I16(value) => FieldElement::from(*value as u16 as i128),
-            NumericValue::I32(value) => FieldElement::from(*value as u32 as i128),
-            NumericValue::I64(value) => FieldElement::from(*value as u64 as i128),
         }
     }
 

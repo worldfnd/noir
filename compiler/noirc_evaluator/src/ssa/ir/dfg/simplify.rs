@@ -10,7 +10,6 @@ use crate::ssa::{
     },
     opt::flatten_cfg::value_merger::ValueMerger,
 };
-use acvm::AcirField as _;
 use binary::simplify_binary;
 use call::simplify_call;
 use cast::simplify_cast;

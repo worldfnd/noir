@@ -1,6 +1,5 @@
 use std::collections::HashSet;
 
-use acvm::AcirField;
 use fxhash::FxHashMap as HashMap;
 use iter_extended::vecmap;
 use num_traits::ToPrimitive;

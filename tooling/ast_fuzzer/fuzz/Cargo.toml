@@ -16,6 +16,8 @@ arbitrary.workspace = true
 color-eyre.workspace = true
 libfuzzer-sys.workspace = true
 strum.workspace = true
+num-bigint.workspace = true
+num-traits.workspace = true
 
 acir.workspace = true
 noirc_abi.workspace = true

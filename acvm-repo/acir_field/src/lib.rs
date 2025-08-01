@@ -19,7 +19,7 @@ pub type M31FieldElement = field_element::FieldElement<M31>;
 
 /// Temporarily exported generic field to aid migration to `AcirField`
 pub use field_element::FieldElement as GenericFieldElement;
-use num_bigint::{BigInt, Sign};
+use num_bigint::{BigInt, BigUint, Sign};
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "bls12_381")] {
@@ -33,6 +33,12 @@ cfg_if::cfg_if! {
 impl Into<BigInt> for FieldElement {
     fn into(self) -> BigInt {
         BigInt::from_bytes_be(Sign::Plus, &self.to_be_bytes())
+    }
+}
+
+impl Into<BigUint> for FieldElement {
+    fn into(self) -> BigUint {
+        BigUint::from_bytes_be(&self.to_be_bytes())
     }
 }
 

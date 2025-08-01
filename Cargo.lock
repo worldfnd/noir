@@ -43,7 +43,6 @@ name = "acir_field"
 version = "1.0.0-beta.7"
 dependencies = [
  "ark-bls12-381",
- "ark-bn254 0.5.0",
  "ark-ff 0.5.0",
  "ark-std 0.5.0",
  "cfg-if",
@@ -3231,6 +3230,7 @@ dependencies = [
  "nargo_fmt",
  "nargo_toml",
  "noir_artifact_cli",
+ "noir_ast_fuzzer",
  "noir_debugger",
  "noir_lsp",
  "noirc_abi",
@@ -3417,6 +3417,7 @@ dependencies = [
  "noirc_evaluator",
  "noirc_frontend",
  "num-bigint",
+ "num-traits",
  "proptest",
  "rand 0.8.5",
  "regex",
@@ -3439,6 +3440,8 @@ dependencies = [
  "noirc_abi",
  "noirc_evaluator",
  "noirc_frontend",
+ "num-bigint",
+ "num-traits",
  "proptest",
  "strum",
 ]
@@ -3459,7 +3462,6 @@ dependencies = [
  "noirc_artifacts",
  "noirc_driver",
  "noirc_errors",
- "noirc_evaluator",
  "noirc_printable_type",
  "num-bigint",
  "owo-colors",

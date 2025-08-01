@@ -351,7 +351,7 @@ impl<W: Write> Interpreter<'_, W> {
                     let length =
                         self.lookup_u32(args[1], "call Poseidon2Permutation BlackBox (length)")?;
                     let solver = m31_blackbox_solver::M31BlackBoxSolver(false);
-                    let result = solver
+                    let _result = solver
                         .poseidon2_permutation(&inputs, length)
                         .map_err(Self::convert_error)?;
                     // let result = Value::array_from_iter(result, NumericType::NativeField)?;
@@ -813,40 +813,6 @@ fn value_to_bigints(value: &Value) -> Vec<BigInt> {
     let mut bigints = Vec::new();
     go(value, &mut bigints);
     bigints
-}
-
-/// Convert a [Value] to a vector of [FieldElement] for printing.
-fn value_to_fields(value: &Value) -> Vec<FieldElement> {
-    fn go(value: &Value, fields: &mut Vec<FieldElement>) {
-        match value {
-            Value::Numeric(numeric_value) => fields.push(numeric_value.convert_to_field()),
-            Value::Reference(reference_value) => {
-                if let Some(value) = reference_value.element.borrow().as_ref() {
-                    go(value, fields);
-                }
-            }
-            Value::ArrayOrSlice(array_value) => {
-                for value in array_value.elements.borrow().iter() {
-                    go(value, fields);
-                }
-            }
-            Value::Function(id) => {
-                // Based on `decode_printable_value` it will expect consume the environment as well,
-                // but that's catered for the by the SSA generation: the env is passed as separate values.
-                fields.push(FieldElement::from(id.to_u32()));
-            }
-            Value::Intrinsic(x) => {
-                panic!("didn't expect to print intrinsics: {x}")
-            }
-            Value::ForeignFunction(x) => {
-                panic!("didn't expect to print foreign functions: {x}")
-            }
-        }
-    }
-
-    let mut fields = Vec::new();
-    go(value, &mut fields);
-    fields
 }
 
 /// Parse a [Value] as [PrintableType].

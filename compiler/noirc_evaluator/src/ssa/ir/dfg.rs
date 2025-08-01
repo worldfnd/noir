@@ -17,7 +17,6 @@ use super::{
     value::{Value, ValueId, ValueMapping},
 };
 
-use acvm::acir::AcirField;
 use fxhash::FxHashMap as HashMap;
 use iter_extended::vecmap;
 use noirc_errors::call_stack::{CallStack, CallStackHelper, CallStackId};

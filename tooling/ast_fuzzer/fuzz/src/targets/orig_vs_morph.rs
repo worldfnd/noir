@@ -303,7 +303,6 @@ mod rules {
     };
 
     use super::helpers::gen_expr;
-    use acir::{AcirField, FieldElement};
     use arbitrary::Unstructured;
     use noir_ast_fuzzer::{expr, types};
     use noirc_frontend::{
@@ -311,6 +310,8 @@ mod rules {
         monomorphization::ast::{Binary, Definition, Expression, Ident, Literal, Type},
         signed_field::SignedInteger,
     };
+    use num_bigint::BigUint;
+    use num_traits::One;
 
     #[derive(Clone, Debug, Default)]
     pub struct Context {
@@ -433,13 +434,13 @@ mod rules {
                 if a.is_negative() && !b.is_negative() {
                     *b = SignedInteger::negative(b.absolute_value());
                 } else if !a.is_negative() && b.is_negative() {
-                    *b = SignedInteger::positive(b.absolute_value() - FieldElement::one()); // -1 just to avoid the potential of going from e.g. i8 -128 to 128 where the maximum is 127.
+                    *b = SignedInteger::positive(b.absolute_value() - BigUint::one()); // -1 just to avoid the potential of going from e.g. i8 -128 to 128 where the maximum is 127.
                 }
 
-                let (op, c) = if *a >= *b {
-                    (BinaryOpKind::Add, (*a - *b))
+                let (op, c) = if a.clone() >= b.clone() {
+                    (BinaryOpKind::Add, (*a).clone() - (*b).clone())
                 } else {
-                    (BinaryOpKind::Subtract, (*b - *a))
+                    (BinaryOpKind::Subtract, (*b).clone() - (*a).clone())
                 };
 
                 let c_expr = Expression::Literal(Literal::Integer(c, typ.clone(), *loc));

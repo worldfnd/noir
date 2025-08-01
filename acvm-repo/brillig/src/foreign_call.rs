@@ -1,4 +1,3 @@
-use acir_field::AcirField;
 use serde::{Deserialize, Serialize};
 
 /// Single output of a [foreign call][crate::Opcode::ForeignCall].

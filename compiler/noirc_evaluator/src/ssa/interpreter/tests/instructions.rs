@@ -1,25 +1,5 @@
 #![allow(dead_code)]
 
-use std::sync::Arc;
-
-use noirc_frontend::Shared;
-
-use crate::ssa::{
-    interpreter::{
-        tests::{
-            InterpreterError, executes_with_no_errors, expect_error, expect_value,
-            expect_value_with_args, expect_values, expect_values_with_args, from_constant,
-        },
-        value::{NumericValue, ReferenceValue, Value},
-        vecmap,
-    },
-    ir::{
-        integer::IntegerConstant,
-        types::{NumericType, Type},
-        value::ValueId,
-    },
-};
-
 #[test]
 fn add_unsigned() {
     let value = expect_value(

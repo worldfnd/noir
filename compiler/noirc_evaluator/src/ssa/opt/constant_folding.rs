@@ -18,7 +18,6 @@ use std::collections::{BTreeMap, HashSet, VecDeque};
 
 use acvm::{
     FieldElement,
-    acir::AcirField,
     brillig_vm::{MemoryValue, VM, VMStatus},
 };
 use im::Vector;

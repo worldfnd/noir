@@ -1,7 +1,6 @@
 use acvm::{
-    AcirField, BlackBoxResolutionError, FieldElement,
-    acir::BlackBoxFunc,
-    blackbox_solver::{BigIntSolverWithId, BlackBoxFunctionSolver},
+    AcirField, BlackBoxResolutionError, FieldElement, acir::BlackBoxFunc,
+    blackbox_solver::BigIntSolverWithId,
 };
 // Currently locked to only bn254!
 use im::{Vector, vector};
@@ -290,14 +289,14 @@ fn embedded_curve_add(
     arguments: Vec<(Value, Location)>,
     return_type: Type,
     location: Location,
-    pedantic_solving: bool,
+    _pedantic_solving: bool,
 ) -> IResult<Value> {
     let (point1, point2) = check_two_arguments(arguments, location)?;
 
     let embedded_curve_point_typ = point1.0.get_type().into_owned();
 
-    let (p1x, p1y, p1inf) = get_embedded_curve_point(point1)?;
-    let (p2x, p2y, p2inf) = get_embedded_curve_point(point2)?;
+    let (_p1x, _p1y, _p1inf) = get_embedded_curve_point(point1)?;
+    let (_p2x, _p2y, _p2inf) = get_embedded_curve_point(point2)?;
 
     // TODO: Implement this
 
@@ -334,14 +333,14 @@ fn multi_scalar_mul(
     arguments: Vec<(Value, Location)>,
     return_type: Type,
     location: Location,
-    pedantic_solving: bool,
+    _pedantic_solving: bool,
 ) -> IResult<Value> {
     let (points, scalars) = check_two_arguments(arguments, location)?;
 
     let (points, _) = get_array_map(interner, points, get_embedded_curve_point)?;
     let (scalars, _) = get_array_map(interner, scalars, get_embedded_curve_scalar)?;
 
-    let points: Vec<_> = points.into_iter().flat_map(|(x, y, inf)| [x, y, inf.into()]).collect();
+    let _points: Vec<_> = points.into_iter().flat_map(|(x, y, inf)| [x, y, inf.into()]).collect();
     let mut scalars_lo = Vec::new();
     let mut scalars_hi = Vec::new();
     for (lo, hi) in scalars {
@@ -398,12 +397,12 @@ fn poseidon2_permutation(
     interner: &mut NodeInterner,
     arguments: Vec<(Value, Location)>,
     location: Location,
-    pedantic_solving: bool,
+    _pedantic_solving: bool,
 ) -> IResult<Value> {
     let (input, state_length) = check_two_arguments(arguments, location)?;
 
     let (input, typ) = get_array_map(interner, input, get_field)?;
-    let input = vecmap(input, |arg0: SignedInteger| SignedInteger::absolute_value(&arg0));
+    let _input = vecmap(input, |arg0: SignedInteger| SignedInteger::absolute_value(&arg0));
     let state_length = get_u32(state_length)?;
 
     // TODO: Implement this
@@ -422,7 +421,7 @@ fn poseidon2_permutation(
 
     let array = fields
         .into_iter()
-        .map(|f| Value::Field(SignedInteger::positive(BigUint::zero())))
+        .map(|_f| Value::Field(SignedInteger::positive(BigUint::zero())))
         .collect();
     Ok(Value::Array(array, typ))
 }

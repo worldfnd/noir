@@ -1,6 +1,7 @@
 use acvm::{AcirField, FieldElement};
 use arbitrary::Unstructured;
 use num_bigint::BigInt;
+use num_traits::ToPrimitive;
 
 use dictionary::build_dictionary_from_ssa;
 use noir_greybox_fuzzer::build_dictionary_from_program;
@@ -27,7 +28,7 @@ pub fn arb_inputs(
 ) -> arbitrary::Result<InputMap> {
     // Reuse the proptest strategy in `noir_fuzzer` to generate random inputs.
     let dictionary = build_dictionary_from_program(program);
-    let dictionary = BTreeSet::from_iter(dictionary);
+    let dictionary = BTreeSet::from_iter(dictionary.iter().map(|f| (*f).into()));
     let strategy = arb_input_map(abi, &dictionary);
     arb_value_tree(u, strategy)
 }
@@ -89,7 +90,9 @@ fn arb_value_from_abi_type(
         AbiType::Integer { width, sign } if sign == &Sign::Unsigned => {
             // We've restricted the type system to only allow u64s as the maximum integer type.
             let width = (*width).min(64);
-            UintStrategy::new(width as usize, dictionary)
+            let dictionary =
+                dictionary.iter().map(|f| FieldElement::from(f.to_u128().unwrap_or(0))).collect();
+            UintStrategy::new(width as usize, &dictionary)
                 .prop_map(|uint| InputValue::Field(uint.into()))
                 .sboxed()
         }

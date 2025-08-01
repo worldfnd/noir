@@ -1,4 +1,3 @@
-use acvm::acir::AcirField;
 use fxhash::FxHashMap as HashMap;
 use noirc_errors::call_stack::CallStackId;
 use num_bigint::BigInt;

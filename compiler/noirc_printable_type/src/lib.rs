@@ -7,7 +7,7 @@ use num_traits::ToPrimitive;
 use num_traits::identities::Zero;
 use std::{collections::BTreeMap, str};
 
-use acvm::{AcirField, acir::brillig::ForeignCallParam};
+use acvm::acir::brillig::ForeignCallParam;
 
 use iter_extended::vecmap;
 use serde::{Deserialize, Serialize};

@@ -261,29 +261,6 @@ fn binary_op_function_name(op: BinaryOp) -> &'static str {
     }
 }
 
-/// Values in the range `[0, 2^(bit_size-1))` are interpreted as positive integers
-///
-/// Values in the range `[2^(bit_size-1), 2^bit_size)` are interpreted as negative integers.
-pub(crate) fn try_convert_field_element_to_signed_integer(
-    field: FieldElement,
-    bit_size: u32,
-) -> Option<i128> {
-    let unsigned_int = truncate(field.try_into_u128()?, bit_size);
-
-    let max_positive_value = 1 << (bit_size - 1);
-    let is_positive = unsigned_int < max_positive_value;
-
-    let signed_int = if is_positive {
-        unsigned_int as i128
-    } else {
-        assert!(bit_size < 128);
-        let x = (1u128 << bit_size) - unsigned_int;
-        -(x as i128)
-    };
-
-    Some(signed_int)
-}
-
 pub(crate) fn try_convert_bigint_to_signed_integer(bigint: BigInt, bit_size: u32) -> Option<i128> {
     let unsigned_int = truncate(bigint.to_u128()?, bit_size);
 
@@ -291,20 +268,6 @@ pub(crate) fn try_convert_bigint_to_signed_integer(bigint: BigInt, bit_size: u32
         if bigint.sign() == Sign::Minus { -(unsigned_int as i128) } else { unsigned_int as i128 };
 
     Some(signed_int)
-}
-
-pub(crate) fn convert_signed_integer_to_field_element(int: i128, bit_size: u32) -> FieldElement {
-    if int >= 0 {
-        FieldElement::from(int)
-    } else if bit_size == 128 {
-        // signed to u128 conversion
-        FieldElement::from(int as u128)
-    } else {
-        // We add an offset of `bit_size` bits to shift the negative values into the range [2^(bitsize-1), 2^bitsize)
-        assert!(bit_size < 128, "{bit_size} is too large");
-        let offset_int = (1i128 << bit_size) + int;
-        FieldElement::from(offset_int)
-    }
 }
 
 /// Truncates `int` to fit within `bit_size` bits.

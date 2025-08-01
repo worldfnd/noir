@@ -852,8 +852,6 @@ impl<'f> Context<'f> {
                                 let generators = generators
                                     .iter()
                                     .map(|v| {
-                                        use crate::ssa::interpreter::value::NumericValue;
-
                                         self.inserter
                                             .function
                                             .dfg
