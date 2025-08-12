@@ -1,7 +1,4 @@
-use crate::ssa::interpreter::{
-    tests::{expect_printed_output, expect_value},
-    value::{NumericValue, Value},
-};
+#![allow(dead_code)]
 
 #[test]
 fn to_le_bits() {

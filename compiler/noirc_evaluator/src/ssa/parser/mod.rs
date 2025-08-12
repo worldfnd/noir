@@ -13,7 +13,6 @@ use super::{
     opt::pure::Purity,
 };
 
-use acvm::{AcirField, FieldElement};
 use ast::{
     AssertMessage, Identifier, ParsedBlock, ParsedFunction, ParsedGlobal, ParsedGlobalValue,
     ParsedInstruction, ParsedMakeArray, ParsedNumericConstant, ParsedParameter, ParsedSsa,

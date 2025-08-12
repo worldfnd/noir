@@ -1,6 +1,5 @@
 use std::collections::HashSet;
 
-use acir::FieldElement;
 use iter_extended::vecmap;
 use noirc_frontend::{
     ast::{BinaryOpKind, IntegerBitSize},
@@ -138,7 +137,7 @@ pub fn to_hir_type(typ: &Type) -> hir_def::types::Type {
     // Meet the expectations of `Type::evaluate_to_u32`.
     let size_const = |size: u32| {
         Box::new(HirType::Constant(
-            size.to_biguint().into(),
+            size.into(),
             HirKind::Numeric(Box::new(HirType::Integer(
                 Signedness::Unsigned,
                 IntegerBitSize::ThirtyTwo,

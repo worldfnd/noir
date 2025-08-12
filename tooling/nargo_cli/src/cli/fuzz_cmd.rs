@@ -1,9 +1,9 @@
 use std::{io::Write, path::PathBuf};
 
 use acvm::{BlackBoxFunctionSolver, FieldElement};
-use m31_blackbox_solver::M31BlackBoxSolver;
 use clap::Args;
 use fm::FileManager;
+use m31_blackbox_solver::M31BlackBoxSolver;
 use nargo::{
     FuzzExecutionConfig, FuzzFolderConfig,
     foreign_calls::DefaultForeignCallBuilder,
@@ -172,7 +172,7 @@ pub(crate) fn run(args: FuzzCommand, workspace: Workspace) -> Result<(), CliErro
                 package,
                 &pattern,
                 args.show_output,
-                        args.oracle_resolver.as_deref(),
+                args.oracle_resolver.as_deref(),
                 Some(workspace.root_dir.clone()),
                 package.name.to_string(),
                 &args.compile_options,

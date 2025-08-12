@@ -1,4 +1,3 @@
-use acir_field::AcirField;
 use serde::{Deserialize, Serialize};
 
 /// Single output of a [foreign call][crate::Opcode::ForeignCall].
@@ -21,17 +20,17 @@ impl<F> From<Vec<F>> for ForeignCallParam<F> {
     }
 }
 
-impl<F: AcirField> ForeignCallParam<F> {
+impl<F: Clone> ForeignCallParam<F> {
     pub fn fields(&self) -> Vec<F> {
         match self {
-            ForeignCallParam::Single(value) => vec![*value],
+            ForeignCallParam::Single(value) => vec![value.clone()],
             ForeignCallParam::Array(values) => values.to_vec(),
         }
     }
 
     pub fn unwrap_field(&self) -> F {
         match self {
-            ForeignCallParam::Single(value) => *value,
+            ForeignCallParam::Single(value) => value.clone(),
             ForeignCallParam::Array(_) => panic!("Expected single value, found array"),
         }
     }

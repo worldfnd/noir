@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use acir::circuit::ExpressionWidth;
 use arbtest::arbtest;
-use bn254_blackbox_solver::Bn254BlackBoxSolver;
+use m31_blackbox_solver::M31BlackBoxSolver;
 use nargo::{NargoError, foreign_calls::DefaultForeignCallBuilder};
 use noir_ast_fuzzer::{Config, DisplayAstAsNoir, arb_inputs, arb_program, program_abi};
 use noirc_abi::input_parser::Format;
@@ -75,7 +75,7 @@ fn arb_program_can_be_executed() {
             );
         }
 
-        let blackbox_solver = Bn254BlackBoxSolver(false);
+        let blackbox_solver = M31BlackBoxSolver(false);
         let initial_witness = abi.encode(&inputs, None).unwrap();
 
         let mut foreign_call_executor =

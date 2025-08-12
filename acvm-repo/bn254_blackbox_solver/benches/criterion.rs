@@ -12,7 +12,6 @@ fn bench_poseidon2(c: &mut Criterion) {
     // c.bench_function("poseidon2", |b| b.iter(|| poseidon2_permutation(black_box(&inputs), 4)));
 }
 
-
 criterion_group!(
     name = benches;
     config = Criterion::default().sample_size(40).measurement_time(Duration::from_secs(20)).with_profiler(PProfProfiler::new(100, Output::Flamegraph(None)));

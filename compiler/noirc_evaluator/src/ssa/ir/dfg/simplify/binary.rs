@@ -3,16 +3,13 @@ use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 use num_traits::{One, Zero};
 
-use crate::ssa::{
-    interpreter::value::NumericValue,
-    ir::{
-        dfg::DataFlowGraph,
-        instruction::{
-            Binary, BinaryOp, Instruction,
-            binary::{BinaryEvaluationResult, eval_constant_binary_op},
-        },
-        types::NumericType,
+use crate::ssa::ir::{
+    dfg::DataFlowGraph,
+    instruction::{
+        Binary, BinaryOp, Instruction,
+        binary::{BinaryEvaluationResult, eval_constant_binary_op},
     },
+    types::NumericType,
 };
 
 use super::SimplifyResult;
@@ -151,10 +148,9 @@ pub(super) fn simplify_binary(binary: &Binary, dfg: &mut DataFlowGraph) -> Simpl
             }
             if let Some(rhs_value) = rhs_value {
                 if lhs_type == NumericType::NativeField && !rhs_value.is_zero() {
-                    let rhs_value = NumericValue::from_field_to_bigint(
-                        NumericValue::from_bigint_to_field(rhs_value).inverse(),
-                    );
-                    let rhs = dfg.make_constant(rhs_value, NumericType::NativeField);
+                    let rhs_value: FieldElement = rhs_value.into();
+                    let rhs_value_inverse = rhs_value.inverse().into();
+                    let rhs = dfg.make_constant(rhs_value_inverse, NumericType::NativeField);
                     return SimplifyResult::SimplifiedToInstruction(Instruction::Binary(Binary {
                         lhs,
                         rhs,

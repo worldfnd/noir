@@ -316,6 +316,7 @@ pub(crate) mod tests {
     use acvm::brillig_vm::brillig::HeapValueType;
     use acvm::brillig_vm::{VM, VMStatus};
     use acvm::{BlackBoxFunctionSolver, BlackBoxResolutionError, FieldElement};
+    use num_bigint::BigInt;
 
     use crate::brillig::BrilligOptions;
     use crate::brillig::brillig_ir::{BrilligBinaryOp, BrilligContext};
@@ -441,12 +442,12 @@ pub(crate) mod tests {
         let mut context = BrilligContext::new(&options);
         let r_stack = ReservedRegisters::free_memory_pointer();
         // Start stack pointer at 0
-        context.usize_const_instruction(r_stack, FieldElement::from(ReservedRegisters::len() + 3));
+        context.usize_const_instruction(r_stack, BigInt::from(ReservedRegisters::len() + 3));
         let r_input_size = MemoryAddress::direct(ReservedRegisters::len());
         let r_array_ptr = MemoryAddress::direct(ReservedRegisters::len() + 1);
         let r_output_size = MemoryAddress::direct(ReservedRegisters::len() + 2);
         let r_equality = MemoryAddress::direct(ReservedRegisters::len() + 3);
-        context.usize_const_instruction(r_input_size, FieldElement::from(12_usize));
+        context.usize_const_instruction(r_input_size, BigInt::from(12_usize));
         // copy our stack frame to r_array_ptr
         context.mov_instruction(r_array_ptr, r_stack);
         context.foreign_call_instruction(
@@ -473,7 +474,7 @@ pub(crate) mod tests {
         context.push_opcode(BrilligOpcode::Const {
             destination: MemoryAddress::direct(0),
             bit_size: BitSize::Integer(IntegerBitSize::U32),
-            value: FieldElement::from(0u64),
+            value: BigInt::from(0u64),
         });
         context.push_opcode(BrilligOpcode::JumpIf { condition: r_equality, location: 9 });
         context.push_opcode(BrilligOpcode::Trap {

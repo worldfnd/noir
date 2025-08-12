@@ -4,7 +4,7 @@ use acvm::{AcirField, BlackBoxFunctionSolver, BlackBoxResolutionError, FieldElem
 use bn254_blackbox_solver::derive_generators;
 use iter_extended::{try_vecmap, vecmap};
 use noirc_printable_type::{PrintableType, PrintableValueDisplay, decode_printable_value};
-use num_bigint::{BigUint, ToBigInt};
+use num_bigint::{BigInt, BigUint, ToBigInt};
 
 use crate::ssa::{
     interpreter::NumericValue,
@@ -351,7 +351,7 @@ impl<W: Write> Interpreter<'_, W> {
                     let length =
                         self.lookup_u32(args[1], "call Poseidon2Permutation BlackBox (length)")?;
                     let solver = m31_blackbox_solver::M31BlackBoxSolver(false);
-                    let result = solver
+                    let _result = solver
                         .poseidon2_permutation(&inputs, length)
                         .map_err(Self::convert_error)?;
                     // let result = Value::array_from_iter(result, NumericType::NativeField)?;
@@ -496,12 +496,8 @@ impl<W: Write> Interpreter<'_, W> {
             }));
         };
 
-        let Some(limbs) = dfg::simplify::constant_to_radix(
-            endian,
-            NumericValue::from_field_to_bigint(field),
-            radix,
-            limb_count,
-        ) else {
+        let Some(limbs) = dfg::simplify::constant_to_radix(endian, field.into(), radix, limb_count)
+        else {
             return Err(InterpreterError::ToRadixFailed { field_id, field, radix });
         };
 
@@ -691,7 +687,7 @@ impl<W: Write> Interpreter<'_, W> {
             // We'll let each parser take as many fields as they need.
             let meta_idx = args.len() - 1 - num_values;
             let input_as_fields =
-                (3..meta_idx).flat_map(|i| value_to_fields(&args[i])).collect::<Vec<_>>();
+                (3..meta_idx).flat_map(|i| value_to_bigints(&args[i])).collect::<Vec<_>>();
             let field_iterator = &mut input_as_fields.into_iter();
 
             let mut fragments = Vec::new();
@@ -704,7 +700,7 @@ impl<W: Write> Interpreter<'_, W> {
         } else {
             let meta_idx = args.len() - 2;
             let input_as_fields =
-                (1..meta_idx).flat_map(|i| value_to_fields(&args[i])).collect::<Vec<_>>();
+                (1..meta_idx).flat_map(|i| value_to_bigints(&args[i])).collect::<Vec<_>>();
             let printable_type = value_to_printable_type(&args[meta_idx])?;
             let printable_value =
                 decode_printable_value(&mut input_as_fields.into_iter(), &printable_type);
@@ -772,10 +768,9 @@ fn new_embedded_curve_point(
     y: FieldElement,
     is_infinite: FieldElement,
 ) -> IResult<Value> {
-    let x = Value::from_constant(NumericValue::from_field_to_bigint(x), NumericType::NativeField)?;
-    let y = Value::from_constant(NumericValue::from_field_to_bigint(y), NumericType::NativeField)?;
-    let is_infinite =
-        Value::from_constant(NumericValue::from_field_to_bigint(is_infinite), NumericType::bool())?;
+    let x = Value::from_constant(x.into(), NumericType::NativeField)?;
+    let y = Value::from_constant(y.into(), NumericType::NativeField)?;
+    let is_infinite = Value::from_constant(is_infinite.into(), NumericType::bool())?;
     Ok(Value::array(
         vec![x, y, is_infinite],
         vec![
@@ -786,25 +781,25 @@ fn new_embedded_curve_point(
     ))
 }
 
-/// Convert a [Value] to a vector of [FieldElement] for printing.
-fn value_to_fields(value: &Value) -> Vec<FieldElement> {
-    fn go(value: &Value, fields: &mut Vec<FieldElement>) {
+/// Convert a [Value] to a vector of [BigInt] for printing.
+fn value_to_bigints(value: &Value) -> Vec<BigInt> {
+    fn go(value: &Value, bigints: &mut Vec<BigInt>) {
         match value {
-            Value::Numeric(numeric_value) => fields.push(numeric_value.convert_to_field()),
+            Value::Numeric(numeric_value) => bigints.push(numeric_value.convert_to_bigint()),
             Value::Reference(reference_value) => {
                 if let Some(value) = reference_value.element.borrow().as_ref() {
-                    go(value, fields);
+                    go(value, bigints);
                 }
             }
             Value::ArrayOrSlice(array_value) => {
                 for value in array_value.elements.borrow().iter() {
-                    go(value, fields);
+                    go(value, bigints);
                 }
             }
             Value::Function(id) => {
                 // Based on `decode_printable_value` it will expect consume the environment as well,
                 // but that's catered for the by the SSA generation: the env is passed as separate values.
-                fields.push(FieldElement::from(id.to_u32()));
+                bigints.push(BigInt::from(id.to_u32()));
             }
             Value::Intrinsic(x) => {
                 panic!("didn't expect to print intrinsics: {x}")
@@ -815,9 +810,9 @@ fn value_to_fields(value: &Value) -> Vec<FieldElement> {
         }
     }
 
-    let mut fields = Vec::new();
-    go(value, &mut fields);
-    fields
+    let mut bigints = Vec::new();
+    go(value, &mut bigints);
+    bigints
 }
 
 /// Parse a [Value] as [PrintableType].

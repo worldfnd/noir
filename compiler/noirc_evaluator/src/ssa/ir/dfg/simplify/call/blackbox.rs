@@ -1,29 +1,20 @@
-use std::sync::Arc;
-
-use acvm::acir::BlackBoxFunc;
 use acvm::blackbox_solver::sha256_compression;
-use acvm::{BlackBoxFunctionSolver, BlackBoxResolutionError, FieldElement, acir::AcirField};
+use acvm::{BlackBoxFunctionSolver, BlackBoxResolutionError, FieldElement};
 use noirc_errors::call_stack::CallStackId;
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 
 use crate::ssa::ir::types::NumericType;
-use crate::ssa::ir::{
-    basic_block::BasicBlockId,
-    dfg::DataFlowGraph,
-    instruction::{Instruction, Intrinsic},
-    types::Type,
-    value::ValueId,
-};
+use crate::ssa::ir::{basic_block::BasicBlockId, dfg::DataFlowGraph, value::ValueId};
 
 use super::{SimplifyResult, array_is_constant, make_constant_array, to_u8_vec};
 
 pub(super) fn simplify_ec_add(
-    dfg: &mut DataFlowGraph,
-    solver: impl BlackBoxFunctionSolver<FieldElement>,
-    arguments: &[ValueId],
-    block: BasicBlockId,
-    call_stack: CallStackId,
+    _dfg: &mut DataFlowGraph,
+    _solver: impl BlackBoxFunctionSolver<FieldElement>,
+    _arguments: &[ValueId],
+    _block: BasicBlockId,
+    _call_stack: CallStackId,
 ) -> SimplifyResult {
     // match (
     //     dfg.get_numeric_constant(arguments[0]),
@@ -71,11 +62,11 @@ pub(super) fn simplify_ec_add(
 }
 
 pub(super) fn simplify_msm(
-    dfg: &mut DataFlowGraph,
-    solver: impl BlackBoxFunctionSolver<FieldElement>,
-    arguments: &[ValueId],
-    block: BasicBlockId,
-    call_stack: CallStackId,
+    _dfg: &mut DataFlowGraph,
+    _solver: impl BlackBoxFunctionSolver<FieldElement>,
+    _arguments: &[ValueId],
+    _block: BasicBlockId,
+    _call_stack: CallStackId,
 ) -> SimplifyResult {
     // let mut is_constant;
 
@@ -204,11 +195,11 @@ pub(super) fn simplify_msm(
 }
 
 pub(super) fn simplify_poseidon2_permutation(
-    dfg: &mut DataFlowGraph,
-    solver: impl BlackBoxFunctionSolver<FieldElement>,
-    arguments: &[ValueId],
-    block: BasicBlockId,
-    call_stack: CallStackId,
+    _dfg: &mut DataFlowGraph,
+    _solver: impl BlackBoxFunctionSolver<FieldElement>,
+    _arguments: &[ValueId],
+    _block: BasicBlockId,
+    _call_stack: CallStackId,
 ) -> SimplifyResult {
     // match (dfg.get_array_constant(arguments[0]), dfg.get_numeric_constant(arguments[1])) {
     //     (Some((state, _)), Some(state_length)) if array_is_constant(dfg, &state) => {

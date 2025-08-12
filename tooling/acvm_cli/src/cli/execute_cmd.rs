@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use acir::FieldElement;
 use acir::circuit::Program;
 use acir::native_types::{WitnessMap, WitnessStack};
-use m31_blackbox_solver::M31BlackBoxSolver;
 use clap::Args;
+use m31_blackbox_solver::M31BlackBoxSolver;
 
 use nargo::foreign_calls::DefaultForeignCallBuilder;
 use noir_artifact_cli::errors::CliError;

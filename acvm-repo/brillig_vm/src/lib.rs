@@ -608,14 +608,16 @@ impl<'a, F: AcirField, B: BlackBoxFunctionSolver<F>> VM<'a, F, B> {
             }
             Opcode::Const { destination, value, bit_size } => {
                 // Consts are not checked in runtime to fit in the bit size, since they can safely be checked statically.
-                self.memory.write(*destination, MemoryValue::new_from_field(*value, *bit_size));
+                self.memory
+                    .write(*destination, MemoryValue::new_from_bigint(value.clone(), *bit_size));
                 self.increment_program_counter()
             }
             Opcode::IndirectConst { destination_pointer, bit_size, value } => {
                 // Convert our destination_pointer to an address
                 let destination = self.memory.read_ref(*destination_pointer);
                 // Use our usize destination index to set the value in memory
-                self.memory.write(destination, MemoryValue::new_from_field(*value, *bit_size));
+                self.memory
+                    .write(destination, MemoryValue::new_from_bigint(value.clone(), *bit_size));
                 self.increment_program_counter()
             }
             Opcode::BlackBox(black_box_op) => {
@@ -629,6 +631,7 @@ impl<'a, F: AcirField, B: BlackBoxFunctionSolver<F>> VM<'a, F, B> {
                     Err(e) => self.fail(e.to_string()),
                 }
             }
+            &_ => todo!(), // px: for phantom data
         }
     }
 
@@ -1052,6 +1055,8 @@ impl<'a, F: AcirField, B: BlackBoxFunctionSolver<F>> VM<'a, F, B> {
 
 #[cfg(test)]
 mod tests {
+    use num_bigint::BigInt;
+
     use crate::memory::MEMORY_ADDRESSING_BIT_SIZE;
     use acir::{AcirField, FieldElement};
     use acvm_blackbox_solver::StubbedBlackBoxSolver;
@@ -1062,10 +1067,10 @@ mod tests {
     fn add_single_step_smoke() {
         let calldata = vec![];
 
-        let opcodes = [Opcode::Const {
+        let opcodes: Vec<Opcode<FieldElement>> = vec![Opcode::Const {
             destination: MemoryAddress::direct(0),
             bit_size: BitSize::Integer(IntegerBitSize::U32),
-            value: FieldElement::from(27u128),
+            value: BigInt::from(27u128),
         }];
 
         // Start VM
@@ -1103,12 +1108,12 @@ mod tests {
             Opcode::Const {
                 destination: MemoryAddress::direct(0),
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(2u64),
+                value: BigInt::from(2u64),
             },
             Opcode::Const {
                 destination: MemoryAddress::direct(1),
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(0u64),
+                value: BigInt::from(0u64),
             },
             Opcode::CalldataCopy {
                 destination_address: MemoryAddress::direct(0),
@@ -1151,12 +1156,12 @@ mod tests {
             Opcode::Const {
                 destination: MemoryAddress::direct(0),
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(2u64),
+                value: BigInt::from(2u64),
             },
             Opcode::Const {
                 destination: MemoryAddress::direct(1),
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(0u64),
+                value: BigInt::from(0u64),
             },
             Opcode::CalldataCopy {
                 destination_address: MemoryAddress::direct(0),
@@ -1167,7 +1172,7 @@ mod tests {
             Opcode::Const {
                 destination: MemoryAddress::direct(0),
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(0u64),
+                value: BigInt::from(0u64),
             },
             Opcode::Trap {
                 revert_data: HeapVector {
@@ -1239,12 +1244,12 @@ mod tests {
             Opcode::Const {
                 destination: one_usize,
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(1u64),
+                value: BigInt::from(1u64),
             },
             Opcode::Const {
                 destination: zero_usize,
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(0u64),
+                value: BigInt::from(0u64),
             },
             Opcode::CalldataCopy {
                 destination_address: value_address,
@@ -1295,12 +1300,12 @@ mod tests {
             Opcode::Const {
                 destination: one_usize,
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(1u64),
+                value: BigInt::from(1u64),
             },
             Opcode::Const {
                 destination: zero_usize,
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(0u64),
+                value: BigInt::from(0u64),
             },
             Opcode::CalldataCopy {
                 destination_address: value_address,
@@ -1356,12 +1361,12 @@ mod tests {
             Opcode::Const {
                 destination: MemoryAddress::direct(0),
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(3u64),
+                value: BigInt::from(3u64),
             },
             Opcode::Const {
                 destination: MemoryAddress::direct(1),
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(0u64),
+                value: BigInt::from(0u64),
             },
             Opcode::CalldataCopy {
                 destination_address: MemoryAddress::direct(0),
@@ -1401,12 +1406,12 @@ mod tests {
             Opcode::Const {
                 destination: MemoryAddress::direct(0),
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(4u64),
+                value: BigInt::from(4u64),
             },
             Opcode::Const {
                 destination: MemoryAddress::direct(1),
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(0u64),
+                value: BigInt::from(0u64),
             },
             Opcode::CalldataCopy {
                 destination_address: MemoryAddress::direct(0),
@@ -1474,12 +1479,12 @@ mod tests {
             Opcode::Const {
                 destination: MemoryAddress::direct(0),
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(5u64),
+                value: BigInt::from(5u64),
             },
             Opcode::Const {
                 destination: MemoryAddress::direct(1),
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(0u64),
+                value: BigInt::from(0u64),
             },
             Opcode::CalldataCopy {
                 destination_address: MemoryAddress::direct(0),
@@ -1651,20 +1656,20 @@ mod tests {
 
     #[test]
     fn iconst_opcode() {
-        let opcodes = &[
+        let opcodes: Vec<Opcode<FieldElement>> = vec![
             Opcode::Const {
                 destination: MemoryAddress::direct(0),
                 bit_size: BitSize::Integer(MEMORY_ADDRESSING_BIT_SIZE),
-                value: FieldElement::from(8_usize),
+                value: BigInt::from(8_usize),
             },
             Opcode::IndirectConst {
                 destination_pointer: MemoryAddress::direct(0),
                 bit_size: BitSize::Integer(MEMORY_ADDRESSING_BIT_SIZE),
-                value: FieldElement::from(27_usize),
+                value: BigInt::from(27_usize),
             },
         ];
         let solver = StubbedBlackBoxSolver::default();
-        let mut vm = VM::new(vec![], opcodes, &solver, false, None);
+        let mut vm = VM::new(vec![], &opcodes, &solver, false, None);
 
         let status = vm.process_opcode();
         assert_eq!(status, VMStatus::InProgress);
@@ -1720,12 +1725,12 @@ mod tests {
                 Opcode::Const {
                     destination: MemoryAddress::direct(100),
                     bit_size: BitSize::Integer(IntegerBitSize::U32),
-                    value: FieldElement::from(memory.len() as u32),
+                    value: BigInt::from(memory.len() as u32),
                 },
                 Opcode::Const {
                     destination: MemoryAddress::direct(101),
                     bit_size: BitSize::Integer(IntegerBitSize::U32),
-                    value: FieldElement::from(0u64),
+                    value: BigInt::from(0u64),
                 },
                 Opcode::CalldataCopy {
                     destination_address: MemoryAddress::direct(5),
@@ -1981,12 +1986,12 @@ mod tests {
             Opcode::Const {
                 destination: MemoryAddress::direct(0),
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(initial_matrix.len() as u32),
+                value: BigInt::from(initial_matrix.len() as u32),
             },
             Opcode::Const {
                 destination: MemoryAddress::direct(1),
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(0u64),
+                value: BigInt::from(0u64),
             },
             Opcode::CalldataCopy {
                 destination_address: MemoryAddress::direct(2),
@@ -2082,12 +2087,12 @@ mod tests {
             Opcode::Const {
                 destination: MemoryAddress::direct(100),
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(input_string.len() as u32),
+                value: BigInt::from(input_string.len() as u32),
             },
             Opcode::Const {
                 destination: MemoryAddress::direct(101),
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(0u64),
+                value: BigInt::from(0u64),
             },
             Opcode::CalldataCopy {
                 destination_address: MemoryAddress::direct(4),
@@ -2192,12 +2197,12 @@ mod tests {
             Opcode::Const {
                 destination: MemoryAddress::direct(100),
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(initial_matrix.len() as u32),
+                value: BigInt::from(initial_matrix.len() as u32),
             },
             Opcode::Const {
                 destination: MemoryAddress::direct(101),
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(0u64),
+                value: BigInt::from(0u64),
             },
             Opcode::CalldataCopy {
                 destination_address: MemoryAddress::direct(2),
@@ -2302,12 +2307,12 @@ mod tests {
             Opcode::Const {
                 destination: MemoryAddress::direct(100),
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(matrix_a.len() + matrix_b.len()),
+                value: BigInt::from(matrix_a.len() + matrix_b.len()),
             },
             Opcode::Const {
                 destination: MemoryAddress::direct(101),
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(0u64),
+                value: BigInt::from(0u64),
             },
             Opcode::CalldataCopy {
                 destination_address: MemoryAddress::direct(3),
@@ -2459,12 +2464,12 @@ mod tests {
             Opcode::Const {
                 destination: MemoryAddress::direct(100),
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(memory.len()),
+                value: BigInt::from(memory.len()),
             },
             Opcode::Const {
                 destination: MemoryAddress::direct(101),
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(0u64),
+                value: BigInt::from(0u64),
             },
             Opcode::CalldataCopy {
                 destination_address: MemoryAddress::direct(0),
@@ -2551,18 +2556,18 @@ mod tests {
     fn relative_addressing() {
         let calldata = vec![];
         let bit_size = BitSize::Integer(IntegerBitSize::U32);
-        let value = FieldElement::from(3u128);
+        let value = BigInt::from(3u128);
 
-        let opcodes = [
+        let opcodes: Vec<Opcode<FieldElement>> = vec![
             Opcode::Const {
                 destination: MemoryAddress::direct(0),
                 bit_size,
-                value: FieldElement::from(27u128),
+                value: BigInt::from(27u128),
             },
             Opcode::Const {
                 destination: MemoryAddress::relative(1), // Resolved address 28 value 3
                 bit_size,
-                value,
+                value: value.clone(),
             },
             Opcode::Const {
                 destination: MemoryAddress::direct(1), // Address 1 value 3
@@ -2601,12 +2606,12 @@ mod tests {
             Opcode::Const {
                 destination: MemoryAddress::direct(0),
                 bit_size: BitSize::Field,
-                value: FieldElement::from(1u64),
+                value: BigInt::from(1u64),
             },
             Opcode::Const {
                 destination: MemoryAddress::direct(1),
                 bit_size: BitSize::Field,
-                value: FieldElement::from(0u64),
+                value: BigInt::from(0u64),
             },
             Opcode::BinaryFieldOp {
                 destination: MemoryAddress::direct(2),

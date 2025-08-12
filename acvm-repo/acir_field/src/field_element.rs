@@ -225,7 +225,6 @@ impl<F: PrimeField> AcirField for FieldElement<F> {
         self.0.into_bigint().into()
     }
 
-
     fn try_into_i128(self) -> Option<i128> {
         // Negative integers are represented by the range [p + i128::MIN, p) whilst
         // positive integers are represented by the range [0, i128::MAX).

@@ -3,7 +3,6 @@ mod program;
 mod tests;
 mod value;
 
-use acvm::AcirField;
 use noirc_errors::call_stack::CallStack;
 use noirc_frontend::hir_def::expr::Constructor;
 use noirc_frontend::token::FmtStrFragment;

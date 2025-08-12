@@ -23,6 +23,7 @@ use acir_field::{AcirField, FieldElement};
 use brillig::{
     BitSize, HeapArray, HeapValueType, HeapVector, IntegerBitSize, MemoryAddress, ValueOrArray,
 };
+use num_bigint::BigInt;
 
 #[test]
 fn addition_circuit() {
@@ -106,12 +107,12 @@ fn simple_brillig_foreign_call() {
             brillig::Opcode::Const {
                 destination: zero_usize,
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(0_usize),
+                value: BigInt::from(0_usize),
             },
             brillig::Opcode::Const {
                 destination: one_usize,
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(1_usize),
+                value: BigInt::from(1_usize),
             },
             brillig::Opcode::CalldataCopy {
                 destination_address: value_address,
@@ -159,7 +160,6 @@ fn simple_brillig_foreign_call() {
     let program_de = Program::deserialize_program(&bytes).unwrap();
     assert_eq!(program_de, program);
 }
-
 #[test]
 fn complex_brillig_foreign_call() {
     let fe_0 = FieldElement::zero();
@@ -179,12 +179,12 @@ fn complex_brillig_foreign_call() {
             brillig::Opcode::Const {
                 destination: MemoryAddress::direct(0),
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(3_usize),
+                value: BigInt::from(3_usize),
             },
             brillig::Opcode::Const {
                 destination: MemoryAddress::direct(1),
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(0_usize),
+                value: BigInt::from(0_usize),
             },
             brillig::Opcode::CalldataCopy {
                 destination_address: MemoryAddress::direct(32),
@@ -193,18 +193,18 @@ fn complex_brillig_foreign_call() {
             },
             brillig::Opcode::Const {
                 destination: MemoryAddress::direct(0),
-                value: FieldElement::from(32_usize),
+                value: BigInt::from(32_usize),
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
             },
             brillig::Opcode::Const {
                 destination: MemoryAddress::direct(3),
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(1_usize),
+                value: BigInt::from(1_usize),
             },
             brillig::Opcode::Const {
                 destination: MemoryAddress::direct(4),
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(3_usize),
+                value: BigInt::from(3_usize),
             },
             brillig::Opcode::CalldataCopy {
                 destination_address: MemoryAddress::direct(1),
@@ -242,12 +242,12 @@ fn complex_brillig_foreign_call() {
             brillig::Opcode::Const {
                 destination: MemoryAddress::direct(0),
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(32_usize),
+                value: BigInt::from(32_usize),
             },
             brillig::Opcode::Const {
                 destination: MemoryAddress::direct(1),
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(5_usize),
+                value: BigInt::from(5_usize),
             },
             brillig::Opcode::Stop {
                 return_data: HeapVector {

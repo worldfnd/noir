@@ -10,6 +10,7 @@ use nargo::foreign_calls::{
 };
 use noirc_artifacts::debug::{DebugArtifact, DebugVars, StackFrame};
 use noirc_errors::debug_info::{DebugFnId, DebugVarId};
+use num_bigint::BigInt;
 
 pub(crate) enum DebugForeignCall {
     VarAssign,
@@ -40,14 +41,14 @@ impl DebugForeignCall {
 }
 
 pub trait DebugForeignCallExecutor: ForeignCallExecutor<FieldElement> {
-    fn get_variables(&self) -> Vec<StackFrame<FieldElement>>;
-    fn current_stack_frame(&self) -> Option<StackFrame<FieldElement>>;
+    fn get_variables(&self) -> Vec<StackFrame>;
+    fn current_stack_frame(&self) -> Option<StackFrame>;
     fn restart(&mut self, artifact: &DebugArtifact);
 }
 
 #[derive(Default)]
 pub struct DefaultDebugForeignCallExecutor {
-    pub debug_vars: DebugVars<FieldElement>,
+    pub debug_vars: DebugVars,
 }
 
 impl DefaultDebugForeignCallExecutor {
@@ -102,11 +103,11 @@ impl DefaultDebugForeignCallExecutor {
 }
 
 impl DebugForeignCallExecutor for DefaultDebugForeignCallExecutor {
-    fn get_variables(&self) -> Vec<StackFrame<FieldElement>> {
+    fn get_variables(&self) -> Vec<StackFrame> {
         self.debug_vars.get_variables()
     }
 
-    fn current_stack_frame(&self) -> Option<StackFrame<FieldElement>> {
+    fn current_stack_frame(&self) -> Option<StackFrame> {
         self.debug_vars.current_stack_frame()
     }
 
@@ -137,7 +138,8 @@ impl ForeignCallExecutor<FieldElement> for DefaultDebugForeignCallExecutor {
                     let var_id = debug_var_id(var_id_value);
                     let values: Vec<FieldElement> =
                         foreign_call.inputs[1..].iter().flat_map(|x| x.fields()).collect();
-                    self.debug_vars.assign_var(var_id, &values);
+                    let values_bigint: Vec<BigInt> = values.iter().map(|f| (*f).into()).collect();
+                    self.debug_vars.assign_var(var_id, &values_bigint);
                 }
                 Ok(ForeignCallResult::default())
             }
@@ -173,7 +175,9 @@ impl ForeignCallExecutor<FieldElement> for DefaultDebugForeignCallExecutor {
                                 .unwrap_or_default()
                         })
                         .collect();
-                    self.debug_vars.assign_field(var_id, indexes, &values);
+                    let values_bigint: Vec<BigInt> =
+                        values.iter().map(|f| BigInt::from(f.to_u128())).collect();
+                    self.debug_vars.assign_field(var_id, indexes, &values_bigint);
                 }
                 Ok(ForeignCallResult::default())
             }
@@ -182,7 +186,9 @@ impl ForeignCallExecutor<FieldElement> for DefaultDebugForeignCallExecutor {
                 let fcp_value = &foreign_call.inputs[1];
                 if let ForeignCallParam::Single(var_id_value) = fcp_var_id {
                     let var_id = debug_var_id(var_id_value);
-                    self.debug_vars.assign_deref(var_id, &fcp_value.fields());
+                    let values_bigint: Vec<BigInt> =
+                        fcp_value.fields().iter().map(|f| (*f).into()).collect();
+                    self.debug_vars.assign_deref(var_id, &values_bigint);
                 }
                 Ok(ForeignCallResult::default())
             }
@@ -209,11 +215,11 @@ where
     H: DebugForeignCallExecutor,
     I: ForeignCallExecutor<FieldElement>,
 {
-    fn get_variables(&self) -> Vec<StackFrame<FieldElement>> {
+    fn get_variables(&self) -> Vec<StackFrame> {
         self.handler().get_variables()
     }
 
-    fn current_stack_frame(&self) -> Option<StackFrame<FieldElement>> {
+    fn current_stack_frame(&self) -> Option<StackFrame> {
         self.handler().current_stack_frame()
     }
     fn restart(&mut self, artifact: &DebugArtifact) {

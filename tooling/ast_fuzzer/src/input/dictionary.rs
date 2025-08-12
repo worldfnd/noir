@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
-use num_bigint::BigInt;
 use noirc_evaluator::ssa::ssa_gen::Ssa;
+use num_bigint::BigInt;
 
 /// Collect all `Field` values in the SSA which could be interesting for fuzzing.
 pub(crate) fn build_dictionary_from_ssa(ssa: &Ssa) -> BTreeSet<BigInt> {

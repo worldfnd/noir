@@ -1,7 +1,4 @@
-use crate::ssa::{
-    interpreter::tests::{expect_values, expect_values_with_args, from_constant, from_u32_slice},
-    ir::types::NumericType,
-};
+#![allow(dead_code)]
 
 #[test]
 fn test_msm() {

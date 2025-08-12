@@ -12,6 +12,7 @@ use noirc_frontend::{
     },
     signed_field::SignedInteger,
 };
+use num_bigint::BigUint;
 
 use super::{Name, VariableId, types, visitor::visit_expr};
 
@@ -29,7 +30,7 @@ pub fn gen_literal(u: &mut Unstructured, typ: &Type) -> arbitrary::Result<Expres
         Type::Unit => Expression::Literal(Literal::Unit),
         Type::Bool => lit_bool(bool::arbitrary(u)?),
         Type::Field => {
-            let field = SignedInteger::new(Field::from(u128::arbitrary(u)?), bool::arbitrary(u)?);
+            let field = SignedInteger::new(BigUint::from(u128::arbitrary(u)?), bool::arbitrary(u)?);
             Expression::Literal(Literal::Integer(field, Type::Field, Location::dummy()))
         }
         Type::Integer(signedness, integer_bit_size) => {
@@ -66,7 +67,7 @@ pub fn gen_literal(u: &mut Unstructured, typ: &Type) -> arbitrary::Result<Expres
                 };
 
             Expression::Literal(Literal::Integer(
-                SignedInteger::new(field, is_negative),
+                SignedInteger::new(field.into(), is_negative),
                 Type::Integer(*signedness, *integer_bit_size),
                 Location::dummy(),
             ))
@@ -203,7 +204,7 @@ pub fn gen_range(
         ))
     };
 
-    Ok((to_lit(start), to_lit(end)))
+    Ok((to_lit((start.0.into(), start.1)), to_lit((end.0.into(), end.1))))
 }
 
 /// Make an `Ident` expression out of a variable.
@@ -244,7 +245,7 @@ where
     FieldElement: From<V>,
 {
     Expression::Literal(Literal::Integer(
-        SignedInteger::new(value.into(), is_negative),
+        SignedInteger::new(FieldElement::from(value).into(), is_negative),
         typ,
         Location::dummy(),
     ))

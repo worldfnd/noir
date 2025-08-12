@@ -1,6 +1,5 @@
 use std::cmp::Ordering;
 
-use acvm::{AcirField, FieldElement};
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 use num_traits::Zero;

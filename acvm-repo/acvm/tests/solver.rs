@@ -22,7 +22,7 @@ use m31_blackbox_solver::M31BlackBoxSolver;
 use bn254_blackbox_solver::{POSEIDON2_CONFIG, field_from_hex};
 use brillig_vm::brillig::HeapValueType;
 
-use num_bigint::BigUint;
+use num_bigint::{BigInt, BigUint};
 use proptest::arbitrary::any;
 use proptest::prelude::*;
 use proptest::result::maybe_ok;
@@ -135,17 +135,17 @@ fn inversion_brillig_oracle_equivalence() {
             BrilligOpcode::Const {
                 destination: zero_usize,
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(0u64),
+                value: BigInt::from(0u64),
             },
             BrilligOpcode::Const {
                 destination: two_usize,
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(2u64),
+                value: BigInt::from(2u64),
             },
             BrilligOpcode::Const {
                 destination: three_usize,
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(3u64),
+                value: BigInt::from(3u64),
             },
             BrilligOpcode::CalldataCopy {
                 destination_address: MemoryAddress::direct(0),
@@ -287,17 +287,17 @@ fn double_inversion_brillig_oracle() {
             BrilligOpcode::Const {
                 destination: zero_usize,
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(0u64),
+                value: BigInt::from(0u64),
             },
             BrilligOpcode::Const {
                 destination: three_usize,
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(3u64),
+                value: BigInt::from(3u64),
             },
             BrilligOpcode::Const {
                 destination: five_usize,
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(5u64),
+                value: BigInt::from(5u64),
             },
             BrilligOpcode::CalldataCopy {
                 destination_address: MemoryAddress::direct(0),
@@ -411,17 +411,17 @@ fn oracle_dependent_execution() {
             BrilligOpcode::Const {
                 destination: zero_usize,
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(0u64),
+                value: BigInt::from(0u64),
             },
             BrilligOpcode::Const {
                 destination: three_usize,
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(3u64),
+                value: BigInt::from(3u64),
             },
             BrilligOpcode::Const {
                 destination: four_usize,
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(4u64),
+                value: BigInt::from(4u64),
             },
             BrilligOpcode::CalldataCopy {
                 destination_address: MemoryAddress::direct(0),
@@ -554,12 +554,12 @@ fn brillig_oracle_predicate() {
             BrilligOpcode::Const {
                 destination: MemoryAddress::direct(0),
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(2u64),
+                value: BigInt::from(2u64),
             },
             BrilligOpcode::Const {
                 destination: MemoryAddress::direct(1),
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(0u64),
+                value: BigInt::from(0u64),
             },
             BrilligOpcode::CalldataCopy {
                 destination_address: MemoryAddress::direct(0),
@@ -702,17 +702,17 @@ fn unsatisfied_opcode_resolved_brillig() {
             BrilligOpcode::Const {
                 destination: MemoryAddress::direct(0),
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(2u64),
+                value: BigInt::from(2u64),
             },
             BrilligOpcode::Const {
                 destination: MemoryAddress::direct(1),
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(0u64),
+                value: BigInt::from(0u64),
             },
             BrilligOpcode::Const {
                 destination: MemoryAddress::direct(3),
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(0u64),
+                value: BigInt::from(0u64),
             },
             calldata_copy_opcode,
             equal_opcode,
@@ -1479,7 +1479,6 @@ prop_compose! {
 //     assert_eq!(expected_results, into_repr_vec(internal_expected_results));
 //     assert_eq!(results, expected_results);
 // }
-
 #[test]
 fn sha256_compression_zeros() {
     let pedantic_solving = true;

@@ -512,7 +512,7 @@ impl<'a> AsyncReplDebugger<'a> {
     }
 
     fn show_variables(context: &mut Context<'_>) {
-        let variables: Vec<DebugStackFrame<FieldElement>> =
+        let variables: Vec<DebugStackFrame> =
             context.get_variables().iter().map(DebugStackFrame::from).collect();
         for frame in variables {
             println!("{}({})", frame.function_name, frame.function_params.join(", "));

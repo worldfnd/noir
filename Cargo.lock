@@ -43,7 +43,6 @@ name = "acir_field"
 version = "1.0.0-beta.7"
 dependencies = [
  "ark-bls12-381",
- "ark-bn254 0.5.0",
  "ark-ff 0.5.0",
  "ark-std 0.5.0",
  "cfg-if",
@@ -844,6 +843,7 @@ name = "brillig"
 version = "1.0.0-beta.7"
 dependencies = [
  "acir_field",
+ "num-bigint",
  "proptest",
  "proptest-derive",
  "serde",
@@ -3185,6 +3185,7 @@ dependencies = [
  "noirc_errors",
  "noirc_frontend",
  "noirc_printable_type",
+ "num-bigint",
  "rand 0.8.5",
  "rayon",
  "serde",
@@ -3229,6 +3230,7 @@ dependencies = [
  "nargo_fmt",
  "nargo_toml",
  "noir_artifact_cli",
+ "noir_ast_fuzzer",
  "noir_debugger",
  "noir_lsp",
  "noirc_abi",
@@ -3415,6 +3417,7 @@ dependencies = [
  "noirc_evaluator",
  "noirc_frontend",
  "num-bigint",
+ "num-traits",
  "proptest",
  "rand 0.8.5",
  "regex",
@@ -3437,6 +3440,8 @@ dependencies = [
  "noirc_abi",
  "noirc_evaluator",
  "noirc_frontend",
+ "num-bigint",
+ "num-traits",
  "proptest",
  "strum",
 ]
@@ -3458,10 +3463,19 @@ dependencies = [
  "noirc_driver",
  "noirc_errors",
  "noirc_printable_type",
+ "num-bigint",
  "owo-colors",
  "rexpect",
  "tempfile",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "noir_executor"
+version = "1.0.0-beta.7"
+dependencies = [
+ "noir_ssa_executor",
+ "noirc_evaluator",
 ]
 
 [[package]]
@@ -3542,6 +3556,7 @@ dependencies = [
  "fxhash",
  "im",
  "inferno",
+ "m31_blackbox_solver",
  "nargo",
  "noir_artifact_cli",
  "noirc_abi",
@@ -3570,7 +3585,7 @@ name = "noir_ssa_executor"
 version = "1.0.0-beta.7"
 dependencies = [
  "acvm",
- "bn254_blackbox_solver",
+ "m31_blackbox_solver",
  "nargo",
  "noirc_abi",
  "noirc_driver",
@@ -3590,6 +3605,7 @@ dependencies = [
  "noirc_driver",
  "noirc_evaluator",
  "noirc_frontend",
+ "num-bigint",
  "rand 0.8.5",
  "serde",
  "thiserror 1.0.69",
@@ -3671,6 +3687,7 @@ dependencies = [
  "noirc_driver",
  "noirc_errors",
  "noirc_printable_type",
+ "num-bigint",
  "serde",
  "tempfile",
 ]
@@ -3802,6 +3819,8 @@ version = "1.0.0-beta.7"
 dependencies = [
  "acvm",
  "iter-extended",
+ "num-bigint",
+ "num-traits",
  "proptest",
  "serde",
  "serde_json",

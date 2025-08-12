@@ -1,4 +1,3 @@
-use acvm::{AcirField, FieldElement};
 use noirc_errors::call_stack::CallStackId;
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;

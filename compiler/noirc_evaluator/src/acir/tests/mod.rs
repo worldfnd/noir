@@ -14,6 +14,8 @@ use acvm::{
 };
 use noirc_errors::Location;
 use noirc_frontend::monomorphization::ast::InlineType;
+use num_bigint::BigInt;
+use num_traits::Num;
 use std::collections::BTreeMap;
 
 use crate::{
@@ -831,9 +833,9 @@ fn properly_constrains_quotient_when_truncating_fields() {
         FieldElement::from_hex("0xf9bb18d1ece5fd647afba497e7ea7a2d7cc17b786468f6ebc1e0a6b0fffffff")
             .unwrap();
     let malicious_q =
-        FieldElement::from_hex("0x3fffffffffffffffffffffffffffffffffffffffffffffffffffffff")
+        BigInt::from_str_radix("0x3fffffffffffffffffffffffffffffffffffffffffffffffffffffff", 16)
             .unwrap();
-    let malicious_r = FieldElement::zero();
+    let malicious_r = BigInt::from(0);
 
     // This brillig function replaces the standard implementation of `directive_quotient` with
     // an implementation which returns `(malicious_q, malicious_r)`.
@@ -842,12 +844,12 @@ fn properly_constrains_quotient_when_truncating_fields() {
             BrilligOpcode::Const {
                 destination: MemoryAddress::direct(10),
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(2_usize),
+                value: BigInt::from(2_usize),
             },
             BrilligOpcode::Const {
                 destination: MemoryAddress::direct(11),
                 bit_size: BitSize::Integer(IntegerBitSize::U32),
-                value: FieldElement::from(0_usize),
+                value: BigInt::from(0_usize),
             },
             BrilligOpcode::Const {
                 destination: MemoryAddress::direct(0),
