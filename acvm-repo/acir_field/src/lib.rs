@@ -3,6 +3,8 @@
 
 mod field_element;
 mod generic_ark;
+#[cfg(feature = "goldilocks")]
+mod goldilocks;
 
 pub use generic_ark::AcirField;
 
@@ -26,7 +28,9 @@ pub fn truncate_to<F: AcirField>(input: &F, bits: u32) -> F {
 }
 
 cfg_if::cfg_if! {
-    if #[cfg(feature = "bls12_381")] {
+    if #[cfg(feature = "goldilocks")] {
+        pub type FieldElement = field_element::FieldElement<goldilocks::Goldilocks>;
+    } else if #[cfg(feature = "bls12_381")] {
         pub type FieldElement = field_element::FieldElement<ark_bls12_381::Fr>;
     } else {
         pub type FieldElement = field_element::FieldElement<ark_bn254::Fr>;

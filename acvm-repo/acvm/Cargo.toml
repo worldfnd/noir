@@ -32,6 +32,7 @@ bls12_381 = [
     "brillig_vm/bls12_381",
     "acvm_blackbox_solver/bls12_381",
 ]
+goldilocks = ["acir/goldilocks", "brillig_vm/goldilocks", "acvm_blackbox_solver/goldilocks"]
 generate-test-fixtures = ["dep:bn254_blackbox_solver", "acir/test-fixtures"]
 
 [[bin]]

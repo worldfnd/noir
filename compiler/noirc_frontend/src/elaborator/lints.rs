@@ -20,6 +20,7 @@ use crate::{
     token::{FunctionAttributeKind, SecondaryAttributeKind},
 };
 
+use acvm::{AcirField, FieldElement};
 use noirc_errors::Location;
 use num_bigint::BigInt;
 
@@ -580,6 +581,9 @@ pub(crate) fn check_integer_literal_fits_its_type(
             Type::Integer(Signedness::Unsigned, bit_size) => {
                 let bit_size: u32 = bit_size.into();
                 let max = if bit_size == 128 { u128::MAX } else { 2u128.pow(bit_size) - 1 };
+                // Compare the literal's exact integer value (a field-agnostic `BigInt`) against
+                // the type's range, so this stays correct even when compiling for a field smaller
+                // than the integer type (e.g. Goldilocks).
                 if value < BigInt::ZERO || value > BigInt::from(max) {
                     return Some(TypeCheckError::IntegerLiteralDoesNotFitItsType {
                         expr: value,
@@ -599,6 +603,22 @@ pub(crate) fn check_integer_literal_fits_its_type(
                         expr: value,
                         ty: typ,
                         range: format!("-{modulus}..={max}"),
+                        location,
+                    });
+                }
+            }
+            // A `Field` literal must be a canonical element of `[0, p)`. The lexer no longer
+            // enforces this (the bound moved here so integer literals aren't field-capped), so
+            // reject out-of-field Field literals at type-check using the modulus directly. We
+            // deliberately do NOT route this through `integral_maximum_size()` (which returns
+            // `None` for Field as the field-arithmetic selector).
+            Type::FieldElement => {
+                let modulus = FieldElement::modulus();
+                if value >= BigInt::from(modulus.clone()) {
+                    return Some(TypeCheckError::IntegerLiteralDoesNotFitItsType {
+                        expr: value,
+                        ty: typ.clone(),
+                        range: format!("0..{modulus}"),
                         location,
                     });
                 }
