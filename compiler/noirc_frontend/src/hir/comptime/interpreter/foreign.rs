@@ -146,6 +146,20 @@ fn ecdsa_secp256_verify(
 ///     point2: EmbeddedCurvePoint,
 /// ) -> [EmbeddedCurvePoint; 1]
 /// ```
+#[cfg(feature = "goldilocks")]
+fn embedded_curve_add(
+    arguments: Vec<(Value, Location)>,
+    return_type: Type,
+    location: Location,
+) -> IResult<Value> {
+    let _ = (arguments, return_type);
+    Err(InterpreterError::Unimplemented {
+        item: "embedded_curve_add: the chosen field has no embedded curve".to_string(),
+        location,
+    })
+}
+
+#[cfg(not(feature = "goldilocks"))]
 fn embedded_curve_add(
     arguments: Vec<(Value, Location)>,
     return_type: Type,
@@ -184,6 +198,20 @@ fn embedded_curve_add(
 ///     predicate: bool,
 /// ) -> [EmbeddedCurvePoint; 1]
 /// ```
+#[cfg(feature = "goldilocks")]
+fn multi_scalar_mul(
+    arguments: Vec<(Value, Location)>,
+    return_type: Type,
+    location: Location,
+) -> IResult<Value> {
+    let _ = (arguments, return_type);
+    Err(InterpreterError::Unimplemented {
+        item: "multi_scalar_mul: the chosen field has no embedded curve".to_string(),
+        location,
+    })
+}
+
+#[cfg(not(feature = "goldilocks"))]
 fn multi_scalar_mul(
     arguments: Vec<(Value, Location)>,
     return_type: Type,
@@ -230,6 +258,17 @@ fn multi_scalar_mul(
 }
 
 /// `poseidon2_permutation<let N: u32>(_input: [Field; N], _state_length: u32) -> [Field; N]`
+#[cfg(feature = "goldilocks")]
+fn poseidon2_permutation(arguments: Vec<(Value, Location)>, location: Location) -> IResult<Value> {
+    let _ = arguments;
+    Err(InterpreterError::Unimplemented {
+        item: "poseidon2_permutation: no bn254-independent implementation for the chosen field"
+            .to_string(),
+        location,
+    })
+}
+
+#[cfg(not(feature = "goldilocks"))]
 fn poseidon2_permutation(arguments: Vec<(Value, Location)>, location: Location) -> IResult<Value> {
     let input = check_one_argument(arguments, location)?;
 

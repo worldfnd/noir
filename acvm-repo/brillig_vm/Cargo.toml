@@ -30,3 +30,4 @@ proptest-derive.workspace = true
 [features]
 bn254 = ["acir/bn254"]
 bls12_381 = ["acir/bls12_381"]
+goldilocks = ["acir/goldilocks"]

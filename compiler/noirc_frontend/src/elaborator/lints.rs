@@ -16,9 +16,11 @@ use crate::{
     node_interner::{DefinitionKind, ExprId, FuncId, FunctionModifiers, NodeInterner},
     recursion::TypeRecursionContext,
     shared::{ForeignCall, Signedness, Visibility},
+    signed_field::SignedField,
     token::{FunctionAttributeKind, SecondaryAttributeKind},
 };
 
+use acvm::{AcirField, FieldElement};
 use noirc_errors::Location;
 
 pub(super) fn deprecated_function(interner: &NodeInterner, expr: ExprId) -> Option<TypeCheckError> {
@@ -435,7 +437,9 @@ pub(crate) fn check_integer_literal_fits_its_type(
             Type::Integer(Signedness::Unsigned, bit_size) => {
                 let bit_size: u32 = bit_size.into();
                 let max = if bit_size == 128 { u128::MAX } else { 2u128.pow(bit_size) - 1 };
-                if value.absolute_value() > max.into() || value.is_negative() {
+                // Compare the exact integer magnitude (field-agnostic), not the field-reduced
+                // value: over a field smaller than the type, `absolute_value()` would wrap.
+                if value > SignedField::positive(max) || value.is_negative() {
                     return Some(TypeCheckError::IntegerLiteralDoesNotFitItsType {
                         expr: value,
                         ty: typ.clone(),
@@ -449,14 +453,27 @@ pub(crate) fn check_integer_literal_fits_its_type(
                 let min = 2u128.pow(bit_count - 1);
                 let max = 2u128.pow(bit_count - 1) - 1;
 
-                let is_negative = value.is_negative();
-                let abs = value.absolute_value();
-
-                if (is_negative && abs > min.into()) || (!is_negative && abs > max.into()) {
+                if value > SignedField::positive(max) || value < SignedField::negative(min) {
                     return Some(TypeCheckError::IntegerLiteralDoesNotFitItsType {
                         expr: value,
                         ty: typ.clone(),
                         range: format!("-{min}..={max}"),
+                        location,
+                    });
+                }
+            }
+            // A `Field` literal must be a canonical element of `[0, p)`. The lexer no longer
+            // enforces this (the bound moved here so integer literals aren't field-capped), so
+            // reject out-of-field Field literals at type-check using the modulus directly. We
+            // deliberately do NOT route this through `integral_maximum_size()` (which returns
+            // `None` for Field as the field-arithmetic selector).
+            Type::FieldElement => {
+                let modulus = FieldElement::modulus();
+                if value >= SignedField::positive(modulus.clone()) {
+                    return Some(TypeCheckError::IntegerLiteralDoesNotFitItsType {
+                        expr: value,
+                        ty: typ.clone(),
+                        range: format!("0..{modulus}"),
                         location,
                     });
                 }

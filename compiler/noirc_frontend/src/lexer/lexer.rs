@@ -55,8 +55,16 @@ impl<'a> Lexer<'a> {
             done: false,
             skip_comments: true,
             skip_whitespaces: true,
-            max_integer: BigInt::from_biguint(num_bigint::Sign::Plus, FieldElement::modulus()) // cSpell:disable-line
-                - BigInt::one(),
+            // The literal's type is unknown at lex time, so we cap at the largest a legal
+            // literal could need: the max of the widest integer type (u128) and the field
+            // modulus. The precise per-type bound (uN < 2^N, Field < p) is enforced at
+            // type-check (see `check_integer_literal_fits_its_type`). On bn254 this equals
+            // `p - 1` (unchanged); on a sub-128-bit field it lets legal uN literals through.
+            max_integer: std::cmp::max(
+                BigInt::from(u128::MAX),
+                BigInt::from_biguint(num_bigint::Sign::Plus, FieldElement::modulus())
+                    - BigInt::one(), // cSpell:disable-line
+            ),
         }
     }
 

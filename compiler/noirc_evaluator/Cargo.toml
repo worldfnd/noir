@@ -52,3 +52,4 @@ noirc_frontend = { workspace = true, features = ["test_utils"] }
 [features]
 bn254 = ["noirc_frontend/bn254"]
 bls12_381 = []
+goldilocks = ["noirc_frontend/goldilocks"]

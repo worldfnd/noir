@@ -306,7 +306,7 @@ impl<'a> FunctionContext<'a> {
         value: SignedField,
         numeric_type: NumericType,
     ) -> Result<ValueId, RuntimeError> {
-        if let Some(range) = numeric_type.value_is_outside_limits(value) {
+        if let Some(range) = numeric_type.value_is_outside_limits(value.clone()) {
             let call_stack = self.builder.get_call_stack();
             return Err(RuntimeError::IntegerOutOfBounds {
                 value,

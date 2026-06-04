@@ -314,12 +314,23 @@ impl<W: Write> Interpreter<'_, W> {
                         "retrieving predicate in call to MultiScalarMul blackbox",
                     )?;
 
-                    let solver = bn254_blackbox_solver::Bn254BlackBoxSolver;
-                    let result =
-                        solver.multi_scalar_mul(&points, &scalars_lo, &scalars_hi, predicate);
-                    let (x, y, is_infinite) = result.map_err(Self::convert_error)?;
-                    let result = new_embedded_curve_point(x, y, is_infinite)?;
-                    Ok(vec![result])
+                    #[cfg(feature = "goldilocks")]
+                    {
+                        let _ = (&points, &scalars_lo, &scalars_hi, predicate);
+                        Err(InterpreterError::BlackBoxError {
+                            name: "multi_scalar_mul".to_string(),
+                            reason: "the chosen field has no embedded curve".to_string(),
+                        })
+                    }
+                    #[cfg(not(feature = "goldilocks"))]
+                    {
+                        let solver = bn254_blackbox_solver::Bn254BlackBoxSolver;
+                        let result =
+                            solver.multi_scalar_mul(&points, &scalars_lo, &scalars_hi, predicate);
+                        let (x, y, is_infinite) = result.map_err(Self::convert_error)?;
+                        let result = new_embedded_curve_point(x, y, is_infinite)?;
+                        Ok(vec![result])
+                    }
                 }
                 acvm::acir::BlackBoxFunc::Keccakf1600 => {
                     check_argument_count(args, 1, intrinsic)?;
@@ -345,41 +356,65 @@ impl<W: Write> Interpreter<'_, W> {
                 }
                 acvm::acir::BlackBoxFunc::EmbeddedCurveAdd => {
                     check_argument_count(args, 7, intrinsic)?;
-                    let solver = bn254_blackbox_solver::Bn254BlackBoxSolver;
-                    let lhs = (
-                        self.lookup_field(args[0], "call EmbeddedCurveAdd BlackBox")?,
-                        self.lookup_field(args[1], "call EmbeddedCurveAdd BlackBox")?,
-                        self.lookup_bool(args[2], "call EmbeddedCurveAdd BlackBox")?,
-                    );
-                    let rhs = (
-                        self.lookup_field(args[3], "call EmbeddedCurveAdd BlackBox")?,
-                        self.lookup_field(args[4], "call EmbeddedCurveAdd BlackBox")?,
-                        self.lookup_bool(args[5], "call EmbeddedCurveAdd BlackBox")?,
-                    );
-                    let predicate = self.lookup_bool(args[6], "call EmbeddedCurveAdd BlackBox")?;
-                    let result = solver.ec_add(
-                        &lhs.0,
-                        &lhs.1,
-                        &lhs.2.into(),
-                        &rhs.0,
-                        &rhs.1,
-                        &rhs.2.into(),
-                        predicate,
-                    );
-                    let (x, y, is_infinite) = result.map_err(Self::convert_error)?;
-                    let result = new_embedded_curve_point(x, y, is_infinite)?;
-                    Ok(vec![result])
+                    #[cfg(feature = "goldilocks")]
+                    {
+                        let _ = args;
+                        Err(InterpreterError::BlackBoxError {
+                            name: "embedded_curve_add".to_string(),
+                            reason: "the chosen field has no embedded curve".to_string(),
+                        })
+                    }
+                    #[cfg(not(feature = "goldilocks"))]
+                    {
+                        let solver = bn254_blackbox_solver::Bn254BlackBoxSolver;
+                        let lhs = (
+                            self.lookup_field(args[0], "call EmbeddedCurveAdd BlackBox")?,
+                            self.lookup_field(args[1], "call EmbeddedCurveAdd BlackBox")?,
+                            self.lookup_bool(args[2], "call EmbeddedCurveAdd BlackBox")?,
+                        );
+                        let rhs = (
+                            self.lookup_field(args[3], "call EmbeddedCurveAdd BlackBox")?,
+                            self.lookup_field(args[4], "call EmbeddedCurveAdd BlackBox")?,
+                            self.lookup_bool(args[5], "call EmbeddedCurveAdd BlackBox")?,
+                        );
+                        let predicate =
+                            self.lookup_bool(args[6], "call EmbeddedCurveAdd BlackBox")?;
+                        let result = solver.ec_add(
+                            &lhs.0,
+                            &lhs.1,
+                            &lhs.2.into(),
+                            &rhs.0,
+                            &rhs.1,
+                            &rhs.2.into(),
+                            predicate,
+                        );
+                        let (x, y, is_infinite) = result.map_err(Self::convert_error)?;
+                        let result = new_embedded_curve_point(x, y, is_infinite)?;
+                        Ok(vec![result])
+                    }
                 }
 
                 acvm::acir::BlackBoxFunc::Poseidon2Permutation => {
                     check_argument_count(args, 1, intrinsic)?;
                     let inputs = self
                         .lookup_vec_field(args[0], "call Poseidon2Permutation BlackBox (inputs)")?;
-                    let solver = bn254_blackbox_solver::Bn254BlackBoxSolver;
-                    let result =
-                        solver.poseidon2_permutation(&inputs).map_err(Self::convert_error)?;
-                    let result = Value::array_from_iter(result, NumericType::NativeField)?;
-                    Ok(vec![result])
+                    #[cfg(feature = "goldilocks")]
+                    {
+                        let _ = inputs;
+                        Err(InterpreterError::BlackBoxError {
+                            name: "poseidon2_permutation".to_string(),
+                            reason: "no bn254-independent implementation for the chosen field"
+                                .to_string(),
+                        })
+                    }
+                    #[cfg(not(feature = "goldilocks"))]
+                    {
+                        let solver = bn254_blackbox_solver::Bn254BlackBoxSolver;
+                        let result =
+                            solver.poseidon2_permutation(&inputs).map_err(Self::convert_error)?;
+                        let result = Value::array_from_iter(result, NumericType::NativeField)?;
+                        Ok(vec![result])
+                    }
                 }
                 acvm::acir::BlackBoxFunc::Sha256Compression => {
                     check_argument_count(args, 2, intrinsic)?;

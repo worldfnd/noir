@@ -28,6 +28,9 @@ mod intrinsics;
 pub(crate) mod tests;
 pub mod value;
 
+#[cfg(test)]
+mod goldilocks_validation;
+
 use value::Value;
 
 /// Maximum number of recursive calls allowed at comptime.

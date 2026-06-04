@@ -45,4 +45,5 @@ insta.workspace = true
 [features]
 bn254 = []
 bls12_381 = []
+goldilocks = ["acvm/goldilocks"]
 test_utils = []
