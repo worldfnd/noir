@@ -2317,10 +2317,10 @@ mod tests {
     /// The parser in this case recovers by filling in extra integers in place of these errors.
     #[test]
     fn only_one_error_on_array_with_too_large_integers() {
-        // The fifth integer here should overflow bn254
+        // The fifth integer here exceeds the coarse, field-independent lexer ceiling (2^256 - 1)
         let src = "
-            @[0, 1, 23, 3444, 21888242871839275222246405745257275088548364400416034343698204186575808495617, 43, 2, 32, 4]
-                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            @[0, 1, 23, 3444, 218882428718392752222464057452572750885483644004160343436982041865758084956179, 43, 2, 32, 4]
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
         ";
         let (src, span) = get_source_with_error_span(src);
         let mut parser = Parser::for_str_with_dummy_file(&src);

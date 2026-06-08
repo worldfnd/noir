@@ -7,7 +7,6 @@ use super::{
     },
 };
 use crate::signed_field::SignedField;
-use acvm::{AcirField, FieldElement};
 use fm::FileId;
 use noirc_errors::{Location, Position, Span};
 use num_bigint::BigInt;
@@ -55,16 +54,15 @@ impl<'a> Lexer<'a> {
             done: false,
             skip_comments: true,
             skip_whitespaces: true,
-            // The literal's type is unknown at lex time, so we cap at the largest a legal
-            // literal could need: the max of the widest integer type (u128) and the field
-            // modulus. The precise per-type bound (uN < 2^N, Field < p) is enforced at
-            // type-check (see `check_integer_literal_fits_its_type`). On bn254 this equals
-            // `p - 1` (unchanged); on a sub-128-bit field it lets legal uN literals through.
-            max_integer: std::cmp::max(
-                BigInt::from(u128::MAX),
-                BigInt::from_biguint(num_bigint::Sign::Plus, FieldElement::modulus())
-                    - BigInt::one(), // cSpell:disable-line
-            ),
+            // The literal's type is unknown at lex time, so this is only a coarse,
+            // field-INDEPENDENT sanity ceiling against absurd literals. The precise per-type
+            // bound (uN < 2^N, Field < selected p) is enforced at type-check (see
+            // `check_integer_literal_fits_its_type`). It must not depend on the build's field:
+            // a build targeting a small field (e.g. Goldilocks) still has to lex the large
+            // constants inside `#[field(bn254)]`-gated code, which def-collection then discards
+            // for the wrong field. 2^256 - 1 covers every integer type and every field modulus
+            // Noir supports.
+            max_integer: (BigInt::one() << 256) - BigInt::one(),
         }
     }
 
@@ -1032,8 +1030,9 @@ mod tests {
 
     #[test]
     fn test_int_too_large() {
-        let modulus = FieldElement::modulus();
-        let input = modulus.to_string();
+        // The coarse lex ceiling is field-independent (2^256 - 1); 2^256 is the smallest
+        // literal that exceeds it. Per-type/field bounds are checked later, at type-check.
+        let input = BigInt::from(2u32).pow(256).to_string();
 
         let mut lexer = Lexer::new_with_dummy_file(&input);
         let token = lexer.next_token();

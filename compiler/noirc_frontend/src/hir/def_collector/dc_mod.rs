@@ -158,6 +158,20 @@ impl ModCollector<'_> {
     ) -> Vec<CompilationError> {
         let mut errors = vec![];
         for (global, visibility) in globals {
+            // Skip globals gated to a different field (mirrors the `#[field(..)]` gate in
+            // `collect_function`): a `#[field(bn254)]` global must not be collected or
+            // type-checked when building for a different field, so its field-specific
+            // constants never reach the per-field literal bound.
+            let field_attribute = global.item.attributes.iter().find_map(|attr| match &attr.kind {
+                SecondaryAttributeKind::Field(field) => Some(field.to_lowercase()),
+                _ => None,
+            });
+            if let Some(field) = field_attribute
+                && !is_native_field(&field)
+            {
+                continue;
+            }
+
             let (global, error) = collect_global(
                 &mut context.def_interner,
                 &mut self.def_collector.def_map,
@@ -1507,7 +1521,9 @@ fn should_check_siblings_for_module(module_path: &Path, parent_path: &Path) -> b
 }
 
 cfg_if::cfg_if! {
-    if #[cfg(feature = "bls12_381")] {
+    if #[cfg(feature = "goldilocks")] {
+        pub const CHOSEN_FIELD: &str = "goldilocks";
+    } else if #[cfg(feature = "bls12_381")] {
         pub const CHOSEN_FIELD: &str = "bls12_381";
     } else {
         pub const CHOSEN_FIELD: &str = "bn254";
