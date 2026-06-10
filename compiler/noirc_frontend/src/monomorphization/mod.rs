@@ -78,7 +78,7 @@ use num_bigint::BigInt;
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 use std::rc::Rc;
 use std::{
-    collections::{BTreeMap, VecDeque},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     unreachable,
 };
 
@@ -175,6 +175,15 @@ pub struct Monomorphizer<'interner> {
     /// Note that this also changes the first-class function representation
     /// from a pair of `(constrained, unconstrained)` to `(unconstrained, unconstrained)`
     force_unconstrained: bool,
+
+    /// Source files of every function, global, trait constant, and trait-impl associated
+    /// constant that was monomorphized into the program. Lets callers that tolerate elaboration
+    /// errors in some files (e.g. a field-specific stdlib that does not type-check under another
+    /// field) verify, after the fact, that none of those files contributed code or inlined
+    /// constants to the monomorphized program. Not covered: values folded during *elaboration*
+    /// (e.g. a dependency global used as an array length, comptime evaluation) — those leave no
+    /// monomorphization-time trace.
+    monomorphized_source_files: BTreeSet<fm::FileId>,
 }
 
 /// Using nested `HashMaps` here lets us avoid cloning `HirTypes` when calling `.get()`
@@ -300,6 +309,7 @@ impl<'interner> Monomorphizer<'interner> {
             debug_crate_id,
             in_unconstrained_function: force_unconstrained,
             force_unconstrained,
+            monomorphized_source_files: BTreeSet::new(),
         }
     }
 
@@ -371,6 +381,11 @@ impl<'interner> Monomorphizer<'interner> {
 
     pub fn return_location(&self) -> Option<Location> {
         self.return_location
+    }
+
+    /// Source files of every function and global monomorphized so far. See the field docs.
+    pub fn monomorphized_source_files(&self) -> &BTreeSet<fm::FileId> {
+        &self.monomorphized_source_files
     }
 
     pub fn interner(&self) -> &NodeInterner {
@@ -631,6 +646,8 @@ impl<'interner> Monomorphizer<'interner> {
         let meta_return_type = meta.return_type().clone();
         let return_type_location = meta.return_type.location();
         let return_visibility = meta.return_visibility;
+        let source_file = meta.location.file;
+        self.monomorphized_source_files.insert(source_file);
 
         let modifiers = self.interner.function_modifiers(&f);
         let name = self.interner.function_name(&f).to_owned();
@@ -1559,8 +1576,18 @@ impl<'interner> Monomorphizer<'interner> {
             }
             DefinitionKind::AssociatedConstant(trait_impl_id, name) => {
                 let location = ident.location;
-                let assoc_typ = self.interner.find_associated_type_for_impl(*trait_impl_id, name);
-                let assoc_typ = assoc_typ.expect("Expected to find associated type");
+                let (assoc_typ, associated_type_file) = {
+                    let associated_types =
+                        self.interner.get_associated_types_for_impl(*trait_impl_id);
+                    let associated_type = associated_types
+                        .iter()
+                        .find(|typ| typ.name.as_str() == name)
+                        .expect("Expected to find associated type");
+                    (associated_type.typ.clone(), associated_type.name.location().file)
+                };
+                // The constant's value is inlined as a literal; record its defining file so
+                // callers tracking `monomorphized_source_files` see this value channel too.
+                self.monomorphized_source_files.insert(associated_type_file);
                 match assoc_typ.evaluate_to_integer(&assoc_typ.kind(), location) {
                     Ok(value) => {
                         let typ = Self::convert_type(&typ, location)?;
@@ -1677,6 +1704,8 @@ impl<'interner> Monomorphizer<'interner> {
         typ: &HirType,
         location: Location,
     ) -> Result<ast::Expression, MonomorphizationError> {
+        let global_file = self.interner.get_global(global_id).location.file;
+        self.monomorphized_source_files.insert(global_file);
         let global = self.interner.get_global(global_id);
         let id = global.id;
         let global_location = global.location;
@@ -2187,6 +2216,9 @@ impl<'interner> Monomorphizer<'interner> {
             TraitItem::Method(func_id) => func_id,
             TraitItem::Constant { id, expected_type, value } => {
                 let location = self.interner.definition(id).location;
+                // The constant's value is inlined as a literal; record its defining file so
+                // callers tracking `monomorphized_source_files` see this value channel too.
+                self.monomorphized_source_files.insert(location.file);
                 let expr_type = self.interner.id_type(expr_id);
                 return self.numeric_generic(value, &expected_type, expr_type, location);
             }
