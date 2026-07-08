@@ -6,27 +6,33 @@
 //! that has not yet undergone linking. This means any calls, to both external functions or procedures,
 //! and jumps are expected to be unresolved. Thus any call/jump is expected to still have a label of `0`.
 
+// Brillig execution goes through `Bn254BlackBoxSolver`, which only solves over the bn254
+// field, so the execution helpers and the tests that use them are excluded under Goldilocks.
+#[cfg(not(feature = "goldilocks"))]
 use acvm::{
     FieldElement,
     acir::brillig::Opcode as BrilligOpcode,
     brillig_vm::{VM, VMStatus},
 };
+#[cfg(not(feature = "goldilocks"))]
 use bn254_blackbox_solver::Bn254BlackBoxSolver;
 
+#[cfg(not(feature = "goldilocks"))]
+use crate::brillig::brillig_gen::{brillig_fn::FunctionContext, gen_brillig_for};
 use crate::{
-    brillig::{
-        Brillig, BrilligOptions,
-        brillig_gen::{brillig_fn::FunctionContext, gen_brillig_for},
-    },
+    brillig::{Brillig, BrilligOptions},
     ssa::ssa_gen::Ssa,
 };
 
 mod binary;
 mod black_box;
 mod call;
+#[cfg(not(feature = "goldilocks"))]
 mod coalescing;
 mod memory;
+#[cfg(not(feature = "goldilocks"))]
 mod spill;
+#[cfg(not(feature = "goldilocks"))]
 mod truncate;
 
 pub(crate) fn ssa_to_brillig_artifacts(src: &str) -> Brillig {
@@ -43,6 +49,7 @@ pub(crate) fn ssa_to_brillig_artifacts_with_options(
 
 /// Compile SSA source to a fully linked entry point and execute it with the given calldata.
 /// Returns the return data from the VM.
+#[cfg(not(feature = "goldilocks"))]
 pub(crate) fn execute_brillig_from_ssa(
     src: &str,
     calldata: Vec<FieldElement>,
@@ -50,6 +57,7 @@ pub(crate) fn execute_brillig_from_ssa(
     execute_brillig_from_ssa_with_options(src, calldata, &BrilligOptions::default())
 }
 
+#[cfg(not(feature = "goldilocks"))]
 pub(crate) fn execute_brillig_from_ssa_with_options(
     src: &str,
     calldata: Vec<FieldElement>,
@@ -70,6 +78,7 @@ pub(crate) fn execute_brillig_from_ssa_with_options(
     execute_bytecode(&generated.byte_code, calldata)
 }
 
+#[cfg(not(feature = "goldilocks"))]
 fn execute_bytecode(
     byte_code: &[BrilligOpcode<FieldElement>],
     calldata: Vec<FieldElement>,

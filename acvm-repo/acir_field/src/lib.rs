@@ -6,6 +6,11 @@ mod generic_ark;
 #[cfg(feature = "goldilocks")]
 mod goldilocks;
 
+// `ark_bn254` backs only the default field selection below; when the Goldilocks field is
+// chosen it is otherwise unreferenced, so keep the dependency edge alive for the crate lint.
+#[cfg(feature = "goldilocks")]
+use ark_bn254 as _;
+
 pub use generic_ark::AcirField;
 
 /// Temporarily exported generic field to aid migration to `AcirField`

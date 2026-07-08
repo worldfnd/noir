@@ -1,6 +1,10 @@
 #![forbid(unsafe_code)]
 #![warn(unused_crate_dependencies, unused_extern_crates)]
 
+// Under Goldilocks every use of the bn254 blackbox solver is compiled out.
+#[cfg(feature = "goldilocks")]
+use bn254_blackbox_solver as _;
+
 pub mod errors;
 
 pub mod acir;

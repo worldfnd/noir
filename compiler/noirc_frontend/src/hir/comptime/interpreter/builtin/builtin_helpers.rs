@@ -198,6 +198,9 @@ pub(crate) fn get_array(
 
 /// Get the fields if the value is a `Value::Struct`, otherwise report that a struct type
 /// with `name` is expected. Returns the `Type` but doesn't verify that it's called `name`.
+// Currently only reached from the bn254 embedded-curve intrinsics, which are unavailable
+// under Goldilocks.
+#[cfg_attr(feature = "goldilocks", allow(dead_code))]
 pub(crate) fn get_struct_fields(
     name: &str,
     (value, location): (Value, Location),
@@ -212,6 +215,7 @@ pub(crate) fn get_struct_fields(
 }
 
 /// Get a specific field of a struct and apply a decoder function on it.
+#[cfg_attr(feature = "goldilocks", allow(dead_code))]
 pub(crate) fn get_struct_field<T>(
     field_name: &str,
     struct_fields: &HashMap<Rc<String>, Shared<Value>>,
@@ -863,6 +867,7 @@ pub(crate) fn to_byte_array(values: &[u8]) -> Value {
 }
 
 /// Create a `Value::Struct` from fields and the expected return type.
+#[cfg_attr(feature = "goldilocks", allow(dead_code))]
 pub(crate) fn to_struct(
     fields: impl IntoIterator<Item = (&'static str, Value)>,
     typ: Type,

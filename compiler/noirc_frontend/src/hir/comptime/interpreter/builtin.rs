@@ -3272,6 +3272,20 @@ fn ctstring_append(arguments: Vec<(Value, Location)>, location: Location) -> IRe
     Ok(Value::CtString(Rc::new(bytes)))
 }
 
+#[cfg(feature = "goldilocks")]
+fn derive_generators(
+    arguments: Vec<(Value, Location)>,
+    return_type: Type,
+    location: Location,
+) -> IResult<Value> {
+    let _ = (arguments, return_type);
+    Err(InterpreterError::Unimplemented {
+        item: "derive_pedersen_generators: the chosen field has no embedded curve".to_string(),
+        location,
+    })
+}
+
+#[cfg(not(feature = "goldilocks"))]
 fn derive_generators(
     arguments: Vec<(Value, Location)>,
     return_type: Type,

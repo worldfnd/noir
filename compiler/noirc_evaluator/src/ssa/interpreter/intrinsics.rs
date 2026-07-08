@@ -1,6 +1,11 @@
 use std::{hash::BuildHasher, io::Write};
 
-use acvm::{AcirField, BlackBoxFunctionSolver, BlackBoxResolutionError, FieldElement};
+use acvm::{AcirField, BlackBoxResolutionError, FieldElement};
+// The blackbox solver trait is only in scope for the bn254-backed intrinsic implementations,
+// which are compiled out under Goldilocks.
+#[cfg(not(feature = "goldilocks"))]
+use acvm::BlackBoxFunctionSolver;
+#[cfg(not(feature = "goldilocks"))]
 use bn254_blackbox_solver::derive_generators;
 use iter_extended::{try_vecmap, vecmap};
 use noirc_printable_type::{PrintableType, PrintableValueDisplay, decode_printable_value};
@@ -461,22 +466,33 @@ impl<W: Write> Interpreter<'_, W> {
                     }));
                 };
 
-                let generators = derive_generators(&inputs, n.0, index);
-                let mut result = Vec::with_capacity(inputs.len());
-                for generator in &generators {
-                    let x = FieldElement::from_repr(generator.x);
-                    let y = FieldElement::from_repr(generator.y);
-                    result.push(Value::from_constant(x, NumericType::NativeField)?);
-                    result.push(Value::from_constant(y, NumericType::NativeField)?);
+                #[cfg(feature = "goldilocks")]
+                {
+                    let _ = (inputs, index, n);
+                    Err(InterpreterError::BlackBoxError {
+                        name: "derive_pedersen_generators".to_string(),
+                        reason: "the chosen field has no embedded curve".to_string(),
+                    })
                 }
-                let results = Value::array(
-                    result,
-                    vec![
-                        Type::Numeric(NumericType::NativeField),
-                        Type::Numeric(NumericType::NativeField),
-                    ],
-                );
-                Ok(vec![results])
+                #[cfg(not(feature = "goldilocks"))]
+                {
+                    let generators = derive_generators(&inputs, n.0, index);
+                    let mut result = Vec::with_capacity(inputs.len());
+                    for generator in &generators {
+                        let x = FieldElement::from_repr(generator.x);
+                        let y = FieldElement::from_repr(generator.y);
+                        result.push(Value::from_constant(x, NumericType::NativeField)?);
+                        result.push(Value::from_constant(y, NumericType::NativeField)?);
+                    }
+                    let results = Value::array(
+                        result,
+                        vec![
+                            Type::Numeric(NumericType::NativeField),
+                            Type::Numeric(NumericType::NativeField),
+                        ],
+                    );
+                    Ok(vec![results])
+                }
             }
             Intrinsic::FieldLessThan => {
                 if !self.in_unconstrained_context() {
@@ -851,6 +867,7 @@ fn check_vector_can_pop_all_element_types(vector_id: ValueId, vector: &ArrayValu
     }
 }
 
+#[cfg_attr(feature = "goldilocks", allow(dead_code))]
 fn new_embedded_curve_point(x: FieldElement, y: FieldElement) -> IResult<Value> {
     let x = Value::from_constant(x, NumericType::NativeField)?;
     let y = Value::from_constant(y, NumericType::NativeField)?;

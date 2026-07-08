@@ -9,10 +9,11 @@
 //! 2. **Execution level (Noir's own SSA downstream).** Lowering to SSA runs the always-on
 //!    verifier `validate_ssa` (structural) and the SSA interpreter checks `assert`s
 //!    (semantic). BUT Noir represents integers as field elements in the circuit:
-//!    `checked_numeric_constant` reduces every integer constant through `absolute_value()`
-//!    before it reaches the interpreter. So this oracle is faithful only for **in-field**
-//!    values (`< p`); machine integers `>= p` are reduced by Noir's SSA (Mavros, which
-//!    lowers integers natively, is unaffected). See `beyond_field_integer_reduced_by_noir_ssa`.
+//!    `bigint_to_field` lowers every integer constant into the build's field, reducing it
+//!    mod `p`. So this oracle is faithful only for **in-field** values (`< p`); a machine
+//!    integer `>= p` reduces to a field element that no longer fits its integer type, so SSA
+//!    generation rejects it (Mavros, which lowers integers natively, is unaffected). See
+//!    `beyond_field_integer_reduced_by_noir_ssa`.
 #![cfg(test)]
 
 use crate::ssa::ssa_gen::generate_ssa;
@@ -47,9 +48,10 @@ fn mono_ast_carries_beyond_field_integer_exactly() {
 }
 
 /// Decisive probe for whether Noir's *execution* path keeps machine integers native.
-/// `v1 = p-1`, `v2 = p+1`: native u64 has `v1 < v2`; reduced mod Goldilocks p, `v2` becomes
-/// `1`, so `v1 < v2` is false. Documents that Noir's SSA reduces beyond-field integers
-/// (constant lowered via `absolute_value()`), independent of the mono AST. Mavros is unaffected.
+/// `v1 = p-1` and `v2 = p+1` are distinct native u64s, but lowering to the Goldilocks field
+/// reduces them mod `p` (`p-1` becomes the field element `-1`), which no longer fits `u64`, so
+/// SSA generation rejects the program. Documents that Noir's SSA does not preserve beyond-field
+/// integers, independent of the mono AST. Mavros is unaffected.
 #[test]
 fn beyond_field_integer_reduced_by_noir_ssa() {
     let src = "fn main() {
@@ -62,7 +64,8 @@ fn beyond_field_integer_reduced_by_noir_ssa() {
     #[cfg(feature = "goldilocks")]
     assert!(
         result.is_err(),
-        "expected Noir's SSA to reduce p+1 -> 1 (so v1<v2 is false); got {result:?}"
+        "expected Noir's SSA to reject the beyond-field u64 constants \
+         (reduced mod p, they no longer fit u64); got {result:?}"
     );
     #[cfg(not(feature = "goldilocks"))]
     result.unwrap();

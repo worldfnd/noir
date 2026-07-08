@@ -10,7 +10,7 @@ use ark_ff::fields::{Fp64, MontBackend, MontConfig};
 #[generator = "7"]
 pub struct GoldilocksConfig;
 
-pub type Goldilocks = Fp64<MontBackend<GoldilocksConfig, 1>>;
+pub(crate) type Goldilocks = Fp64<MontBackend<GoldilocksConfig, 1>>;
 
 #[cfg(test)]
 mod tests {

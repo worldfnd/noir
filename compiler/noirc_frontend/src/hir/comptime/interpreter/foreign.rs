@@ -1,7 +1,12 @@
 //! The foreign function counterpart to `interpreter/builtin.rs`, defines how to call
 //! all foreign functions available to the interpreter.
+// The blackbox solver and its bn254 backend only back the embedded-curve/hash intrinsics,
+// which fall back to errors under Goldilocks, leaving these imports unused there.
+#[cfg_attr(feature = "goldilocks", allow(unused_imports))]
 use acvm::{BlackBoxResolutionError, FieldElement, blackbox_solver::BlackBoxFunctionSolver};
+#[cfg_attr(feature = "goldilocks", allow(unused_imports))]
 use bn254_blackbox_solver::Bn254BlackBoxSolver; // Currently locked to only bn254!
+#[cfg_attr(feature = "goldilocks", allow(unused_imports))]
 use im::{Vector, vector};
 use noirc_errors::Location;
 
@@ -347,6 +352,7 @@ fn sha256_compression(arguments: Vec<(Value, Location)>, location: Location) -> 
 /// Decode an `EmbeddedCurvePoint` struct.
 ///
 /// Returns `(x, y)`.
+#[cfg_attr(feature = "goldilocks", allow(dead_code))]
 fn get_embedded_curve_point(
     (value, location): (Value, Location),
 ) -> IResult<(FieldElement, FieldElement)> {
@@ -359,6 +365,7 @@ fn get_embedded_curve_point(
 /// Decode an `EmbeddedCurveScalar` struct.
 ///
 /// Returns `(lo, hi)`.
+#[cfg_attr(feature = "goldilocks", allow(dead_code))]
 fn get_embedded_curve_scalar(
     (value, location): (Value, Location),
 ) -> IResult<(FieldElement, FieldElement)> {
@@ -368,6 +375,7 @@ fn get_embedded_curve_scalar(
     Ok((lo, hi))
 }
 
+#[cfg_attr(feature = "goldilocks", allow(dead_code))]
 fn to_embedded_curve_point(x: FieldElement, y: FieldElement, typ: Type) -> Value {
     to_struct([("x", Value::field(x)), ("y", Value::field(y))], typ)
 }
