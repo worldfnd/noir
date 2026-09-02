@@ -1,0 +1,63 @@
+name: Goldilocks
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches:
+      - master
+      - provekit-v2
+
+permissions: {}
+
+# This will cancel previous runs when a branch or PR is updated
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  goldilocks:
+    name: Goldilocks build and tests
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup toolchain
+        uses: dtolnay/rust-toolchain@1.89.0
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: x86_64-unknown-linux-gnu-goldilocks
+          cache-on-failure: true
+          save-if: ${{ github.event_name != 'merge_group' }}
+
+      - name: Install nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: nextest@0.9.88
+
+      # The field is selected at build time, so this is the only build of the
+      # goldilocks variant of the frontend and evaluator. `noirc_driver` fans
+      # the feature into every crate below it; nothing else in the workspace is
+      # built here because `nargo_cli` and the wasm crates hard-enable `bn254`.
+      - name: Build the goldilocks variant
+        run: cargo build -p noirc_driver --features goldilocks --locked
+        env:
+          RUSTFLAGS: "-Dwarnings"
+
+      # Only the goldilocks-specific test modules run under the feature. The
+      # default suite is bn254-only in places and is not expected to pass here.
+      - name: Run the goldilocks test modules
+        run: |
+          cargo nextest run --locked --features goldilocks \
+            -p acir_field -p noirc_evaluator \
+            -E 'package(acir_field) | test(goldilocks_validation)'
+        env:
+          RUSTFLAGS: "-Dwarnings"
