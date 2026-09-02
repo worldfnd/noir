@@ -30,7 +30,7 @@ pub(crate) fn try_bigint_to_field(value: &BigInt) -> Option<FieldElement> {
     Some(if value.sign() == Sign::Minus { -field } else { field })
 }
 
-/// Converts a `BigInt` to a `FieldElement`, like [try_bigint_to_field], for values which
+/// Converts a `BigInt` to a `FieldElement`, like `try_bigint_to_field`, for values which
 /// are known to be canonical (with a magnitude less than the field modulus).
 ///
 /// Panics if the value is not canonical: a non-canonical value here is a compiler bug,

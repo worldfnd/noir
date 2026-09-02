@@ -617,7 +617,7 @@ pub(crate) fn check_integer_literal_fits_its_type(
                 if value >= BigInt::from(modulus.clone()) {
                     return Some(TypeCheckError::IntegerLiteralDoesNotFitItsType {
                         expr: value,
-                        ty: typ.clone(),
+                        ty: typ,
                         range: format!("0..{modulus}"),
                         location,
                     });
