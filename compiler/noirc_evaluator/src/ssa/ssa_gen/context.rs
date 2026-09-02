@@ -337,7 +337,7 @@ impl<'a> FunctionContext<'a> {
         mut value: FieldElement,
         numeric_type: NumericType,
     ) -> Result<ValueId, RuntimeError> {
-        if let Some(range) = numeric_type.value_is_outside_limits(value.clone()) {
+        if let Some(range) = numeric_type.value_is_outside_limits(value) {
             let call_stack = self.builder.get_call_stack();
             return Err(RuntimeError::IntegerOutOfBounds {
                 value,

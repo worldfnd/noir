@@ -14,7 +14,6 @@
 //!    integer `>= p` reduces to a field element that no longer fits its integer type, so SSA
 //!    generation rejects it (Mavros, which lowers integers natively, is unaffected). See
 //!    `beyond_field_integer_reduced_by_noir_ssa`.
-#![cfg(test)]
 
 use crate::ssa::ssa_gen::generate_ssa;
 use noirc_frontend::test_utils::get_monomorphized;
