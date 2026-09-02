@@ -1,7 +1,12 @@
 //! The foreign function counterpart to `interpreter/builtin.rs`, defines how to call
 //! all foreign functions available to the interpreter.
+// The blackbox solver and its bn254 backend only back the embedded-curve/hash intrinsics,
+// which fall back to errors under Goldilocks, leaving these imports unused there.
+#[cfg_attr(feature = "goldilocks", allow(unused_imports))]
 use acvm::{BlackBoxResolutionError, FieldElement, blackbox_solver::BlackBoxFunctionSolver};
+#[cfg_attr(feature = "goldilocks", allow(unused_imports))]
 use bn254_blackbox_solver::Bn254BlackBoxSolver; // Currently locked to only bn254!
+#[cfg_attr(feature = "goldilocks", allow(unused_imports))]
 use im::{Vector, vector};
 use noirc_errors::Location;
 
@@ -184,6 +189,20 @@ fn ecdsa_secp256_verify(
 ///     point2: EmbeddedCurvePoint,
 /// ) -> [EmbeddedCurvePoint; 1]
 /// ```
+#[cfg(feature = "goldilocks")]
+fn embedded_curve_add(
+    arguments: Vec<(Value, Location)>,
+    return_type: Type,
+    location: Location,
+) -> IResult<Value> {
+    let _ = (arguments, return_type);
+    Err(InterpreterError::Unimplemented {
+        item: "embedded_curve_add: the chosen field has no embedded curve".to_string(),
+        location,
+    })
+}
+
+#[cfg(not(feature = "goldilocks"))]
 fn embedded_curve_add(
     arguments: Vec<(Value, Location)>,
     return_type: Type,
@@ -214,6 +233,20 @@ fn embedded_curve_add(
 ///     predicate: bool,
 /// ) -> [EmbeddedCurvePoint; 1]
 /// ```
+#[cfg(feature = "goldilocks")]
+fn multi_scalar_mul(
+    arguments: Vec<(Value, Location)>,
+    return_type: Type,
+    location: Location,
+) -> IResult<Value> {
+    let _ = (arguments, return_type);
+    Err(InterpreterError::Unimplemented {
+        item: "multi_scalar_mul: the chosen field has no embedded curve".to_string(),
+        location,
+    })
+}
+
+#[cfg(not(feature = "goldilocks"))]
 fn multi_scalar_mul(
     arguments: Vec<(Value, Location)>,
     return_type: Type,
@@ -257,6 +290,17 @@ fn multi_scalar_mul(
 }
 
 /// `poseidon2_permutation<let N: u32>(_input: [Field; N], _state_length: u32) -> [Field; N]`
+#[cfg(feature = "goldilocks")]
+fn poseidon2_permutation(arguments: Vec<(Value, Location)>, location: Location) -> IResult<Value> {
+    let _ = arguments;
+    Err(InterpreterError::Unimplemented {
+        item: "poseidon2_permutation: no bn254-independent implementation for the chosen field"
+            .to_string(),
+        location,
+    })
+}
+
+#[cfg(not(feature = "goldilocks"))]
 fn poseidon2_permutation(arguments: Vec<(Value, Location)>, location: Location) -> IResult<Value> {
     let input = check_one_argument(arguments, location)?;
 
@@ -308,6 +352,7 @@ fn sha256_compression(arguments: Vec<(Value, Location)>, location: Location) -> 
 /// Decode an `EmbeddedCurvePoint` struct.
 ///
 /// Returns `(x, y)`.
+#[cfg_attr(feature = "goldilocks", allow(dead_code))]
 fn get_embedded_curve_point(
     (value, location): (Value, Location),
 ) -> IResult<(FieldElement, FieldElement)> {
@@ -320,6 +365,7 @@ fn get_embedded_curve_point(
 /// Decode an `EmbeddedCurveScalar` struct.
 ///
 /// Returns `(lo, hi)`.
+#[cfg_attr(feature = "goldilocks", allow(dead_code))]
 fn get_embedded_curve_scalar(
     (value, location): (Value, Location),
 ) -> IResult<(FieldElement, FieldElement)> {
@@ -329,6 +375,7 @@ fn get_embedded_curve_scalar(
     Ok((lo, hi))
 }
 
+#[cfg_attr(feature = "goldilocks", allow(dead_code))]
 fn to_embedded_curve_point(x: FieldElement, y: FieldElement, typ: Type) -> Value {
     to_struct([("x", Value::field(x)), ("y", Value::field(y))], typ)
 }

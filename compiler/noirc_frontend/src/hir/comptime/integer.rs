@@ -30,12 +30,12 @@ pub(crate) fn try_bigint_to_field(value: &BigInt) -> Option<FieldElement> {
     Some(if value.sign() == Sign::Minus { -field } else { field })
 }
 
-/// Converts a `BigInt` to a `FieldElement`, like [try_bigint_to_field], for values which
+/// Converts a `BigInt` to a `FieldElement`, like `try_bigint_to_field`, for values which
 /// are known to be canonical (with a magnitude less than the field modulus).
 ///
 /// Panics if the value is not canonical: a non-canonical value here is a compiler bug,
 /// since the lexer rejects literals which exceed the field modulus.
-pub(crate) fn bigint_to_field(value: &BigInt) -> FieldElement {
+pub fn bigint_to_field(value: &BigInt) -> FieldElement {
     try_bigint_to_field(value)
         .unwrap_or_else(|| panic!("ICE: value does not fit in the field: {value}"))
 }
@@ -43,7 +43,7 @@ pub(crate) fn bigint_to_field(value: &BigInt) -> FieldElement {
 /// Converts a `FieldElement` to a `BigInt`, choosing the sign which gives the shorter
 /// decimal representation, mirroring `FieldElement`'s `Display` impl. This keeps values
 /// which encode negative numbers via field negation displaying as negative numbers.
-pub(crate) fn field_to_signed_bigint(value: &FieldElement) -> BigInt {
+pub fn field_to_signed_bigint(value: &FieldElement) -> BigInt {
     let positive = field_to_bigint(value);
     let negated = field_to_bigint(&-*value);
     if negated.to_string().len() < positive.to_string().len() { -negated } else { positive }

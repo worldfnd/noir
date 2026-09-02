@@ -749,8 +749,11 @@ jobs:
   upload_critical_library_report:
     name: Upload critical library report
     needs: [external-repo-checks]
-    # We want this job to run even if one variation of the matrix in `external-repo-checks` fails
-    if: always()
+    # We want this job to run even if one variation of the matrix in `external-repo-checks` fails.
+    # Fork note: skipped outside noir-lang/noir. This job publishes the report to
+    # the gh-pages branch, which this fork does not maintain; the external-repo
+    # checks it depends on stay on, and the `End` job does not depend on this one.
+    if: always() && github.repository == 'noir-lang/noir'
     runs-on: ubuntu-22.04
     permissions:
       pull-requests: write

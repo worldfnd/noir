@@ -3,6 +3,13 @@
 
 mod field_element;
 mod generic_ark;
+#[cfg(feature = "goldilocks")]
+mod goldilocks;
+
+// `ark_bn254` backs only the default field selection below; when the Goldilocks field is
+// chosen it is otherwise unreferenced, so keep the dependency edge alive for the crate lint.
+#[cfg(feature = "goldilocks")]
+use ark_bn254 as _;
 
 pub use generic_ark::AcirField;
 
@@ -26,7 +33,9 @@ pub fn truncate_to<F: AcirField>(input: &F, bits: u32) -> F {
 }
 
 cfg_if::cfg_if! {
-    if #[cfg(feature = "bls12_381")] {
+    if #[cfg(feature = "goldilocks")] {
+        pub type FieldElement = field_element::FieldElement<goldilocks::Goldilocks>;
+    } else if #[cfg(feature = "bls12_381")] {
         pub type FieldElement = field_element::FieldElement<ark_bls12_381::Fr>;
     } else {
         pub type FieldElement = field_element::FieldElement<ark_bn254::Fr>;

@@ -11,6 +11,11 @@ permissions: {}
 jobs:
   rust_benchmarks:
     name: Rust Benchmarks
+    # Fork note: skipped outside noir-lang/noir. This job publishes ACVM benchmark
+    # results to the gh-pages branch, which this fork does not maintain, and the
+    # numbers describe the proving backend that the Mavros pipeline replaces; this
+    # fork's changes stop at the monomorphized AST.
+    if: github.repository == 'noir-lang/noir'
     runs-on: ubuntu-22.04
 
     timeout-minutes: 15
@@ -158,6 +163,11 @@ jobs:
 
   compare_gates_reports:
     name: Circuit sizes
+    # Fork note: skipped outside noir-lang/noir. This job compares circuit sizes
+    # against a base-branch baseline artifact that this fork never produces, and
+    # the numbers describe the proving backend that the Mavros pipeline replaces;
+    # this fork's changes stop at the monomorphized AST.
+    if: github.repository == 'noir-lang/noir'
     needs: [build-nargo]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -205,6 +215,11 @@ jobs:
 
   compare_brillig_bytecode_size_reports:
     name: Brillig bytecode sizes
+    # Fork note: skipped outside noir-lang/noir. This job compares brillig bytecode sizes
+    # against a base-branch baseline artifact that this fork never produces, and
+    # the numbers describe the proving backend that the Mavros pipeline replaces;
+    # this fork's changes stop at the monomorphized AST.
+    if: github.repository == 'noir-lang/noir'
     needs: [build-nargo]
     runs-on: ubuntu-22.04
     timeout-minutes: 20
@@ -259,6 +274,11 @@ jobs:
 
   compare_brillig_execution_reports:
     name: Brillig execution trace sizes
+    # Fork note: skipped outside noir-lang/noir. This job compares brillig execution trace sizes
+    # against a base-branch baseline artifact that this fork never produces, and
+    # the numbers describe the proving backend that the Mavros pipeline replaces;
+    # this fork's changes stop at the monomorphized AST.
+    if: github.repository == 'noir-lang/noir'
     needs: [build-nargo]
     runs-on: ubuntu-22.04
     timeout-minutes: 20
@@ -599,7 +619,10 @@ jobs:
     timeout-minutes: 5
     # We want this job to run even if one variation of the matrix in `external_repo_reports` fails
     # but only if there are benchmark projects to report on.
-    if: ${{ always() && needs.benchmark-projects-list.outputs.has_projects == 'true' }}
+    # Fork note: skipped outside noir-lang/noir. This job publishes the report to
+    # the gh-pages branch, which this fork does not maintain. The measuring job it
+    # depends on stays on: it covers the frontend, which this fork does change.
+    if: ${{ always() && github.repository == 'noir-lang/noir' && needs.benchmark-projects-list.outputs.has_projects == 'true' }}
     runs-on: ubuntu-22.04
     permissions:
       pull-requests: write
@@ -647,7 +670,10 @@ jobs:
     timeout-minutes: 5
     # We want this job to run even if one variation of the matrix in `external_repo_reports` fails
     # but only if there are benchmark projects to report on.
-    if: ${{ always() && needs.benchmark-projects-list.outputs.has_projects == 'true' }}
+    # Fork note: skipped outside noir-lang/noir. This job publishes the report to
+    # the gh-pages branch, which this fork does not maintain. The measuring job it
+    # depends on stays on: it covers the frontend, which this fork does change.
+    if: ${{ always() && github.repository == 'noir-lang/noir' && needs.benchmark-projects-list.outputs.has_projects == 'true' }}
     runs-on: ubuntu-22.04
     permissions:
       pull-requests: write
@@ -695,7 +721,10 @@ jobs:
     timeout-minutes: 5
     # We want this job to run even if one variation of the matrix in `external_repo_reports` fails
     # but only if there are benchmark projects to report on.
-    if: ${{ always() && needs.benchmark-projects-list.outputs.has_projects == 'true' }}
+    # Fork note: skipped outside noir-lang/noir. This job publishes the report to
+    # the gh-pages branch, which this fork does not maintain. The measuring job it
+    # depends on stays on: it covers the frontend, which this fork does change.
+    if: ${{ always() && github.repository == 'noir-lang/noir' && needs.benchmark-projects-list.outputs.has_projects == 'true' }}
     runs-on: ubuntu-22.04
     permissions:
       pull-requests: write
@@ -743,7 +772,10 @@ jobs:
     timeout-minutes: 5
     # We want this job to run even if one variation of the matrix in `external_repo_reports` fails
     # but only if there are benchmark projects to report on.
-    if: ${{ always() && needs.benchmark-projects-list.outputs.has_projects == 'true' }}
+    # Fork note: skipped outside noir-lang/noir. This job publishes the report to
+    # the gh-pages branch, which this fork does not maintain. The measuring job it
+    # depends on stays on: it covers the frontend, which this fork does change.
+    if: ${{ always() && github.repository == 'noir-lang/noir' && needs.benchmark-projects-list.outputs.has_projects == 'true' }}
     runs-on: ubuntu-22.04
     permissions:
       pull-requests: write
@@ -791,7 +823,10 @@ jobs:
     timeout-minutes: 5
     # We want this job to run even if one variation of the matrix in `external_repo_reports` fails
     # but only if there are benchmark projects to report on.
-    if: ${{ always() && needs.benchmark-projects-list.outputs.has_projects == 'true' }}
+    # Fork note: skipped outside noir-lang/noir. This job publishes the report to
+    # the gh-pages branch, which this fork does not maintain. The measuring job it
+    # depends on stays on: it covers the frontend, which this fork does change.
+    if: ${{ always() && github.repository == 'noir-lang/noir' && needs.benchmark-projects-list.outputs.has_projects == 'true' }}
     runs-on: ubuntu-22.04
     permissions:
       pull-requests: write
@@ -839,7 +874,10 @@ jobs:
     timeout-minutes: 5
     # We want this job to run even if one variation of the matrix in `external_repo_reports` fails
     # but only if there are benchmark projects to report on.
-    if: ${{ always() && needs.benchmark-projects-list.outputs.has_projects == 'true' }}
+    # Fork note: skipped outside noir-lang/noir. This job publishes the report to
+    # the gh-pages branch, which this fork does not maintain. The measuring job it
+    # depends on stays on: it covers the frontend, which this fork does change.
+    if: ${{ always() && github.repository == 'noir-lang/noir' && needs.benchmark-projects-list.outputs.has_projects == 'true' }}
     runs-on: ubuntu-22.04
     permissions:
       pull-requests: write
@@ -887,7 +925,10 @@ jobs:
     timeout-minutes: 5
     # We want this job to run even if one variation of the matrix in `external_repo_reports` fails
     # but only if there are benchmark projects to report on.
-    if: ${{ always() && needs.benchmark-projects-list.outputs.has_projects == 'true' }}
+    # Fork note: skipped outside noir-lang/noir. This job publishes the report to
+    # the gh-pages branch, which this fork does not maintain. The measuring job it
+    # depends on stays on: it covers the frontend, which this fork does change.
+    if: ${{ always() && github.repository == 'noir-lang/noir' && needs.benchmark-projects-list.outputs.has_projects == 'true' }}
     runs-on: ubuntu-22.04
     permissions:
       pull-requests: write
@@ -935,7 +976,10 @@ jobs:
     timeout-minutes: 5
     # We want this job to run even if one variation of the matrix in `external_repo_reports` fails
     # but only if there are benchmark projects to report on.
-    if: ${{ always() && needs.benchmark-projects-list.outputs.has_projects == 'true' }}
+    # Fork note: skipped outside noir-lang/noir. This job publishes the report to
+    # the gh-pages branch, which this fork does not maintain. The measuring job it
+    # depends on stays on: it covers the frontend, which this fork does change.
+    if: ${{ always() && github.repository == 'noir-lang/noir' && needs.benchmark-projects-list.outputs.has_projects == 'true' }}
     runs-on: ubuntu-22.04
     permissions:
       pull-requests: write
@@ -983,7 +1027,10 @@ jobs:
     timeout-minutes: 5
     # We want this job to run even if one variation of the matrix in `external_repo_memory_report` fails
     # but only if there are benchmark projects to report on.
-    if: ${{ always() && needs.benchmark-projects-list.outputs.has_projects == 'true' }}
+    # Fork note: skipped outside noir-lang/noir. This job publishes the report to
+    # the gh-pages branch, which this fork does not maintain. The measuring job it
+    # depends on stays on: it covers the frontend, which this fork does change.
+    if: ${{ always() && github.repository == 'noir-lang/noir' && needs.benchmark-projects-list.outputs.has_projects == 'true' }}
     runs-on: ubuntu-22.04
     permissions:
       pull-requests: write
@@ -1036,7 +1083,10 @@ jobs:
     timeout-minutes: 5
     # We want this job to run even if one variation of the matrix in `external_repo_memory_report` fails
     # but only if there are benchmark projects to report on.
-    if: ${{ always() && needs.benchmark-projects-list.outputs.has_projects == 'true' }}
+    # Fork note: skipped outside noir-lang/noir. This job publishes the report to
+    # the gh-pages branch, which this fork does not maintain. The measuring job it
+    # depends on stays on: it covers the frontend, which this fork does change.
+    if: ${{ always() && github.repository == 'noir-lang/noir' && needs.benchmark-projects-list.outputs.has_projects == 'true' }}
     runs-on: ubuntu-22.04
     permissions:
       pull-requests: write

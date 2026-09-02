@@ -8,6 +8,7 @@ use acvm::{
         brillig::lengths::{ElementTypesLength, SemanticLength, SemiFlattenedLength},
     },
 };
+#[cfg(not(feature = "goldilocks"))]
 use bn254_blackbox_solver::derive_generators;
 use iter_extended::vecmap;
 use num_bigint::BigUint;
@@ -984,6 +985,20 @@ fn array_is_constant(dfg: &DataFlowGraph, values: &im::Vector<ValueId>) -> bool 
     values.iter().all(|value| dfg.get_numeric_constant(*value).is_some())
 }
 
+/// The generators live on BN254's embedded curve, so under a field without one the call
+/// is never folded; it is left intact for the SSA interpreter to reject.
+#[cfg(feature = "goldilocks")]
+fn simplify_derive_generators(
+    dfg: &mut DataFlowGraph,
+    arguments: &[ValueId],
+    num_generators: u32,
+    block: BasicBlockId,
+    call_stack: CallStackId,
+) -> SimplifyResult {
+    let _ = (dfg, arguments, num_generators, block, call_stack);
+    SimplifyResult::None
+}
+
 /// Replaces a call to `derive_pedersen_generators` with the results of the computation.
 ///
 /// It only works if the arguments to the call are both constants, which means that the
@@ -992,6 +1007,7 @@ fn array_is_constant(dfg: &DataFlowGraph, values: &im::Vector<ValueId>) -> bool 
 /// which forces inlining after flattening.
 ///
 /// This intrinsic must not reach Brillig-gen.
+#[cfg(not(feature = "goldilocks"))]
 fn simplify_derive_generators(
     dfg: &mut DataFlowGraph,
     arguments: &[ValueId],
