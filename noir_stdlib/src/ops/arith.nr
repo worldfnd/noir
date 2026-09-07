@@ -343,12 +343,15 @@ impl WrappingAdd for u32 {
     }
 }
 
+// TODO: implement wrapping add/sub/mul for u64, u128 and i64 natively so they work on every field instead of gating them to bn254.
+#[field(bn254)]
 impl WrappingAdd for u64 {
     fn wrapping_add(self: u64, y: u64) -> u64 {
         wrapping_add_hlp(self, y)
     }
 }
 
+#[field(bn254)]
 impl WrappingAdd for u128 {
     fn wrapping_add(self: u128, y: u128) -> u128 {
         wrapping_add_hlp(self, y)
@@ -376,6 +379,7 @@ impl WrappingAdd for i32 {
     }
 }
 
+#[field(bn254)]
 impl WrappingAdd for i64 {
     fn wrapping_add(self: i64, y: i64) -> i64 {
         let x = self as u64;
@@ -411,11 +415,13 @@ impl WrappingSub for u32 {
         wrapping_sub_hlp(self, y) as u32
     }
 }
+#[field(bn254)]
 impl WrappingSub for u64 {
     fn wrapping_sub(self: u64, y: u64) -> u64 {
         wrapping_sub_hlp(self, y) as u64
     }
 }
+#[field(bn254)]
 impl WrappingSub for u128 {
     fn wrapping_sub(self: u128, y: u128) -> u128 {
         wrapping_sub_hlp(self, y) as u128
@@ -442,6 +448,7 @@ impl WrappingSub for i32 {
         x.wrapping_sub(y as u32) as i32
     }
 }
+#[field(bn254)]
 impl WrappingSub for i64 {
     fn wrapping_sub(self: i64, y: i64) -> i64 {
         let x = self as u64;
@@ -477,6 +484,7 @@ impl WrappingMul for u32 {
         wrapping_mul_hlp(self, y)
     }
 }
+#[field(bn254)]
 impl WrappingMul for u64 {
     fn wrapping_mul(self: u64, y: u64) -> u64 {
         wrapping_mul_hlp(self, y)
@@ -504,6 +512,7 @@ impl WrappingMul for i32 {
     }
 }
 
+#[field(bn254)]
 impl WrappingMul for i64 {
     fn wrapping_mul(self: i64, y: i64) -> i64 {
         let x = self as u64;
@@ -511,6 +520,7 @@ impl WrappingMul for i64 {
     }
 }
 
+#[field(bn254)]
 impl WrappingMul for u128 {
     fn wrapping_mul(self: u128, y: u128) -> u128 {
         wrapping_mul128_hlp(self, y)
@@ -546,8 +556,10 @@ where
     AsPrimitive::as_(x.as_() * y.as_())
 }
 
+#[field(bn254)]
 global two_pow_64: u128 = 0x10000000000000000;
 /// Splits a 128 bits number into two 64 bits limbs
+#[field(bn254)]
 unconstrained fn split64(x: u128) -> (u64, u64) {
     let lo = x as u64;
     let hi = (x / two_pow_64) as u64;
@@ -556,6 +568,7 @@ unconstrained fn split64(x: u128) -> (u64, u64) {
 
 /// Split a 128 bits number into two 64 bits limbs
 /// It will fail if the number is more than 128 bits
+#[field(bn254)]
 fn split_into_64_bit_limbs(x: u128) -> (u64, u64) {
     // Safety: the limbs are constrained below
     let (x_lo, x_hi) = unsafe { split64(x) };
@@ -891,6 +904,8 @@ mod tests {
 
     mod wrapping_arithmetic {
         use crate::ops::arith::{Add, Div, Mul, Neg, Sub, WrappingAdd, WrappingMul, WrappingSub};
+        // Wrapping arithmetic on `u64`, `u128` and `i64` is bn254-only.
+        #[field(bn254)]
         #[test]
         fn test_wrapping_add() {
             assert_eq(255u8.wrapping_add(1u8), 0u8);
@@ -935,6 +950,7 @@ mod tests {
             assert_eq(neg_two_hundred.wrapping_add(two), neg_one_ninety_eight);
         }
 
+        #[field(bn254)]
         #[test]
         fn test_wrapping_sub() {
             assert_eq(0u8.wrapping_sub(1u8), 255u8);
@@ -969,6 +985,7 @@ mod tests {
             assert_eq(forty_two.wrapping_sub(fifty_eight), neg_sixteen);
         }
 
+        #[field(bn254)]
         #[test]
         fn test_wrapping_mul() {
             let zero: u128 = 0;
@@ -1021,6 +1038,7 @@ mod tests {
         }
 
         // test wrapping operations is the same as the regular operations
+        #[field(bn254)]
         #[test]
         fn test_wrapping_vs_regular() {
             let u64_large = 0x123456789abcdef0u64;
@@ -1061,6 +1079,7 @@ mod tests {
 
     }
 
+    #[field(bn254)]
     mod split_functions {
 
         use crate::ops::arith::{split64, split_into_64_bit_limbs};
@@ -1100,9 +1119,7 @@ mod tests {
     }
 
     mod traits {
-        use crate::ops::arith::{
-            Add, Div, Mul, Neg, Rem, Sub, WrappingAdd, WrappingMul, WrappingSub,
-        };
+        use crate::ops::arith::{Add, Div, Mul, Neg, Rem, Sub};
 
         #[test]
         fn add() {
@@ -1181,49 +1198,55 @@ mod tests {
             assert_eq(3_i64.neg(), -3);
         }
 
-        #[test]
-        fn wrapping_add() {
-            assert_eq(255_u8.wrapping_add(2), 1);
-            assert_eq(65535_u16.wrapping_add(2), 1);
-            assert_eq(4294967295_u32.wrapping_add(2), 1);
-            assert_eq(18446744073709551615_u64.wrapping_add(2), 1);
-            assert_eq(340282366920938463463374607431768211455_u128.wrapping_add(2), 1);
-            assert_eq(127_i8.wrapping_add(2), -127);
-            assert_eq(32767_i16.wrapping_add(2), -32767);
-            assert_eq(2147483647_i32.wrapping_add(2), -2147483647);
-            assert_eq(9223372036854775807_i64.wrapping_add(2), -9223372036854775807);
-            assert_eq(1_Field.wrapping_add(2), 3);
-        }
+        // Wrapping arithmetic on `u64`, `u128` and `i64` is bn254-only.
+        #[field(bn254)]
+        mod wrapping {
+            use crate::ops::arith::{WrappingAdd, WrappingMul, WrappingSub};
 
-        #[test]
-        fn wrapping_sub() {
-            assert_eq(0_u8.wrapping_sub(1), 255);
-            assert_eq(0_u16.wrapping_sub(1), 65535);
-            assert_eq(0_u32.wrapping_sub(1), 4294967295);
-            assert_eq(0_u64.wrapping_sub(1), 18446744073709551615);
-            assert_eq(0_u128.wrapping_sub(1), 340282366920938463463374607431768211455);
-            assert_eq((-128_i8).wrapping_sub(1), 127);
-            assert_eq((-32768_i16).wrapping_sub(1), 32767);
-            assert_eq((-2147483648_i32).wrapping_sub(1), 2147483647);
-            assert_eq((-9223372036854775808_i64).wrapping_sub(1), 9223372036854775807);
-            assert_eq(3_Field.wrapping_sub(1), 2);
-        }
+            #[test]
+            fn wrapping_add() {
+                assert_eq(255_u8.wrapping_add(2), 1);
+                assert_eq(65535_u16.wrapping_add(2), 1);
+                assert_eq(4294967295_u32.wrapping_add(2), 1);
+                assert_eq(18446744073709551615_u64.wrapping_add(2), 1);
+                assert_eq(340282366920938463463374607431768211455_u128.wrapping_add(2), 1);
+                assert_eq(127_i8.wrapping_add(2), -127);
+                assert_eq(32767_i16.wrapping_add(2), -32767);
+                assert_eq(2147483647_i32.wrapping_add(2), -2147483647);
+                assert_eq(9223372036854775807_i64.wrapping_add(2), -9223372036854775807);
+                assert_eq(1_Field.wrapping_add(2), 3);
+            }
 
-        #[test]
-        fn wrapping_mul() {
-            assert_eq(255_u8.wrapping_mul(2), 254);
-            assert_eq(65535_u16.wrapping_mul(2), 65534);
-            assert_eq(4294967295_u32.wrapping_mul(2), 4294967294);
-            assert_eq(18446744073709551615_u64.wrapping_mul(2), 18446744073709551614);
-            assert_eq(
-                340282366920938463463374607431768211455_u128.wrapping_mul(2),
-                340282366920938463463374607431768211454,
-            );
-            assert_eq(127_i8.wrapping_mul(2), -2);
-            assert_eq(32767_i16.wrapping_mul(2), -2);
-            assert_eq(2147483647_i32.wrapping_mul(2), -2);
-            assert_eq(9223372036854775807_i64.wrapping_mul(2), -2);
-            assert_eq(2_Field.wrapping_mul(3), 6);
+            #[test]
+            fn wrapping_sub() {
+                assert_eq(0_u8.wrapping_sub(1), 255);
+                assert_eq(0_u16.wrapping_sub(1), 65535);
+                assert_eq(0_u32.wrapping_sub(1), 4294967295);
+                assert_eq(0_u64.wrapping_sub(1), 18446744073709551615);
+                assert_eq(0_u128.wrapping_sub(1), 340282366920938463463374607431768211455);
+                assert_eq((-128_i8).wrapping_sub(1), 127);
+                assert_eq((-32768_i16).wrapping_sub(1), 32767);
+                assert_eq((-2147483648_i32).wrapping_sub(1), 2147483647);
+                assert_eq((-9223372036854775808_i64).wrapping_sub(1), 9223372036854775807);
+                assert_eq(3_Field.wrapping_sub(1), 2);
+            }
+
+            #[test]
+            fn wrapping_mul() {
+                assert_eq(255_u8.wrapping_mul(2), 254);
+                assert_eq(65535_u16.wrapping_mul(2), 65534);
+                assert_eq(4294967295_u32.wrapping_mul(2), 4294967294);
+                assert_eq(18446744073709551615_u64.wrapping_mul(2), 18446744073709551614);
+                assert_eq(
+                    340282366920938463463374607431768211455_u128.wrapping_mul(2),
+                    340282366920938463463374607431768211454,
+                );
+                assert_eq(127_i8.wrapping_mul(2), -2);
+                assert_eq(32767_i16.wrapping_mul(2), -2);
+                assert_eq(2147483647_i32.wrapping_mul(2), -2);
+                assert_eq(9223372036854775807_i64.wrapping_mul(2), -2);
+                assert_eq(2_Field.wrapping_mul(3), 6);
+            }
         }
     }
 }

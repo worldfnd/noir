@@ -106,12 +106,15 @@ impl From<u32> for Field {
         value as Field
     }
 }
+// TODO: gate by width once #[field] has a width predicate; u64 and u128 can exceed a 64-bit p.
+#[field(bn254)]
 impl From<u64> for Field {
     fn from(value: u64) -> Field {
         value as Field
     }
 }
 
+#[field(bn254)]
 impl From<u128> for Field {
     fn from(value: u128) -> Field {
         value as Field
@@ -263,24 +266,36 @@ comptime fn generate_as_primitive_impls(_: FunctionDefinition) -> Quoted {
         }
     }
 
-    let u_types =
-        [quote { bool }, quote { u8 }, quote { u16 }, quote { u32 }, quote { u64 }, quote { u128 }];
+    let u_types: [(Quoted, u64); 6] = [
+        (quote { bool }, 1),
+        (quote { u8 }, 8),
+        (quote { u16 }, 16),
+        (quote { u32 }, 32),
+        (quote { u64 }, 64),
+        (quote { u128 }, 128),
+    ];
 
-    for type2 in u_types {
-        let body = quote { self as Field };
+    // `as Field` is defined only for types whose every value lies below the field modulus.
+    let field_bits = crate::field::modulus_num_bits();
+    for pair in u_types {
+        let (type2, bits) = pair;
+        if bits < field_bits {
+            let body = quote { self as Field };
 
-        impls = impls.push_back(
-            quote {
-                impl AsPrimitive<Field> for $type2 {
-                    fn as_(self) -> Field {
-                        $body
+            impls = impls.push_back(
+                quote {
+                    impl AsPrimitive<Field> for $type2 {
+                        fn as_(self) -> Field {
+                            $body
+                        }
                     }
-                }
-            },
-        );
+                },
+            );
+        }
     }
 
-    for type1 in u_types {
+    for pair in u_types {
+        let (type1, _) = pair;
         let body = if type1 == quote { bool } {
             quote { self != 0 }
         } else {
@@ -346,21 +361,27 @@ mod tests {
     #[test]
     fn from_unsigned_to_field() {
         comptime {
-            for source in @[
-                quote { u8 },
-                quote { u16 },
-                quote { u32 },
-                quote { u64 },
-                quote { u128 },
-            ] {
-                let src_zero = f"0_{source}".quoted_contents();
-                let src_value = f"123_{source}".quoted_contents();
-                unquote!(
-                    quote {
-                        assert_eq(Field::from($src_zero), 0);
-                        assert_eq(Field::from($src_value), 123);
-                    },
-                );
+            // `Field: From<T>` exists only for types whose every value lies below the modulus.
+            let field_bits = crate::field::modulus_num_bits();
+            let sources: [(Quoted, u64); 5] = [
+                (quote { u8 }, 8),
+                (quote { u16 }, 16),
+                (quote { u32 }, 32),
+                (quote { u64 }, 64),
+                (quote { u128 }, 128),
+            ];
+            for pair in sources {
+                let (source, bits) = pair;
+                if bits < field_bits {
+                    let src_zero = f"0_{source}".quoted_contents();
+                    let src_value = f"123_{source}".quoted_contents();
+                    unquote!(
+                        quote {
+                            assert_eq(Field::from($src_zero), 0);
+                            assert_eq(Field::from($src_value), 123);
+                        },
+                    );
+                }
             }
         }
     }
