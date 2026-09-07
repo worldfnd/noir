@@ -10,7 +10,6 @@ on:
 
 permissions: {}
 
-# This will cancel previous runs when a branch or PR is updated
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref || github.run_id }}
   cancel-in-progress: true
@@ -43,21 +42,17 @@ jobs:
         with:
           tool: nextest@0.9.88
 
-      # The field is selected at build time, so this is the only build of the
-      # goldilocks variant of the frontend and evaluator. `noirc_driver` fans
-      # the feature into every crate below it; nothing else in the workspace is
-      # built here because `nargo_cli` and the wasm crates hard-enable `bn254`.
+      # TODO: drop the feature flag once the field is picked at runtime via FieldConfig and move the frontend/comptime tests to the default build. nargo_cli and wasm hard-enable bn254, so this stays noirc_driver-only.
       - name: Build the goldilocks variant
         run: cargo build -p noirc_driver --features goldilocks --locked
         env:
           RUSTFLAGS: "-Dwarnings"
 
-      # Only the goldilocks-specific test modules run under the feature. The
-      # default suite is bn254-only in places and is not expected to pass here.
-      - name: Run the goldilocks test modules
+      # TODO: the excluded frontend tests pin bn254 values and the stdlib still trips the other driver tests; trim this to acir_field and the evaluator's goldilocks probes once the frontend and ABI take the field at runtime.
+      - name: Run the goldilocks tests
         run: |
           cargo nextest run --locked --features goldilocks \
-            -p acir_field -p noirc_evaluator \
-            -E 'package(acir_field) | test(goldilocks_validation)'
+            -p acir_field -p noirc_abi -p noirc_frontend -p noirc_evaluator -p noirc_driver \
+            -E 'package(acir_field) | package(noirc_abi) | test(goldilocks_validation) | (package(noirc_driver) & binary(stdlib_field_casts)) | (package(noirc_frontend) & !(test(foreign::tests::test_blackbox_implemented) | test(try_simplify_partial_constants_does_not_simplify_large_field_elements) | test(meta_quote_roundtrip::roundtrip_field_values) | test(skip_interpreter_on_fail::comptime_for_loop_with_end_value_out_of_range) | test(skip_interpreter_on_fail::regression_10861_1) | test(wraps_aliased_builtin_functions)))'
         env:
           RUSTFLAGS: "-Dwarnings"

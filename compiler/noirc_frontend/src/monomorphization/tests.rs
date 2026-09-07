@@ -1446,7 +1446,9 @@ fn wraps_aliased_builtin_functions() {
     ");
 }
 
+// TODO: fold the two cfg twins into one per-config test once the modulus builtins read FieldConfig.
 #[test]
+#[cfg(not(feature = "goldilocks"))]
 fn evaluates_builtin_modulus_functions() {
     let src = r#"
     fn main() {
@@ -1467,6 +1469,33 @@ fn evaluates_builtin_modulus_functions() {
         let _$l2 = @[true, true, false, false, false, false, false, true, true, false, false, true, false, false, false, true, false, false, true, true, true, false, false, true, true, true, false, false, true, false, true, true, true, false, false, false, false, true, false, false, true, true, false, false, false, true, true, false, true, false, false, false, false, false, false, false, true, false, true, false, false, true, true, false, true, true, true, false, false, false, false, true, false, true, false, false, false, false, false, true, false, false, false, true, false, true, true, false, true, true, false, true, true, false, true, false, false, false, false, false, false, true, true, false, false, false, false, false, false, true, false, true, false, true, true, false, false, false, false, true, false, true, true, true, false, true, false, false, true, false, true, false, false, false, false, false, true, true, false, false, true, true, true, true, true, false, true, false, false, false, false, true, false, false, true, false, false, false, false, true, true, true, true, false, false, true, true, false, true, true, true, false, false, true, false, true, true, true, false, false, false, false, true, false, false, true, false, false, false, true, false, true, false, false, false, false, true, true, true, true, true, false, false, false, false, true, true, true, true, true, false, true, false, true, true, false, false, true, false, false, true, true, true, true, true, true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, true];
         let _$l3 = @[1, 0, 0, 240, 147, 245, 225, 67, 145, 112, 185, 121, 72, 232, 51, 40, 93, 88, 129, 129, 182, 69, 80, 184, 41, 160, 49, 225, 114, 78, 100, 48];
         let _$l4 = @[48, 100, 78, 114, 225, 49, 160, 41, 184, 80, 69, 182, 129, 129, 88, 93, 40, 51, 232, 72, 121, 185, 112, 145, 67, 225, 245, 147, 240, 0, 0, 1]
+    }
+    ");
+}
+
+/// `p = 0xFFFFFFFF00000001`, eight bytes.
+#[test]
+#[cfg(feature = "goldilocks")]
+fn evaluates_builtin_modulus_functions_goldilocks() {
+    let src = r#"
+    fn main() {
+        let _ = modulus_num_bits();
+        let _ = modulus_le_bits();
+        let _ = modulus_be_bits();
+        let _ = modulus_le_bytes();
+        let _ = modulus_be_bytes();
+    }
+    "#;
+
+    let program = get_monomorphized_with_stdlib(src, &[stdlib_src::MODULUS]).unwrap();
+
+    insta::assert_snapshot!(program, @r"
+    fn main$f0() -> () {
+        let _$l0 = 64;
+        let _$l1 = @[true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true];
+        let _$l2 = @[true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, true];
+        let _$l3 = @[1, 0, 0, 0, 255, 255, 255, 255];
+        let _$l4 = @[255, 255, 255, 255, 0, 0, 0, 1]
     }
     ");
 }
