@@ -3,6 +3,7 @@
 // TODO: parameterize by FieldConfig and run under every field row in the default build.
 
 use acvm::{AcirField, FieldElement};
+use noirc_errors::CustomDiagnostic;
 
 use crate::hir::def_collector::dc_crate::CompilationError;
 use crate::hir::type_check::TypeCheckError;
@@ -114,4 +115,43 @@ fn narrowing_before_a_field_cast_is_accepted_under_every_field() {
         u32::MAX
     );
     assert_no_errors(&src);
+}
+
+/// The type checker sees the cast while the source is still a type variable, so the rule is
+/// applied again once inference has bound it, before the cast reaches the monomorphized AST.
+#[test]
+fn casts_to_field_through_an_inferred_type_follow_the_same_rule() {
+    let src = "fn apply<T>(f: fn(T) -> Field, x: T) -> Field { f(x) }
+
+    fn main(x: u64) -> pub Field {
+        apply(|v| v as Field, x)
+    }";
+    let result = get_monomorphized(src);
+    if 64 < FieldElement::max_num_bits() {
+        assert!(result.is_ok(), "{result:?}");
+    } else {
+        let error = result.expect_err("u64 can exceed the modulus");
+        let diagnostic = CustomDiagnostic::from(error);
+        assert!(
+            diagnostic.message.contains("can exceed the field modulus"),
+            "{}",
+            diagnostic.message
+        );
+    }
+}
+
+#[test]
+fn signed_casts_to_field_through_an_inferred_type_are_refused() {
+    let src = "fn apply<T>(f: fn(T) -> Field, x: T) -> Field { f(x) }
+
+    fn main(x: i8) -> pub Field {
+        apply(|v| v as Field, x)
+    }";
+    let error = get_monomorphized(src).expect_err("a signed source is never cast to Field");
+    let diagnostic = CustomDiagnostic::from(error);
+    assert!(
+        diagnostic.message.contains("Only unsigned integer types may be casted to Field"),
+        "{}",
+        diagnostic.message
+    );
 }

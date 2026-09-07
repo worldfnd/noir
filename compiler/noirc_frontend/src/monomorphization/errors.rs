@@ -18,6 +18,7 @@ pub enum MonomorphizationError {
     CheckedTransmuteFailed { actual: String, expected: String, location: Location },
     CheckedCastFailed { actual: String, expected: Type, location: Location },
     CheckedCastEvaluationFailed { err: TypeCheckError, location: Location },
+    InvalidFieldCast { err: TypeCheckError, location: Location },
     RecursiveType { typ: Type, location: Location },
     CannotComputeAssociatedConstant { name: String, err: TypeCheckError, location: Location },
     ReferenceReturnedFromIfOrMatch { typ: String, location: Location },
@@ -53,6 +54,7 @@ impl MonomorphizationError {
             | MonomorphizationError::CheckedTransmuteFailed { location, .. }
             | MonomorphizationError::CheckedCastFailed { location, .. }
             | MonomorphizationError::CheckedCastEvaluationFailed { location, .. }
+            | MonomorphizationError::InvalidFieldCast { location, .. }
             | MonomorphizationError::RecursiveType { location, .. }
             | MonomorphizationError::NoDefaultType { location, .. }
             | MonomorphizationError::ReferenceReturnedFromIfOrMatch { location, .. }
@@ -107,6 +109,8 @@ impl From<MonomorphizationError> for CustomDiagnostic {
             // Show the underlying type-check error (e.g. a division by zero)
             // as the user-facing diagnostic.
             MonomorphizationError::CheckedCastEvaluationFailed { err, .. } => return err.into(),
+            // The same diagnostic the type checker gives a direct cast.
+            MonomorphizationError::InvalidFieldCast { err, .. } => return err.into(),
             MonomorphizationError::NoDefaultType { location } => {
                 let message = "Type annotation needed".into();
                 let secondary = "Could not determine type of generic argument".into();
