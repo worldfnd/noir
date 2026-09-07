@@ -1,13 +1,14 @@
-use std::cmp::Ordering;
-
 use crate::{
     Type,
-    ast::IntegerBitSize,
-    hir::comptime::{InterpreterError, Value, errors::IResult},
-    shared::Signedness,
+    hir::comptime::{
+        Integer, InterpreterError, Value,
+        errors::IResult,
+        integer::{field_to_bigint, try_bigint_to_field},
+    },
 };
-use acvm::{AcirField, FieldElement, acir::acir_field::truncate_to};
+use acvm::{AcirField, FieldElement};
 use noirc_errors::Location;
+use num_bigint::BigInt;
 
 fn bit_size(typ: &Type) -> u32 {
     match typ {
@@ -18,126 +19,48 @@ fn bit_size(typ: &Type) -> u32 {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-enum CastType {
-    Truncate {
-        new_bit_size: u32,
-    },
-    SignExtend {
-        old_bit_size: u32,
-        new_bit_size: u32,
-    },
-    /// No-op also covers the zero-extend case since we convert between
-    /// field elements rather than concrete bit sizes
-    ///
-    /// This is also the case for casting signed integers to fields.
-    /// We represent negatives with two's complement, so e.g.
-    /// `-1 as i8` is stored as the field value for `255`, and `255`
-    /// is also the expected result of casting these to a field.
-    Noop,
+/// The two's complement pattern of `value` at `bits` bits.
+fn twos_complement_pattern(value: &BigInt, bits: u32) -> BigInt {
+    let modulus = BigInt::from(1) << bits;
+    ((value % &modulus) + &modulus) % &modulus
 }
 
-fn classify_cast(input: &Type, output: &Type) -> CastType {
-    let input = input.follow_bindings_shallow();
-    let output = output.follow_bindings_shallow();
-
-    let input_signed = input.is_signed();
-    let input_size = bit_size(&input);
-    let output_size = bit_size(&output);
-
-    match input_size.cmp(&output_size) {
-        Ordering::Less => {
-            if input_signed {
-                if output.is_field() {
-                    CastType::Noop // We always zero-extend when casting to a field
-                } else {
-                    CastType::SignExtend { old_bit_size: input_size, new_bit_size: output_size }
-                }
-            } else {
-                CastType::Noop //zero-extend
-            }
-        }
-        Ordering::Equal => CastType::Noop,
-        Ordering::Greater => CastType::Truncate { new_bit_size: output_size },
-    }
-}
-
-fn perform_cast(kind: CastType, lhs: FieldElement) -> FieldElement {
-    match kind {
-        CastType::Truncate { new_bit_size } => truncate_to(&lhs, new_bit_size),
-        CastType::SignExtend { old_bit_size, new_bit_size } => {
-            assert!(new_bit_size <= 128);
-            let max_positive_value = 2u128.pow(old_bit_size - 1) - 1;
-            let is_negative = lhs > max_positive_value.into();
-
-            if is_negative {
-                let max_target =
-                    if new_bit_size == 128 { u128::MAX } else { 2u128.pow(new_bit_size) - 1 };
-                let max_input = 2u128.pow(old_bit_size) - 1;
-
-                // Subtracting these should give ones for each of the extension bits: `11111111 00000000`
-                let mask = max_target - max_input;
-                lhs + mask.into()
-            } else {
-                lhs
-            }
-        }
-        CastType::Noop => lhs,
-    }
-}
-
-/// Convert the input value to a field.
-///
-/// Negatives of `U{N}` and `I{N}` types in the field are represented in two's
-/// complement instead of the corresponding field value.
-fn convert_to_2s_complement_field(value: Value, location: Location) -> IResult<FieldElement> {
-    Ok(match value {
-        Value::Integer(int) => int.as_field_twos_complement(),
-        Value::Bool(value) => value.into(),
-        value => {
-            let typ = value.get_type().into_owned();
-            return Err(InterpreterError::NonNumericCasted { typ, location });
-        }
-    })
-}
-
-/// `evaluate_cast` without recursion
+/// An integer target takes the source's two's complement pattern at the target width and reads it by the target's signedness; a `Field` target takes the source's own-width pattern exactly, and is an error if that pattern is not below the modulus (the type checker admits only source types whose every pattern is).
 pub(crate) fn evaluate_cast_one_step(
     output_type: &Type,
     location: Location,
     evaluated_lhs: Value,
 ) -> IResult<Value> {
     let lhs_type = evaluated_lhs.get_type().into_owned();
-    let lhs = convert_to_2s_complement_field(evaluated_lhs, location)?;
-
-    let cast_kind = classify_cast(&lhs_type, output_type);
-    let lhs = perform_cast(cast_kind, lhs);
-
-    // Now just wrap the Result in a Value
+    let value = match evaluated_lhs {
+        Value::Integer(Integer::Field(field)) => field_to_bigint(&field),
+        Value::Integer(integer) => integer.to_bigint(),
+        Value::Bool(value) => BigInt::from(u8::from(value)),
+        _ => return Err(InterpreterError::NonNumericCasted { typ: lhs_type, location }),
+    };
     match output_type.follow_bindings() {
-        Type::FieldElement => Ok(Value::field(lhs)),
-        typ @ Type::Integer(sign, bit_size) => match (sign, bit_size) {
-            // These casts are expected to be no-ops
-            (Signedness::Unsigned, IntegerBitSize::Eight) => Ok(Value::u8(lhs.to_u128() as u8)),
-            (Signedness::Unsigned, IntegerBitSize::Sixteen) => Ok(Value::u16(lhs.to_u128() as u16)),
-            (Signedness::Unsigned, IntegerBitSize::ThirtyTwo) => {
-                Ok(Value::u32(lhs.to_u128() as u32))
+        Type::FieldElement => {
+            // TODO: try_bigint_to_field should take the field once comptime values carry their field.
+            let pattern = twos_complement_pattern(&value, bit_size(&lhs_type));
+            try_bigint_to_field(&pattern).map(Value::field).ok_or_else(|| {
+                InterpreterError::IntegerOutOfRangeForType {
+                    value: pattern,
+                    typ: Type::FieldElement,
+                    location,
+                }
+            })
+        }
+        typ @ Type::Integer(sign, size) => {
+            let bits = u32::from(size.bit_size());
+            let mut value = twos_complement_pattern(&value, bits);
+            if sign.is_signed() && value >= (BigInt::from(1) << (bits - 1)) {
+                value -= BigInt::from(1) << bits;
             }
-            (Signedness::Unsigned, IntegerBitSize::SixtyFour) => {
-                Ok(Value::u64(lhs.to_u128() as u64))
-            }
-            (Signedness::Unsigned, IntegerBitSize::HundredTwentyEight) => {
-                Ok(Value::u128(lhs.to_u128()))
-            }
-            (Signedness::Signed, IntegerBitSize::Eight) => Ok(Value::i8(lhs.to_u128() as i8)),
-            (Signedness::Signed, IntegerBitSize::Sixteen) => Ok(Value::i16(lhs.to_u128() as i16)),
-            (Signedness::Signed, IntegerBitSize::ThirtyTwo) => Ok(Value::i32(lhs.to_u128() as i32)),
-            (Signedness::Signed, IntegerBitSize::SixtyFour) => Ok(Value::i64(lhs.to_u128() as i64)),
-            (Signedness::Signed, IntegerBitSize::HundredTwentyEight) => {
-                Err(InterpreterError::TypeUnsupported { typ, location })
-            }
-        },
-        Type::Bool if lhs_type == Type::Bool => Ok(Value::Bool(!lhs.is_zero())),
+            Integer::try_from_bigint(&value, &typ)
+                .map(Value::Integer)
+                .ok_or(InterpreterError::TypeUnsupported { typ, location })
+        }
+        Type::Bool if lhs_type == Type::Bool => Ok(Value::Bool(value != BigInt::ZERO)),
         // Numeric conversions to booleans must use `!= 0`
         Type::Bool => Err(InterpreterError::CannotCastNumericToBool { typ: lhs_type, location }),
         typ => Err(InterpreterError::CastToNonNumericType { typ, location }),
@@ -147,8 +70,12 @@ pub(crate) fn evaluate_cast_one_step(
 #[cfg(test)]
 mod tests {
     use noirc_errors::Location;
+    use num_bigint::BigUint;
+    use proptest::prelude::*;
 
     use super::*;
+    use crate::ast::IntegerBitSize;
+    use crate::shared::Signedness;
 
     #[test]
     fn smoke_test() {
@@ -235,8 +162,7 @@ mod tests {
             // Widen signed->unsigned: sign extend
             (Value::i8(-1), unsigned(Sixteen), Value::u16(65535)),
             (Value::i8(-100), unsigned(Sixteen), Value::u16(65436)),
-            // Casting a negative integer to a field always results in a positive value
-            // This is the only case we zero-extend signed integers instead of sign-extending them
+            // A `Field` target takes the source's own-width pattern, so a negative value becomes positive and is never sign-extended to the field width.
             (Value::i8(-1), Type::FieldElement, Value::field(255u32.into())),
             // Widen negative: sign extend
             (Value::i8(-1), signed(Sixteen), Value::i16(-1)),
@@ -253,7 +179,6 @@ mod tests {
             (Value::field(-FieldElement::from(1u32)), signed(Eight), Value::i8(0)),
             (Value::field(-FieldElement::from(2u32)), unsigned(Sixteen), Value::u16(65535)),
             (Value::field(-FieldElement::from(2u32)), signed(Sixteen), Value::i16(-1)),
-            (Value::field(u128::MAX.into()), signed(Eight), Value::i8(-1)),
         ];
 
         for (lhs, typ, expected) in tests {
@@ -272,5 +197,144 @@ mod tests {
         let lhs = Value::field(0u32.into());
         let actual = evaluate_cast_one_step(&Type::Bool, location, lhs);
         assert!(matches!(actual, Err(InterpreterError::CannotCastNumericToBool { .. })));
+    }
+
+    /// Goldilocks' `p` is below `u64::MAX`; casting through a `FieldElement` would reduce every one of these.
+    #[test]
+    fn integer_casts_do_not_reduce_modulo_the_field() {
+        let location = Location::dummy();
+        let unsigned = |size| Type::Integer(Signedness::Unsigned, size);
+        let signed = |size| Type::Integer(Signedness::Signed, size);
+
+        use IntegerBitSize::*;
+        let tests = [
+            (
+                Value::u64(0xFFFF_FFFF_0000_0001),
+                unsigned(HundredTwentyEight),
+                Value::u128(0xFFFF_FFFF_0000_0001),
+            ),
+            (Value::u64(u64::MAX), unsigned(SixtyFour), Value::u64(u64::MAX)),
+            (Value::u64(u64::MAX), signed(SixtyFour), Value::i64(-1)),
+            (Value::u64(u64::MAX), unsigned(Eight), Value::u8(0xFF)),
+            (Value::i64(-1), unsigned(HundredTwentyEight), Value::u128(u128::MAX)),
+        ];
+
+        for (lhs, typ, expected) in tests {
+            let actual = evaluate_cast_one_step(&typ, location, lhs.clone());
+            assert_eq!(
+                actual,
+                Ok(expected.clone()),
+                "{lhs:?} as {typ}, expected {expected:?}, got {actual:?}"
+            );
+        }
+    }
+
+    /// A `Field` target never reduces: a pattern below the modulus converts exactly and a pattern at or above it is an error. The largest `u128` below `p` converts under every field; `u64::MAX` fits under bn254 and exceeds Goldilocks' `p`.
+    #[test]
+    fn field_casts_are_exact_or_refused() {
+        let location = Location::dummy();
+        let modulus = FieldElement::modulus();
+        let largest = BigUint::from(u128::MAX).min(&modulus - 1u8);
+        let expected = FieldElement::from_be_bytes_reduce(&largest.to_bytes_be());
+
+        let source = Value::u128(u128::try_from(largest).unwrap());
+        let actual = evaluate_cast_one_step(&Type::FieldElement, location, source);
+        assert_eq!(actual, Ok(Value::field(expected)));
+
+        let actual = evaluate_cast_one_step(&Type::FieldElement, location, Value::u64(u64::MAX));
+        if BigUint::from(u64::MAX) < modulus {
+            assert_eq!(actual, Ok(Value::field(FieldElement::from(u128::from(u64::MAX)))));
+        } else {
+            assert!(
+                matches!(
+                    actual,
+                    Err(InterpreterError::IntegerOutOfRangeForType {
+                        ref value,
+                        typ: Type::FieldElement,
+                        ..
+                    }) if *value == BigInt::from(u64::MAX)
+                ),
+                "{actual:?}"
+            );
+        }
+    }
+
+    /// A source value with its mathematical value and its width in bits.
+    fn source_value_and_width() -> impl Strategy<Value = (Value, BigInt, u32)> {
+        prop_oneof![
+            any::<u8>().prop_map(|x| (Value::u8(x), BigInt::from(x), 8)),
+            any::<u16>().prop_map(|x| (Value::u16(x), BigInt::from(x), 16)),
+            any::<u32>().prop_map(|x| (Value::u32(x), BigInt::from(x), 32)),
+            any::<u64>().prop_map(|x| (Value::u64(x), BigInt::from(x), 64)),
+            any::<u128>().prop_map(|x| (Value::u128(x), BigInt::from(x), 128)),
+            any::<i8>().prop_map(|x| (Value::i8(x), BigInt::from(x), 8)),
+            any::<i16>().prop_map(|x| (Value::i16(x), BigInt::from(x), 16)),
+            any::<i32>().prop_map(|x| (Value::i32(x), BigInt::from(x), 32)),
+            any::<i64>().prop_map(|x| (Value::i64(x), BigInt::from(x), 64)),
+            any::<u64>()
+                .prop_filter("below the modulus", |x| BigUint::from(*x) < FieldElement::modulus())
+                .prop_map(|x| (
+                    Value::field(x.into()),
+                    BigInt::from(x),
+                    FieldElement::max_num_bits()
+                )),
+            any::<bool>().prop_map(|x| (Value::Bool(x), BigInt::from(u8::from(x)), 1)),
+        ]
+    }
+
+    fn target_types() -> impl Strategy<Value = Type> {
+        use IntegerBitSize::*;
+        use Signedness::*;
+        prop::sample::select(vec![
+            Type::Integer(Unsigned, Eight),
+            Type::Integer(Unsigned, Sixteen),
+            Type::Integer(Unsigned, ThirtyTwo),
+            Type::Integer(Unsigned, SixtyFour),
+            Type::Integer(Unsigned, HundredTwentyEight),
+            Type::Integer(Signed, Eight),
+            Type::Integer(Signed, Sixteen),
+            Type::Integer(Signed, ThirtyTwo),
+            Type::Integer(Signed, SixtyFour),
+            Type::FieldElement,
+        ])
+    }
+
+    proptest! {
+        /// An integer target reads the source's two's complement pattern at the target width by the target's signedness; a `Field` target takes the source's own-width pattern exactly when it is below `p` and is an error otherwise.
+        #[test]
+        fn casts_follow_the_bit_pattern_model_at_every_width(
+            (source, value, source_bits) in source_value_and_width(),
+            target in target_types(),
+        ) {
+            let expected = match &target {
+                Type::Integer(sign, bits) => {
+                    let width = u32::from(bits.bit_size());
+                    let modulus = BigInt::from(1) << width;
+                    let low = ((&value % &modulus) + &modulus) % &modulus;
+                    let value = if *sign == Signedness::Signed && low >= (BigInt::from(1) << (width - 1)) {
+                        low - (BigInt::from(1) << width)
+                    } else {
+                        low
+                    };
+                    Some(Value::Integer(Integer::try_from_bigint(&value, &target).unwrap()))
+                }
+                Type::FieldElement => {
+                    let modulus = BigInt::from(1) << source_bits;
+                    let low = ((&value % &modulus) + &modulus) % &modulus;
+                    (low < BigInt::from(FieldElement::modulus())).then(|| {
+                        Value::field(FieldElement::from_be_bytes_reduce(&low.magnitude().to_bytes_be()))
+                    })
+                }
+                _ => unreachable!("integer and field targets only"),
+            };
+            let actual = evaluate_cast_one_step(&target, Location::dummy(), source.clone());
+            match expected {
+                Some(expected) => prop_assert_eq!(actual, Ok(expected), "{:?} as {}", source, target),
+                None => prop_assert!(
+                    matches!(actual, Err(InterpreterError::IntegerOutOfRangeForType { .. })),
+                    "{:?} as {} gave {:?}", source, target, actual
+                ),
+            }
+        }
     }
 }

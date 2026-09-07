@@ -13,6 +13,7 @@ mod enums;
 mod expand;
 mod expressions;
 mod field_attribute;
+mod field_contract;
 mod functions;
 mod globals;
 mod imports;
