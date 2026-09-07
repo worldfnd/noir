@@ -769,6 +769,10 @@ impl<'context> Elaborator<'context> {
                 }
             }
             ItemKind::TraitImpl(mut trait_impl) => {
+                if dc_mod::is_gated_out(&trait_impl.attributes) {
+                    return;
+                }
+
                 let (methods, associated_types, associated_constants) =
                     dc_mod::collect_trait_impl_items(
                         self.interner,
