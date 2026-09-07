@@ -12,7 +12,7 @@ import {
 
 it('errors when an integer input overflows', () => {
   expect(() => abiEncode(abi_uint_overflow, inputs_uint_overflow)).to.throw(
-    'The value passed for parameter `foo` does not match the specified type:\nValue Field(274877906944) does not fall within range of allowable values for a Integer { sign: Unsigned, width: 32 }',
+    'The value passed for parameter `foo` is invalid:\nValue 274877906944 exceeds maximum allowed value of 4294967295',
   );
 });
 
