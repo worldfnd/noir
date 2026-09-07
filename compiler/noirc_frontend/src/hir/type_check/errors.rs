@@ -111,6 +111,10 @@ pub enum TypeCheckError {
     UnsupportedCast { location: Location },
     #[error("Only unsigned integer types may be casted to Field")]
     UnsupportedFieldCast { location: Location },
+    #[error(
+        "Values of type `{typ}` can exceed the field modulus, so `{typ}` cannot be cast to Field"
+    )]
+    IntegerTypeExceedsField { typ: Type, location: Location },
     #[error("Index {index} is out of bounds for this tuple {lhs_type} of length {length}")]
     TupleIndexOutOfBounds { index: usize, lhs_type: Type, length: usize, location: Location },
     #[error("Index {index} is out of bounds for this array of length {array_length}")]
@@ -351,6 +355,7 @@ impl TypeCheckError {
             | TypeCheckError::UnconstrainedMismatch { location, .. }
             | TypeCheckError::UnsupportedCast { location }
             | TypeCheckError::UnsupportedFieldCast { location }
+            | TypeCheckError::IntegerTypeExceedsField { location, .. }
             | TypeCheckError::TupleIndexOutOfBounds { location, .. }
             | TypeCheckError::ArrayIndexOutOfBounds { location, .. }
             | TypeCheckError::VariableMustBeMutable { location, .. }
@@ -590,6 +595,11 @@ impl<'a> From<&'a TypeCheckError> for Diagnostic {
             }
             TypeCheckError::CannotCastNumericToBool { typ: _, location } => {
                 let secondary = "Compare with zero instead: ` != 0`".to_string();
+                Diagnostic::simple_error(error.to_string(), secondary, *location)
+            }
+            TypeCheckError::IntegerTypeExceedsField { typ: _, location } => {
+                let secondary =
+                    "Cast to an unsigned type narrower than the field first".to_string();
                 Diagnostic::simple_error(error.to_string(), secondary, *location)
             }
 

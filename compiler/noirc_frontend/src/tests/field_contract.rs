@@ -48,3 +48,70 @@ fn comptime_casts_wrap_to_the_target_width() {
     }";
     assert_no_errors(src);
 }
+
+/// An unsigned type is cast to `Field` only if every one of its values is below the modulus;
+/// `Field` never reduces a cast. The escape hatch is an explicit narrowing cast.
+#[test]
+fn casts_to_field_are_refused_when_the_type_can_exceed_the_modulus() {
+    let field_bits = FieldElement::max_num_bits();
+    for bits in [8u32, 16, 32, 64, 128] {
+        let src = format!("fn main() {{ let x: u{bits} = 1; let _ = x as Field; }}");
+        let errors = get_program_errors(&src);
+        let refused = errors.iter().any(|error| {
+            matches!(
+                error,
+                CompilationError::TypeError(TypeCheckError::IntegerTypeExceedsField { .. })
+            )
+        });
+        if bits < field_bits {
+            assert!(errors.is_empty(), "u{bits} fits below the modulus, got {errors:?}");
+        } else {
+            assert!(refused, "u{bits} can exceed the modulus, got {errors:?}");
+        }
+    }
+}
+
+/// The type checker runs before the comptime interpreter, so a `comptime` block is refused too.
+#[test]
+fn comptime_casts_to_field_follow_the_same_rule() {
+    let src = format!(
+        "fn main() {{
+            comptime {{
+                let x: u64 = {};
+                let _ = x as Field;
+            }}
+        }}",
+        u64::MAX
+    );
+    let errors = get_program_errors(&src);
+    if 64 < FieldElement::max_num_bits() {
+        assert!(errors.is_empty(), "{errors:?}");
+    } else {
+        assert!(
+            errors.iter().any(|error| matches!(
+                error,
+                CompilationError::TypeError(TypeCheckError::IntegerTypeExceedsField { .. })
+            )),
+            "{errors:?}"
+        );
+    }
+}
+
+#[test]
+fn narrowing_before_a_field_cast_is_accepted_under_every_field() {
+    let src = format!(
+        "fn main() {{
+            let x: u128 = {};
+            assert(((x as u32) as Field) == {});
+            comptime {{
+                let x: u128 = {};
+                assert(((x as u32) as Field) == {});
+            }}
+        }}",
+        u128::MAX,
+        u32::MAX,
+        u128::MAX,
+        u32::MAX
+    );
+    assert_no_errors(&src);
+}

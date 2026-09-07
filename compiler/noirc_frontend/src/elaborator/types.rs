@@ -2595,6 +2595,13 @@ impl Elaborator<'_> {
             Type::FieldElement => {
                 if from_follow_bindings.is_signed() {
                     self.push_err(TypeCheckError::UnsupportedFieldCast { location });
+                } else if let Type::Integer(Signedness::Unsigned, bits) = from_follow_bindings
+                    && u32::from(bits.bit_size()) >= FieldElement::max_num_bits()
+                {
+                    // `Field` never reduces a cast, so only a type whose every value lies below the modulus may be cast to it. A source that is still a type variable here is checked again by the monomorphizer once bound.
+                    // TODO: take the width from FieldConfig once the field is a runtime setting.
+                    let typ = from_follow_bindings;
+                    self.push_err(TypeCheckError::IntegerTypeExceedsField { typ, location });
                 }
 
                 Type::FieldElement
