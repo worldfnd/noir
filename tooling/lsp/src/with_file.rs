@@ -158,6 +158,7 @@ fn type_impl_with_file(type_impl: TypeImpl, file: FileId) -> TypeImpl {
         generics: unresolved_generics_with_file(type_impl.generics, file),
         where_clause: unresolved_trait_constraints_with_file(type_impl.where_clause, file),
         methods: documented_noir_functions_with_file(type_impl.methods, file),
+        attributes: secondary_attributes_with_file(type_impl.attributes, file),
         doc_comments: type_impl.doc_comments,
     }
 }
@@ -188,6 +189,7 @@ fn noir_trait_impl_with_file(noir_trait_impl: NoirTraitImpl, file: FileId) -> No
         object_type: unresolved_type_with_file(noir_trait_impl.object_type, file),
         where_clause: unresolved_trait_constraints_with_file(noir_trait_impl.where_clause, file),
         items: documented_trait_impl_items_with_file(noir_trait_impl.items, file),
+        attributes: secondary_attributes_with_file(noir_trait_impl.attributes, file),
         is_synthetic: noir_trait_impl.is_synthetic,
     }
 }

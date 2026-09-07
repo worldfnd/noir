@@ -6,7 +6,7 @@ use crate::{
         TraitImplItem, TraitImplItemKind, TypeImpl, UnresolvedGeneric, UnresolvedType,
     },
     parser::{ParserErrorReason, labels::ParsingRuleLabel},
-    token::{Keyword, Token},
+    token::{Attribute, Keyword, SecondaryAttribute, Token},
 };
 
 use super::{Parser, parse_many::without_separator};
@@ -20,7 +20,8 @@ impl Parser<'_> {
     /// Impl
     ///     = `TypeImpl`
     ///     | `TraitImpl`
-    pub(crate) fn parse_impl(&mut self) -> Impl {
+    pub(crate) fn parse_impl(&mut self, attributes: Vec<(Attribute, Location)>) -> Impl {
+        let attributes = self.validate_secondary_attributes(attributes);
         let generics = self.parse_generics_allowing_trait_bounds();
 
         let type_location_start = self.current_token_location;
@@ -28,9 +29,9 @@ impl Parser<'_> {
         let type_location = self.location_since(type_location_start);
 
         if self.eat_keyword(Keyword::For) {
-            Impl::TraitImpl(self.parse_trait_impl(generics, object_type))
+            Impl::TraitImpl(self.parse_trait_impl(generics, object_type, attributes))
         } else {
-            Impl::Impl(self.parse_type_impl(object_type, type_location, generics))
+            Impl::Impl(self.parse_type_impl(object_type, type_location, generics, attributes))
         }
     }
 
@@ -40,6 +41,7 @@ impl Parser<'_> {
         object_type: UnresolvedType,
         type_location: Location,
         generics: Vec<UnresolvedGeneric>,
+        attributes: Vec<SecondaryAttribute>,
     ) -> TypeImpl {
         let where_clause = self.parse_where_clause();
         let methods = self.parse_type_impl_body();
@@ -49,6 +51,7 @@ impl Parser<'_> {
             generics,
             where_clause,
             methods,
+            attributes,
             doc_comments: Vec::new(),
         }
     }
@@ -99,13 +102,22 @@ impl Parser<'_> {
         &mut self,
         impl_generics: Vec<UnresolvedGeneric>,
         r#trait: UnresolvedType,
+        attributes: Vec<SecondaryAttribute>,
     ) -> NoirTraitImpl {
         let object_type = self.parse_type_or_error();
         let where_clause = self.parse_where_clause();
         let items = self.parse_trait_impl_body();
         let is_synthetic = false;
 
-        NoirTraitImpl { impl_generics, r#trait, object_type, where_clause, items, is_synthetic }
+        NoirTraitImpl {
+            impl_generics,
+            r#trait,
+            object_type,
+            where_clause,
+            items,
+            attributes,
+            is_synthetic,
+        }
     }
 
     /// `TraitImplBody` = '{' `TraitImplItem`* '}'

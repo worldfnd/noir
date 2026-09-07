@@ -14,6 +14,7 @@ impl Formatter<'_> {
 
         let has_where_clause = !trait_impl.where_clause.is_empty();
 
+        self.format_secondary_attributes(trait_impl.attributes);
         self.write_indentation();
         self.write_keyword(Keyword::Impl);
         self.format_generics(trait_impl.impl_generics);
@@ -214,6 +215,17 @@ pub fn foo ( ) { }
     impl Foo for Bar {
         type X = i32;
     }
+}
+";
+        assert_format(src, expected);
+    }
+
+    #[test]
+    fn format_trait_impl_with_attribute() {
+        let src = " mod moo {  #[field(bn254)]  impl  Foo  for  Bar { } }";
+        let expected = "mod moo {
+    #[field(bn254)]
+    impl Foo for Bar {}
 }
 ";
         assert_format(src, expected);

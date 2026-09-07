@@ -192,7 +192,7 @@ impl<'a> Parser<'a> {
         if self.eat_keyword(Keyword::Impl) {
             self.comptime_mutable_and_unconstrained_not_applicable(modifiers);
 
-            return vec![match self.parse_impl() {
+            return vec![match self.parse_impl(attributes) {
                 Impl::Impl(type_impl) => ItemKind::Impl(type_impl),
                 Impl::TraitImpl(noir_trait_impl) => ItemKind::TraitImpl(noir_trait_impl),
             }];
