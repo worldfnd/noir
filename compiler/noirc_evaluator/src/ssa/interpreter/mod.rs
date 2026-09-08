@@ -32,7 +32,7 @@ pub(crate) mod tests;
 pub mod value;
 
 #[cfg(test)]
-mod goldilocks_validation;
+mod small_field_validation;
 
 use value::Value;
 
