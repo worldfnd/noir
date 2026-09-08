@@ -734,6 +734,7 @@ impl<'context> Elaborator<'context> {
                     generics: target.generics.clone(),
                     where_clause: target.where_clause.clone(),
                     methods: vec![(Documented::new(function, item.doc_comments), location)],
+                    attributes: Vec::new(),
                     doc_comments: Vec::new(),
                 };
                 let module = self.module_id();
@@ -768,6 +769,10 @@ impl<'context> Elaborator<'context> {
                 }
             }
             ItemKind::TraitImpl(mut trait_impl) => {
+                if dc_mod::is_gated_out(&trait_impl.attributes) {
+                    return;
+                }
+
                 let (methods, associated_types, associated_constants) =
                     dc_mod::collect_trait_impl_items(
                         self.interner,

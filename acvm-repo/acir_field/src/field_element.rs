@@ -446,18 +446,12 @@ impl<F: PrimeField> AcirField for FieldElement<F> {
         if !self.fits_in_i128() {
             panic!("field element too large for i128");
         }
-        // Negative integers are represented by the range [p + i128::MIN, p) while
-        // positive integers are represented by the range [0, i128::MAX).
-        // We can then differentiate positive from negative values by their MSB.
+        // The shorter of the two spellings wins: an element whose negation has fewer bits is negative. The guard above keeps the chosen spelling at or below 2^127.
         if self.neg().num_bits() < self.num_bits() {
-            let bytes = self.neg().to_be_bytes();
-            // wrapping_neg handles i128::MIN: bytes of 2^127 decode to i128::MIN.
-            // Because it fits in i128, we know the value is a valid i128 value
-            // so using wrapping_neg() cannot not silently miss an overflow.
-            i128::from_be_bytes(bytes[16..32].try_into().unwrap()).wrapping_neg()
+            // `as i128` reads 2^127 as `i128::MIN`, which only `wrapping_neg` maps to itself.
+            (self.neg().to_u128() as i128).wrapping_neg()
         } else {
-            let bytes = self.to_be_bytes();
-            i128::from_be_bytes(bytes[16..32].try_into().unwrap())
+            self.to_u128() as i128
         }
     }
 
@@ -638,6 +632,8 @@ impl<F: PrimeField> MsgpackTagged for FieldElement<F> {
 #[cfg(test)]
 mod tests {
     use super::{AcirField, FieldElement};
+    use ark_ff::PrimeField;
+    use num_bigint::BigInt;
     use proptest::prelude::*;
     use std::ops::Neg;
 
@@ -770,29 +766,29 @@ mod tests {
         assert_eq!(F::from(i128::MIN).to_i128(), i128::MIN);
     }
 
-    #[test]
-    fn test_to_i128_roundtrip() {
-        type F = FieldElement<ark_bn254::Fr>;
+    /// `to_i128` inverts `From<i128>` wherever the value's own spelling is the shorter one: all of `i128` on bn254, `[-(p - 2^63), 2^63 - 1]` on Goldilocks.
+    fn assert_to_i128_roundtrips<F: PrimeField>() {
+        let half = BigInt::from(1_u8) << (FieldElement::<F>::max_num_bits() - 1);
+        let modulus = BigInt::from(FieldElement::<F>::modulus());
+        let max = i128::try_from(&half - BigInt::from(1_u8)).unwrap_or(i128::MAX);
+        let min = i128::try_from(&half - &modulus).unwrap_or(i128::MIN);
 
-        // Test roundtrip for various values
-        let test_values = vec![
-            0_i128,
-            1,
-            -1,
-            42,
-            -42,
-            i128::MAX,
-            i128::MAX - 1,
-            i128::MIN,
-            i128::MIN + 1,
-            -i128::MAX,
-        ];
-
-        for value in test_values {
-            let field = F::from(value);
+        for value in [0, 1, -1, 42, -42, max, max - 1, min, min + 1] {
+            let field = FieldElement::<F>::from(value);
             assert!(field.fits_in_i128(), "Value {value} should fit in i128");
             assert_eq!(field.to_i128(), value, "Roundtrip failed for {value}");
         }
+    }
+
+    #[test]
+    fn test_to_i128_roundtrip() {
+        assert_to_i128_roundtrips::<ark_bn254::Fr>();
+    }
+
+    #[test]
+    #[cfg(feature = "goldilocks")]
+    fn test_to_i128_roundtrip_goldilocks() {
+        assert_to_i128_roundtrips::<crate::goldilocks::Goldilocks>();
     }
 
     #[test]

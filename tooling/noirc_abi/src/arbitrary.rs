@@ -3,6 +3,7 @@ use prop::collection::vec;
 use proptest::prelude::*;
 
 use acvm::{AcirField, FieldElement};
+use num_bigint::BigUint;
 
 use crate::{
     Abi, AbiParameter, AbiReturnType, AbiType, AbiVisibility, InputMap, Sign,
@@ -26,8 +27,8 @@ fn ensure_unique_strings<'a>(iter: impl Iterator<Item = &'a mut String>) {
 proptest::prop_compose! {
     pub(super) fn arb_field_from_integer(bit_size: u32)(value: u128)-> FieldElement {
         let width = (bit_size % 129).clamp(1, 128);
-        let max_value = if bit_size == 128 { u128::MAX } else { (1u128 << width) - 1 };
-        FieldElement::from(value.clamp(0, max_value))
+        let bound = (BigUint::from(1_u8) << width).min(FieldElement::modulus());
+        FieldElement::from_be_bytes_reduce(&(BigUint::from(value) % bound).to_bytes_be())
     }
 }
 

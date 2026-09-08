@@ -1,10 +1,10 @@
 use super::{
-    InputValue, field_to_signed_hex, parse_integer_to_signed, parse_str_to_field,
-    parse_str_to_signed,
+    InputValue, field_to_signed_hex, parse_str_to_bigint, parse_str_to_field, scalar_to_field,
 };
 use crate::{Abi, AbiType, MAIN_RETURN_NAME, errors::InputParserError};
-use acvm::{AcirField, FieldElement};
+use acvm::AcirField;
 use iter_extended::{try_btree_map, try_vecmap};
+use num_bigint::BigInt;
 use serde::{Deserialize, Serialize, de::Error};
 use std::collections::BTreeMap;
 
@@ -147,59 +147,17 @@ impl InputValue {
         let input_value = match (value, param_type) {
             (TomlTypes::String(string), AbiType::String { .. }) => InputValue::String(string),
 
-            (
-                TomlTypes::String(string),
-                AbiType::Field
-                | AbiType::Integer { sign: crate::Sign::Unsigned, .. }
-                | AbiType::Boolean,
-            ) => InputValue::Field(parse_str_to_field(&string, arg_name)?),
-            (TomlTypes::String(string), AbiType::Integer { sign: crate::Sign::Signed, width }) => {
-                InputValue::Field(parse_str_to_signed(&string, *width, arg_name)?)
+            (TomlTypes::String(string), AbiType::Field) => {
+                InputValue::Field(parse_str_to_field(&string, arg_name)?)
+            }
+            (TomlTypes::String(string), AbiType::Integer { .. } | AbiType::Boolean) => {
+                let value = parse_str_to_bigint(&string, arg_name)?;
+                InputValue::Field(scalar_to_field(&value, param_type, arg_name)?)
             }
             (
                 TomlTypes::Integer(integer),
-                AbiType::Integer { sign: crate::Sign::Signed, width },
-            ) => {
-                let new_value = parse_integer_to_signed(i128::from(integer), *width, arg_name)?;
-                InputValue::Field(new_value)
-            }
-
-            (
-                TomlTypes::Integer(integer),
-                AbiType::Integer { sign: crate::Sign::Unsigned, width },
-            ) => {
-                let integer = i128::from(integer);
-                if integer < 0 {
-                    return Err(InputParserError::InputUnderflowsMinimum {
-                        arg_name: arg_name.into(),
-                        value: integer.to_string(),
-                        min: "0".into(),
-                    });
-                }
-                if *width <= 64 {
-                    let max: i128 = (1i128 << width) - 1;
-                    if integer > max {
-                        return Err(InputParserError::InputOverflowsMaximum {
-                            arg_name: arg_name.into(),
-                            value: integer.to_string(),
-                            max: max.to_string(),
-                        });
-                    }
-                } else {
-                    let int_bit_size = i128::BITS - integer.leading_zeros();
-                    assert!(
-                        int_bit_size <= 64,
-                        "u{width} values larger than u64 must be provided as strings"
-                    );
-                }
-                InputValue::Field(FieldElement::from(integer))
-            }
-
-            (TomlTypes::Integer(integer), AbiType::Field | AbiType::Boolean) => {
-                let new_value = FieldElement::from(i128::from(integer));
-
-                InputValue::Field(new_value)
-            }
+                AbiType::Field | AbiType::Integer { .. } | AbiType::Boolean,
+            ) => InputValue::Field(scalar_to_field(&BigInt::from(integer), param_type, arg_name)?),
 
             (TomlTypes::Bool(boolean), AbiType::Boolean) => InputValue::Field(boolean.into()),
 

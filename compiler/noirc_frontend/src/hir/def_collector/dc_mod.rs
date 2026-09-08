@@ -164,17 +164,7 @@ impl ModCollector<'_> {
     ) -> CompilationErrors {
         let mut errors = CompilationErrors::default();
         for (global, visibility) in globals {
-            // Skip globals gated to a different field (mirrors the `#[field(..)]` gate in
-            // `collect_function`): a `#[field(bn254)]` global must not be collected or
-            // type-checked when building for a different field, so its field-specific
-            // constants never reach the per-field literal bound.
-            let field_attribute = global.item.attributes.iter().find_map(|attr| match &attr.kind {
-                SecondaryAttributeKind::Field(field) => Some(field.to_lowercase()),
-                _ => None,
-            });
-            if let Some(field) = field_attribute
-                && !is_native_field(&field)
-            {
+            if is_gated_out(&global.item.attributes) {
                 continue;
             }
 
@@ -230,6 +220,10 @@ impl ModCollector<'_> {
         let mut errors = CompilationErrors::default();
 
         for mut trait_impl in impls {
+            if is_gated_out(&trait_impl.attributes) {
+                continue;
+            }
+
             let (mut unresolved_functions, associated_types, associated_constants) =
                 collect_trait_impl_items(
                     &mut context.def_interner,
@@ -785,6 +779,10 @@ impl ModCollector<'_> {
             let mut doc_comments = submodule.doc_comments;
             let submodule = submodule.item;
 
+            if is_gated_out(&submodule.outer_attributes) {
+                continue;
+            }
+
             match self.push_child_module(
                 context,
                 &submodule.name,
@@ -867,6 +865,12 @@ impl ModCollector<'_> {
         let mod_decl = mod_decl.item;
 
         let mut errors = CompilationErrors::default();
+
+        // Gated out before `find_module`, so the file need not exist.
+        if is_gated_out(&mod_decl.outer_attributes) {
+            return errors;
+        }
+
         let child_file_id = match find_module(&context.file_manager, self.file_id, &mod_decl.ident)
         {
             Ok(child_file_id) => child_file_id,
@@ -1456,6 +1460,10 @@ pub fn collect_impl(
     module_id: ModuleId,
     errors: &mut CompilationErrors,
 ) {
+    if is_gated_out(&r#impl.attributes) {
+        return;
+    }
+
     desugar_generic_trait_bounds_and_reorder_where_clause(
         &mut r#impl.generics,
         &mut r#impl.where_clause,
@@ -1467,6 +1475,11 @@ pub fn collect_impl(
     for (method, _) in r#impl.methods {
         let doc_comments = method.doc_comments;
         let mut method = method.item;
+
+        // Skip before `push_empty_fn`, so a gated-out method never gets a `FuncId`.
+        if is_gated_out(method.secondary_attributes()) {
+            continue;
+        }
 
         if let Some((_, location)) = method.def.attributes.as_test_function() {
             let error = DefCollectorErrorKind::TestOnAssociatedFunction { location };
@@ -1585,6 +1598,15 @@ cfg_if::cfg_if! {
     } else {
         pub const CHOSEN_FIELD: &str = "bn254";
     }
+}
+
+/// Whether a `#[field(..)]` attribute names a field other than the one the compiler was built for; such an item is dropped before anything about it is interned.
+// TODO: compare against a runtime FieldConfig instead of the linked field, and gate structs, traits and a negated #[field(not(..))] form too.
+pub(crate) fn is_gated_out(attributes: &[SecondaryAttribute]) -> bool {
+    attributes.iter().any(|attribute| match &attribute.kind {
+        SecondaryAttributeKind::Field(field) => !is_native_field(&field.to_lowercase()),
+        _ => false,
+    })
 }
 
 fn is_native_field(str: &str) -> bool {

@@ -842,6 +842,33 @@ impl<'interner> Monomorphizer<'interner> {
         Ok(())
     }
 
+    /// The type checker applies the `Field` cast rules while the source may still be a type variable; every type is concrete here, so a source that inference bound later is checked again before the cast reaches the monomorphized program.
+    fn check_cast_to_field(
+        &self,
+        lhs: ExprId,
+        to: &HirType,
+        location: Location,
+    ) -> Result<(), MonomorphizationError> {
+        use crate::hir::type_check::TypeCheckError;
+        use crate::shared::Signedness;
+        use acvm::{AcirField, FieldElement};
+
+        if !matches!(to.follow_bindings(), HirType::FieldElement) {
+            return Ok(());
+        }
+        let from = self.interner.id_type(lhs).follow_bindings();
+        let err = if from.is_signed() {
+            TypeCheckError::UnsupportedFieldCast { location }
+        } else if let HirType::Integer(Signedness::Unsigned, bits) = from
+            && u32::from(bits.bit_size()) >= FieldElement::max_num_bits()
+        {
+            TypeCheckError::IntegerTypeExceedsField { typ: from, location }
+        } else {
+            return Ok(());
+        };
+        Err(MonomorphizationError::InvalidFieldCast { err, location })
+    }
+
     /// Monomorphize an expression.
     pub(crate) fn expr(&mut self, expr: ExprId) -> Result<ast::Expression, MonomorphizationError> {
         use ast::Expression::Literal;
@@ -1004,6 +1031,7 @@ impl<'interner> Monomorphizer<'interner> {
 
             HirExpression::Cast(cast) => {
                 let location = self.interner.expr_location(&expr);
+                self.check_cast_to_field(cast.lhs, &cast.r#type, location)?;
                 let typ = Self::convert_type(&cast.r#type, location)?;
                 let lhs = Box::new(self.expr(cast.lhs)?);
                 ast::Expression::Cast(ast::Cast { lhs, r#type: typ, location })

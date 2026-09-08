@@ -231,6 +231,8 @@ impl Hash for u32 {
     }
 }
 
+// TODO: write two limbs under a narrow field instead of gating u64, u128 and i64 to bn254.
+#[field(bn254)]
 impl Hash for u64 {
     fn hash<H>(self, state: &mut H)
     where
@@ -240,6 +242,7 @@ impl Hash for u64 {
     }
 }
 
+#[field(bn254)]
 impl Hash for u128 {
     fn hash<H>(self, state: &mut H)
     where
@@ -276,6 +279,7 @@ impl Hash for i32 {
     }
 }
 
+#[field(bn254)]
 impl Hash for i64 {
     fn hash<H>(self, state: &mut H)
     where

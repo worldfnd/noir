@@ -82,24 +82,6 @@ impl Integer {
         }
     }
 
-    /// Converts this [Integer] to a [`FieldElement`]. Any negative values are
-    /// encoded in two's complement such that `-x_iN == 2^N - x`.
-    /// In other words, the resulting field is in two's complement form.
-    pub(crate) fn as_field_twos_complement(self) -> FieldElement {
-        match self {
-            Integer::Field(value) => value,
-            Integer::I8(value) => (value as u8).into(),
-            Integer::I16(value) => (value as u16).into(),
-            Integer::I32(value) => (value as u32).into(),
-            Integer::I64(value) => (value as u64).into(),
-            Integer::U8(value) => value.into(),
-            Integer::U16(value) => value.into(),
-            Integer::U32(value) => value.into(),
-            Integer::U64(value) => value.into(),
-            Integer::U128(value) => value.into(),
-        }
-    }
-
     /// Returns whether this integer is strictly less than zero.
     ///
     /// Only the signed variants can be negative. Unsigned integers cannot represent a negative
@@ -537,7 +519,7 @@ mod tests {
     use acvm::{AcirField, FieldElement};
     use proptest::prelude::*;
 
-    use num_bigint::{BigInt, Sign};
+    use num_bigint::{BigInt, BigUint, Sign};
 
     use super::{
         Integer, bigint_to_field, field_to_bigint, field_to_signed_bigint, try_bigint_to_field,
@@ -637,18 +619,6 @@ mod tests {
         #[test]
         fn u8_is_negative_always_false(a: u8) {
             assert!(!Integer::U8(a).is_negative());
-        }
-
-        #[test]
-        fn i8_as_field_twos_complement_matches_rust(a: i8) {
-            // Two's complement: reinterpret i8 as u8
-            let expected = FieldElement::from(u128::from(a as u8));
-            assert_eq!(Integer::I8(a).as_field_twos_complement(), expected);
-        }
-
-        #[test]
-        fn positive_i8_as_field_equals_twos_complement(a in 0i8..=i8::MAX) {
-            assert_eq!(Integer::I8(a).as_field(), Integer::I8(a).as_field_twos_complement());
         }
 
         // Field subtraction is the inverse of addition: (a - b) + b == a
@@ -801,13 +771,14 @@ mod tests {
         // Negative bigints are encoded via field negation: -x == -FieldElement::from(x)
         #[test]
         fn bigint_to_field_encodes_negatives_via_field_negation(a: u64) {
+            prop_assume!(BigUint::from(a) < FieldElement::modulus());
             let value = -BigInt::from(a);
             assert_eq!(bigint_to_field(&value), -FieldElement::from(u128::from(a)));
         }
 
-        // Field-encoded negatives convert back to negative bigints
+        // `a` is below `10^18`, so `-a` is the shorter spelling under every supported modulus.
         #[test]
-        fn field_to_signed_bigint_recovers_negatives(a in 1u64..) {
+        fn field_to_signed_bigint_recovers_negatives(a in 1..10u64.pow(18)) {
             let field = -FieldElement::from(u128::from(a));
             assert_eq!(field_to_signed_bigint(&field), -BigInt::from(a));
         }

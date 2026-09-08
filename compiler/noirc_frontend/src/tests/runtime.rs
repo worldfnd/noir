@@ -195,7 +195,7 @@ fn trait_unconstrained_methods_typechecked_correctly() {
             unconstrained fn foo(self) -> Field;
         }
 
-        impl Foo for u64 {
+        impl Foo for u32 {
             unconstrained fn foo(self) -> Field {
                 self as Field
             }

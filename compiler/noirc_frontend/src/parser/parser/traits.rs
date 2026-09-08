@@ -111,7 +111,15 @@ impl Parser<'_> {
             let items = vec![];
             let is_synthetic = true;
 
-            NoirTraitImpl { impl_generics, r#trait, object_type, where_clause, items, is_synthetic }
+            NoirTraitImpl {
+                impl_generics,
+                r#trait,
+                object_type,
+                where_clause,
+                items,
+                attributes: Vec::new(),
+                is_synthetic,
+            }
         });
 
         let noir_trait = NoirTrait {

@@ -6,6 +6,7 @@ impl Formatter<'_> {
     pub(super) fn format_impl(&mut self, type_impl: TypeImpl) {
         let has_where_clause = !type_impl.where_clause.is_empty();
 
+        self.format_secondary_attributes(type_impl.attributes);
         self.write_indentation();
         self.write_keyword(Keyword::Impl);
         self.format_generics(type_impl.generics);
@@ -119,6 +120,19 @@ fn four(&self) {}
         fn two(mut self) {}
         fn three(&mut self) {}
         fn four(&self) {}
+    }
+}
+";
+        assert_format(src, expected);
+    }
+
+    #[test]
+    fn format_impl_with_attribute() {
+        let src = " mod moo {  #[field(bn254)]  impl Foo { fn bar() {} } }";
+        let expected = "mod moo {
+    #[field(bn254)]
+    impl Foo {
+        fn bar() {}
     }
 }
 ";

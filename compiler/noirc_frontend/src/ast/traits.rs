@@ -64,6 +64,7 @@ pub struct TypeImpl {
     pub generics: UnresolvedGenerics,
     pub where_clause: Vec<UnresolvedTraitConstraint>,
     pub methods: Vec<(Documented<NoirFunction>, Location)>,
+    pub attributes: Vec<SecondaryAttribute>,
     pub doc_comments: Vec<DocComment>,
 }
 
@@ -80,6 +81,8 @@ pub struct NoirTraitImpl {
     pub where_clause: Vec<UnresolvedTraitConstraint>,
 
     pub items: Vec<Documented<TraitImplItem>>,
+
+    pub attributes: Vec<SecondaryAttribute>,
 
     /// true if generated at compile-time, e.g. from a trait alias
     pub is_synthetic: bool,
