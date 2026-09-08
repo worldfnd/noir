@@ -1,6 +1,5 @@
 use std::rc::Rc;
 
-use acvm::{AcirField, FieldElement};
 use iter_extended::vecmap;
 use noirc_errors::Location;
 use num_bigint::BigInt;
@@ -90,7 +89,7 @@ impl Monomorphizer<'_> {
             HandledOpcode::ModulusBeBytes => self.modulus_be_bytes(location),
             HandledOpcode::ModulusLeBits => self.modulus_le_bits(location),
             HandledOpcode::ModulusLeBytes => self.modulus_le_bytes(location),
-            HandledOpcode::ModulusNumBits => Self::modulus_num_bits(location),
+            HandledOpcode::ModulusNumBits => self.modulus_num_bits(location),
             HandledOpcode::Poseidon2ConfigStateSize => Self::poseidon2_config_state_size(location),
             HandledOpcode::Zeroed => self.zeroed_value_of_type(&converted_return_type, location),
         };
@@ -357,7 +356,7 @@ impl Monomorphizer<'_> {
                 Some(HandledOpcode::ModulusBeBytes) => self.modulus_be_bytes(location),
                 Some(HandledOpcode::ModulusLeBits) => self.modulus_le_bits(location),
                 Some(HandledOpcode::ModulusLeBytes) => self.modulus_le_bytes(location),
-                Some(HandledOpcode::ModulusNumBits) => Self::modulus_num_bits(location),
+                Some(HandledOpcode::ModulusNumBits) => self.modulus_num_bits(location),
                 Some(HandledOpcode::Poseidon2ConfigStateSize) => {
                     Self::poseidon2_config_state_size(location)
                 }
@@ -369,27 +368,27 @@ impl Monomorphizer<'_> {
     }
 
     fn modulus_be_bits(&self, location: Location) -> ast::Expression {
-        let bits = FieldElement::modulus().to_radix_be(2);
+        let bits = self.interner.field().modulus().to_radix_be(2);
         self.modulus_bool_vector_literal(bits, location)
     }
 
     fn modulus_be_bytes(&self, location: Location) -> ast::Expression {
-        let bytes = FieldElement::modulus().to_bytes_be();
+        let bytes = self.interner.field().modulus().to_bytes_be();
         self.modulus_vector_literal(bytes, IntegerBitSize::Eight, location)
     }
 
     fn modulus_le_bits(&self, location: Location) -> ast::Expression {
-        let bits = FieldElement::modulus().to_radix_le(2);
+        let bits = self.interner.field().modulus().to_radix_le(2);
         self.modulus_bool_vector_literal(bits, location)
     }
 
     fn modulus_le_bytes(&self, location: Location) -> ast::Expression {
-        let bytes = FieldElement::modulus().to_bytes_le();
+        let bytes = self.interner.field().modulus().to_bytes_le();
         self.modulus_vector_literal(bytes, IntegerBitSize::Eight, location)
     }
 
-    fn modulus_num_bits(location: Location) -> ast::Expression {
-        let bits = FieldElement::max_num_bits();
+    fn modulus_num_bits(&self, location: Location) -> ast::Expression {
+        let bits = self.interner.field().num_bits();
         let typ = ast::Type::Integer(Signedness::Unsigned, IntegerBitSize::SixtyFour);
         ast::Expression::Literal(ast::Literal::Integer(bits.into(), typ, location))
     }

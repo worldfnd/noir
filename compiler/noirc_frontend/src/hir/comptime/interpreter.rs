@@ -35,7 +35,7 @@
 use std::collections::VecDeque;
 use std::{collections::hash_map::Entry, rc::Rc};
 
-use acvm::AcirField;
+use acvm::{AcirField, FieldId};
 use im::Vector;
 use iter_extended::{try_vecmap, vecmap};
 use itertools::Itertools;
@@ -166,6 +166,7 @@ impl<'local, 'interner> Interpreter<'local, 'interner> {
         mut instantiation_bindings: TypeBindings,
         location: Location,
     ) -> IResult<Value> {
+        self.check_field(location)?;
         let trait_method = self.elaborator.interner.get_trait_item_id(function);
 
         resolve_type_bindings(&mut instantiation_bindings);
@@ -701,6 +702,7 @@ impl<'local, 'interner> Interpreter<'local, 'interner> {
     /// This function should be used when that is not desired - e.g. when
     /// compiling a `&mut var` expression to grab the original reference.
     fn evaluate_no_dereference(&mut self, id: ExprId) -> IResult<Value> {
+        self.check_field(self.elaborator.interner.expr_location(&id))?;
         if self.evaluation_depth >= MAX_EVALUATION_DEPTH {
             let location = self.elaborator.interner.expr_location(&id);
             return Err(InterpreterError::EvaluationDepthOverflow {
@@ -894,6 +896,19 @@ impl<'local, 'interner> Interpreter<'local, 'interner> {
             self.elaborator.interner.store_instantiation_bindings(id, saved);
         }
         result
+    }
+
+    // TODO: Remove this guard once comptime evaluation supports the configured field.
+    fn check_field(&self, location: Location) -> IResult<()> {
+        let field = self.elaborator.interner.field().id();
+        let linked = FieldId::linked();
+        if field != linked {
+            return Err(InterpreterError::Unimplemented {
+                item: format!("Comptime evaluation for {field} in a compiler built for {linked}"),
+                location,
+            });
+        }
+        Ok(())
     }
 
     fn evaluate_literal(&mut self, literal: HirLiteral, id: ExprId) -> IResult<Value> {
@@ -1319,7 +1334,12 @@ impl<'local, 'interner> Interpreter<'local, 'interner> {
     fn evaluate_cast(&mut self, cast: &HirCastExpression, id: ExprId) -> IResult<Value> {
         let evaluated_lhs = self.evaluate(cast.lhs)?;
         let location = self.elaborator.interner.expr_location(&id);
-        evaluate_cast_one_step(&cast.r#type, location, evaluated_lhs)
+        evaluate_cast_one_step(
+            self.elaborator.interner.field(),
+            &cast.r#type,
+            location,
+            evaluated_lhs,
+        )
     }
 
     fn evaluate_if(&mut self, if_: &HirIfExpression) -> IResult<Value> {
@@ -2007,6 +2027,7 @@ impl Context<'_, '_> {
 
             enabled_unstable_features,
             disable_required_unstable_features: false,
+            field: self.def_interner.field(),
         };
         let module_id = ModuleId { krate: crate_id, local_id };
 

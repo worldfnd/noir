@@ -3751,7 +3751,6 @@ dependencies = [
  "acvm",
  "base64 0.23.0",
  "bn254_blackbox_solver",
- "cfg-if",
  "fm",
  "im",
  "indexmap 2.14.0",

@@ -1,6 +1,7 @@
 use std::hash::Hash;
 use std::marker::Copy;
 
+use acvm::FieldConfig;
 use fm::FileId;
 use itertools::Itertools;
 use noirc_arena::{Arena, Index};
@@ -88,6 +89,9 @@ type TypeAttributes = Vec<SecondaryAttribute>;
 /// monomorphization - and it is not useful afterward.
 #[derive(Debug)]
 pub struct NodeInterner {
+    /// The field this compilation runs under, seeded once by the first elaboration entry point.
+    field: Option<FieldConfig>,
+
     pub(crate) nodes: Arena<Node>,
     pub(crate) func_meta: HashMap<FuncId, FuncMeta>,
 
@@ -495,6 +499,7 @@ impl DefinitionKind {
 impl Default for NodeInterner {
     fn default() -> Self {
         NodeInterner {
+            field: None,
             nodes: Arena::default(),
             func_meta: HashMap::default(),
             function_definition_ids: HashMap::default(),
@@ -551,6 +556,20 @@ impl Default for NodeInterner {
             exprs_with_errors: HashSet::default(),
             stmts_with_errors: HashSet::default(),
             macro_call_expression_bindings: HashMap::default(),
+        }
+    }
+}
+
+impl NodeInterner {
+    // TODO: Require the field at construction instead of seeding it later.
+    pub fn field(&self) -> FieldConfig {
+        self.field.expect("ICE: the field is queried before the compilation seeded it")
+    }
+
+    pub fn seed_field(&mut self, field: FieldConfig) {
+        match self.field {
+            None => self.field = Some(field),
+            Some(seeded) => assert_eq!(seeded, field, "ICE: a compilation runs under one field"),
         }
     }
 }

@@ -1,10 +1,15 @@
-//! `CHOSEN_FIELD` is the field the compiler was built for and `FOREIGN_FIELD` is gated out under every build, so each test holds under bn254 and Goldilocks alike.
+//! `native_field()` is the field the compiler is built with and `FOREIGN_FIELD` matches no configuration, so each test holds under bn254 and Goldilocks alike.
 
-use crate::hir::def_collector::dc_mod::CHOSEN_FIELD;
-use crate::tests::{assert_no_errors, get_program_errors};
+use acvm::{FieldConfig, FieldId};
 
-/// A modulus that is not any supported field, so `is_native_field` is false everywhere.
+use crate::tests::{assert_no_errors, get_program_errors, get_program_errors_for_field};
+
+/// A modulus that is not any supported field, so it matches no configuration.
 const FOREIGN_FIELD: &str = "23";
+
+fn native_field() -> &'static str {
+    FieldConfig::linked().name()
+}
 
 #[test]
 fn gated_out_associated_method_is_not_collected() {
@@ -27,11 +32,12 @@ fn gated_out_associated_method_is_not_collected() {
 
 #[test]
 fn same_named_methods_gated_to_different_fields_do_not_collide() {
+    let native = native_field();
     let src = format!(
         "struct Foo {{}}
 
         impl Foo {{
-            #[field({CHOSEN_FIELD})]
+            #[field({native})]
             fn value() -> u32 {{
                 1
             }}
@@ -70,10 +76,11 @@ fn gated_out_impl_block_is_not_collected() {
 
 #[test]
 fn impl_blocks_gated_to_different_fields_do_not_collide() {
+    let native = native_field();
     let src = format!(
         "struct Foo {{}}
 
-        #[field({CHOSEN_FIELD})]
+        #[field({native})]
         impl Foo {{
             fn value() -> u32 {{
                 1
@@ -116,6 +123,7 @@ fn gated_out_generated_impl_is_not_collected() {
 
 #[test]
 fn trait_impls_gated_to_different_fields_do_not_overlap() {
+    let native = native_field();
     let src = format!(
         "trait Value {{
             fn value(self) -> u32;
@@ -123,7 +131,7 @@ fn trait_impls_gated_to_different_fields_do_not_overlap() {
 
         struct Foo {{}}
 
-        #[field({CHOSEN_FIELD})]
+        #[field({native})]
         impl Value for Foo {{
             fn value(self) -> u32 {{
                 1
@@ -213,8 +221,9 @@ fn gated_out_submodule_is_not_collected() {
 
 #[test]
 fn same_named_submodules_gated_to_different_fields_do_not_collide() {
+    let native = native_field();
     let src = format!(
-        "#[field({CHOSEN_FIELD})]
+        "#[field({native})]
         mod m {{
             pub fn value() -> u32 {{
                 1
@@ -252,8 +261,9 @@ fn gated_out_free_function_is_not_collected() {
 
 #[test]
 fn same_named_free_functions_gated_to_different_fields_do_not_collide() {
+    let native = native_field();
     let src = format!(
-        "#[field({CHOSEN_FIELD})]
+        "#[field({native})]
         fn value() -> u32 {{
             1
         }}
@@ -285,8 +295,9 @@ fn gated_out_global_is_not_collected() {
 
 #[test]
 fn same_named_globals_gated_to_different_fields_do_not_collide() {
+    let native = native_field();
     let src = format!(
-        "#[field({CHOSEN_FIELD})]
+        "#[field({native})]
         global VALUE: u32 = 1;
 
         #[field({FOREIGN_FIELD})]
@@ -308,4 +319,23 @@ fn gated_out_module_declaration_needs_no_file() {
         fn main() {{}}"
     );
     assert_no_errors(&src);
+}
+
+/// The gate compares against the configured field, so one binary gates the same item in and out.
+#[test]
+fn one_build_gates_by_the_configured_field() {
+    let src = "#[field(goldilocks)]
+        fn value() -> u32 {
+            1
+        }
+
+        fn main() {
+            let _ = value();
+        }";
+    let under_goldilocks = get_program_errors_for_field(src, FieldId::Goldilocks);
+    assert!(under_goldilocks.is_empty(), "gated in under Goldilocks: {under_goldilocks:?}");
+    assert!(
+        !get_program_errors_for_field(src, FieldId::Bn254).is_empty(),
+        "expected the item to be gated out under bn254"
+    );
 }

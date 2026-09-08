@@ -769,7 +769,7 @@ impl<'context> Elaborator<'context> {
                 }
             }
             ItemKind::TraitImpl(mut trait_impl) => {
-                if dc_mod::is_gated_out(&trait_impl.attributes) {
+                if dc_mod::is_gated_out(self.interner.field(), &trait_impl.attributes) {
                     return;
                 }
 

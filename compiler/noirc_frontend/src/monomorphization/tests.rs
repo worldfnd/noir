@@ -1,10 +1,13 @@
 #![cfg(test)]
+use acvm::FieldId;
+
 use crate::{
     elaborator::UnstableFeature,
     monomorphization::errors::MonomorphizationError,
     test_utils::{
-        GetProgramOptions, get_monomorphized, get_monomorphized_with_options,
-        get_monomorphized_with_stdlib, stdlib_src,
+        GetProgramOptions, get_monomorphization_output, get_monomorphized,
+        get_monomorphized_with_options, get_monomorphized_with_stdlib,
+        get_monomorphized_with_stdlib_for_field, stdlib_src,
     },
     tests::check_monomorphization_error_using_features,
 };
@@ -1446,9 +1449,8 @@ fn wraps_aliased_builtin_functions() {
     ");
 }
 
-// TODO: fold the two cfg twins into one per-config test once the modulus builtins read FieldConfig.
+/// The `modulus_*` builtins fold to the constants of the configured field.
 #[test]
-#[cfg(not(feature = "goldilocks"))]
 fn evaluates_builtin_modulus_functions() {
     let src = r#"
     fn main() {
@@ -1460,8 +1462,9 @@ fn evaluates_builtin_modulus_functions() {
     }
     "#;
 
-    let program = get_monomorphized_with_stdlib(src, &[stdlib_src::MODULUS]).unwrap();
-
+    let program =
+        get_monomorphized_with_stdlib_for_field(src, &[stdlib_src::MODULUS], FieldId::Bn254)
+            .unwrap();
     insta::assert_snapshot!(program, @r"
     fn main$f0() -> () {
         let _$l0 = 254;
@@ -1471,24 +1474,11 @@ fn evaluates_builtin_modulus_functions() {
         let _$l4 = @[48, 100, 78, 114, 225, 49, 160, 41, 184, 80, 69, 182, 129, 129, 88, 93, 40, 51, 232, 72, 121, 185, 112, 145, 67, 225, 245, 147, 240, 0, 0, 1]
     }
     ");
-}
 
-/// `p = 0xFFFFFFFF00000001`, eight bytes.
-#[test]
-#[cfg(feature = "goldilocks")]
-fn evaluates_builtin_modulus_functions_goldilocks() {
-    let src = r#"
-    fn main() {
-        let _ = modulus_num_bits();
-        let _ = modulus_le_bits();
-        let _ = modulus_be_bits();
-        let _ = modulus_le_bytes();
-        let _ = modulus_be_bytes();
-    }
-    "#;
-
-    let program = get_monomorphized_with_stdlib(src, &[stdlib_src::MODULUS]).unwrap();
-
+    // `p = 0xFFFFFFFF00000001`, eight bytes.
+    let program =
+        get_monomorphized_with_stdlib_for_field(src, &[stdlib_src::MODULUS], FieldId::Goldilocks)
+            .unwrap();
     insta::assert_snapshot!(program, @r"
     fn main$f0() -> () {
         let _$l0 = 64;
@@ -1884,4 +1874,16 @@ fn zeroed_array_of_references_does_not_alias() {
         let _arr$l0 = [(&mut 0), (&mut 0), (&mut 0)]
     }
     ");
+}
+
+/// The output names the field the program was compiled under and the files it drew code from.
+#[test]
+fn output_is_labeled_with_the_configured_field() {
+    let src = "fn main() {}";
+    for field in [FieldId::Bn254, FieldId::Goldilocks] {
+        let output = get_monomorphization_output(src, GetProgramOptions::for_field(field)).unwrap();
+        assert_eq!(output.field_id, field);
+        assert_eq!(output.monomorphized_source_files.len(), 1, "the file holding `main`");
+        assert!(output.program.to_string().contains("main"));
+    }
 }

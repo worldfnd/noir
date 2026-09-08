@@ -7,8 +7,8 @@ use insta as _;
 use std::hash::BuildHasher;
 
 use abi_gen::{abi_type_from_hir_type, value_to_abi_value};
-use acvm::AcirField;
 use acvm::acir::circuit::{ErrorSelector, Program, display_program};
+use acvm::{AcirField, FieldConfig, FieldId};
 use clap::Args;
 use fm::{FileId, FileManager};
 use iter_extended::vecmap;
@@ -298,6 +298,10 @@ pub struct CompileOptions {
     /// Used internally to avoid comptime println from producing output
     #[arg(long, hide = true)]
     pub disable_comptime_printing: bool,
+
+    /// Field to compile for: bn254 or goldilocks. Defaults to the field this compiler is built with.
+    #[arg(long, value_name = "FIELD", default_value_t = FieldId::linked())]
+    pub field: FieldId,
 }
 
 impl Default for CompileOptions {
@@ -345,6 +349,7 @@ impl Default for CompileOptions {
             unstable_features: Vec::new(),
             no_unstable_features: false,
             disable_comptime_printing: false,
+            field: FieldId::linked(),
         }
     }
 }
@@ -399,6 +404,7 @@ impl CompileOptions {
             debug_comptime_in_file: self.debug_comptime_in_file.as_deref(),
             enabled_unstable_features: &self.unstable_features,
             disable_required_unstable_features: self.no_unstable_features,
+            field: FieldConfig::new(self.field),
         }
     }
 }
@@ -453,6 +459,17 @@ pub fn check_crate(
 ) -> CompilationResult<()> {
     if options.disable_comptime_printing {
         context.disable_comptime_printing();
+    }
+
+    // TODO: Remove this restriction once comptime evaluation supports the configured field.
+    if options.field != FieldId::linked() {
+        let message = format!(
+            "this compiler is built for {} and cannot compile for {}",
+            FieldId::linked(),
+            options.field
+        );
+        let root_file = context.crate_graph[crate_id].root_file_id;
+        return Err(vec![CustomDiagnostic::from_message(&message, root_file)]);
     }
 
     let diagnostics = CrateDefMap::collect_defs(crate_id, context, options.frontend_options());
