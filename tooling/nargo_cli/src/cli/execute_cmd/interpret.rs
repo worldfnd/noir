@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
-use acvm::AcirField;
+use acvm::{AcirField, FieldValue};
 use fm::FileManager;
 use iter_extended::vecmap;
 use itertools::Itertools;
@@ -192,7 +192,7 @@ fn input_value_to_comptime_value(input: &InputValue, typ: &Type, location: Locat
             let InputValue::Field(value) = input else {
                 panic!("expected field input for field element type");
             };
-            Value::field(*value)
+            Value::field(FieldValue::from_linked_element(*value))
         }
         Type::Array(element_typ, length) => {
             let length =

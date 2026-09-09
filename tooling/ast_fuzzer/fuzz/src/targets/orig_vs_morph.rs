@@ -304,6 +304,7 @@ mod rules {
     };
 
     use super::helpers::gen_expr;
+    use acir::FieldValue;
     use arbitrary::Unstructured;
     use noir_ast_fuzzer::{Config, expr, types};
     use noirc_frontend::{
@@ -447,10 +448,14 @@ mod rules {
 
                 // Convert to Integer for correct signed/unsigned comparison.
                 // FieldElement ordering does not match signed integer ordering.
-                let Some(a_int) = Integer::try_from_type(a_field, &hir_type) else {
+                let Some(a_int) =
+                    Integer::try_from_field(FieldValue::from_linked_element(a_field), &hir_type)
+                else {
                     return Ok(());
                 };
-                let Some(b_int) = Integer::try_from_type(b_field, &hir_type) else {
+                let Some(b_int) =
+                    Integer::try_from_field(FieldValue::from_linked_element(b_field), &hir_type)
+                else {
                     return Ok(());
                 };
 
@@ -462,7 +467,9 @@ mod rules {
 
                 // Verify c fits in the type (modular subtraction can yield out-of-range values
                 // for signed integers, e.g. 100_i8 - (-28_i8) = 128 which overflows i8).
-                if Integer::try_from_type(c_field, &hir_type).is_none() {
+                if Integer::try_from_field(FieldValue::from_linked_element(c_field), &hir_type)
+                    .is_none()
+                {
                     return Ok(());
                 }
 

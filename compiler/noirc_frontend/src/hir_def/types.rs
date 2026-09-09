@@ -1,6 +1,6 @@
 use std::{borrow::Cow, cell::RefCell, collections::BTreeSet, rc::Rc};
 
-use acvm::FieldElement;
+use acvm::FieldValue;
 use itertools::Itertools;
 use rustc_hash::FxHashMap as HashMap;
 
@@ -333,11 +333,11 @@ impl Kind {
             // a stand-in for an inferred type integer and attempt to cast it into the correct slot
             // as long as it is within range.
             (other, Integer::Field(value)) => {
-                if let Some(integer) = Integer::try_from_type(*value, other) {
+                if let Some(integer) = Integer::try_from_field(value.clone(), other) {
                     Ok(integer)
                 } else {
                     Err(TypeCheckError::OverflowingConstant {
-                        value: Integer::Field(*value),
+                        value: Integer::Field(value.clone()),
                         kind: self.clone(),
                         maximum_size,
                         minimum_size,
@@ -1399,7 +1399,7 @@ impl Type {
         Self::type_variable_with_kind(interner, type_var_kind)
     }
 
-    pub fn constant_field(value: FieldElement) -> Type {
+    pub fn constant_field(value: FieldValue) -> Type {
         Type::Constant(Integer::Field(value))
     }
 
@@ -3349,23 +3349,27 @@ impl BinaryTypeOperator {
         b: Integer,
         location: Location,
     ) -> Result<Integer, TypeCheckError> {
-        let make_error =
-            || TypeCheckError::OverflowingBinaryOp { op: self, lhs: a, rhs: b, location };
+        let make_error = || TypeCheckError::OverflowingBinaryOp {
+            op: self,
+            lhs: a.clone(),
+            rhs: b.clone(),
+            location,
+        };
 
         match self {
-            BinaryTypeOperator::Addition => (a + b).ok_or_else(make_error),
-            BinaryTypeOperator::Subtraction => (a - b).ok_or_else(make_error),
-            BinaryTypeOperator::Multiplication => (a * b).ok_or_else(make_error),
-            BinaryTypeOperator::Division => {
-                (a / b).ok_or_else(|| TypeCheckError::DivisionByZero { lhs: a, rhs: b, location })
-            }
+            BinaryTypeOperator::Addition => (a.clone() + b.clone()).ok_or_else(make_error),
+            BinaryTypeOperator::Subtraction => (a.clone() - b.clone()).ok_or_else(make_error),
+            BinaryTypeOperator::Multiplication => (a.clone() * b.clone()).ok_or_else(make_error),
+            BinaryTypeOperator::Division => (a.clone() / b.clone())
+                .ok_or_else(|| TypeCheckError::DivisionByZero { lhs: a, rhs: b, location }),
             BinaryTypeOperator::Modulo => {
-                if let (Integer::Field(lhs), Integer::Field(rhs)) = (a, b) {
+                if let (Integer::Field(lhs), Integer::Field(rhs)) = (&a, &b) {
+                    let (lhs, rhs) = (lhs.clone(), rhs.clone());
                     Err(TypeCheckError::ModuloOnFields { lhs, rhs, location })
                 } else if b.is_zero() {
                     Err(TypeCheckError::ModuloByZero { lhs: a, rhs: b, location })
                 } else {
-                    (a % b).ok_or_else(make_error)
+                    (a.clone() % b.clone()).ok_or_else(make_error)
                 }
             }
         }

@@ -1,12 +1,10 @@
 //! The foreign function counterpart to `interpreter/builtin.rs`, defines how to call
 //! all foreign functions available to the interpreter.
-// The blackbox solver and its bn254 backend only back the embedded-curve/hash intrinsics,
-// which fall back to errors under Goldilocks, leaving these imports unused there.
-#[cfg_attr(feature = "goldilocks", allow(unused_imports))]
-use acvm::{BlackBoxResolutionError, FieldElement, blackbox_solver::BlackBoxFunctionSolver};
-#[cfg_attr(feature = "goldilocks", allow(unused_imports))]
-use bn254_blackbox_solver::Bn254BlackBoxSolver; // Currently locked to only bn254!
-#[cfg_attr(feature = "goldilocks", allow(unused_imports))]
+use acvm::{
+    BlackBoxResolutionError, Bn254FieldElement, EmbeddedCurve, FieldConfig, FieldValue,
+    blackbox_solver::BlackBoxFunctionSolver,
+};
+use bn254_blackbox_solver::Bn254BlackBoxSolver;
 use im::{Vector, vector};
 use noirc_errors::Location;
 
@@ -38,7 +36,7 @@ impl Interpreter<'_, '_> {
         return_type: Type,
         location: Location,
     ) -> IResult<Value> {
-        call_foreign(name, arguments, return_type, location)
+        call_foreign(self.elaborator.interner.field(), name, arguments, return_type, location)
     }
 }
 
@@ -46,6 +44,7 @@ impl Interpreter<'_, '_> {
 ///
 /// Similar to `evaluate_black_box` in `brillig_vm`.
 fn call_foreign(
+    field: FieldConfig,
     name: &str,
     args: Vec<(Value, Location)>,
     return_type: Type,
@@ -64,9 +63,9 @@ fn call_foreign(
         "ecdsa_secp256r1" => {
             ecdsa_secp256_verify(args, location, acvm::blackbox_solver::ecdsa_secp256r1_verify)
         }
-        "embedded_curve_add" => embedded_curve_add(args, return_type, location),
-        "multi_scalar_mul" => multi_scalar_mul(args, return_type, location),
-        "poseidon2_permutation" => poseidon2_permutation(args, location),
+        "embedded_curve_add" => embedded_curve_add(field, args, return_type, location),
+        "multi_scalar_mul" => multi_scalar_mul(field, args, return_type, location),
+        "poseidon2_permutation" => poseidon2_permutation(field, args, location),
         "poseidon2_config_state_size" => poseidon2_config_state_size(&args, location),
         "keccakf1600" => keccakf1600(args, location),
         "sha256_compression" => sha256_compression(args, location),
@@ -189,25 +188,14 @@ fn ecdsa_secp256_verify(
 ///     point2: EmbeddedCurvePoint,
 /// ) -> [EmbeddedCurvePoint; 1]
 /// ```
-#[cfg(feature = "goldilocks")]
 fn embedded_curve_add(
+    field: FieldConfig,
     arguments: Vec<(Value, Location)>,
     return_type: Type,
     location: Location,
 ) -> IResult<Value> {
-    let _ = (arguments, return_type);
-    Err(InterpreterError::Unimplemented {
-        item: "embedded_curve_add: the chosen field has no embedded curve".to_string(),
-        location,
-    })
-}
+    require_embedded_curve(field, "embedded_curve_add", location)?;
 
-#[cfg(not(feature = "goldilocks"))]
-fn embedded_curve_add(
-    arguments: Vec<(Value, Location)>,
-    return_type: Type,
-    location: Location,
-) -> IResult<Value> {
     let (point1, point2, predicate) = check_three_arguments(arguments, location)?;
     assert_eq!(predicate.0, Value::Bool(true), "ec_add predicate should be true");
 
@@ -233,25 +221,14 @@ fn embedded_curve_add(
 ///     predicate: bool,
 /// ) -> [EmbeddedCurvePoint; 1]
 /// ```
-#[cfg(feature = "goldilocks")]
 fn multi_scalar_mul(
+    field: FieldConfig,
     arguments: Vec<(Value, Location)>,
     return_type: Type,
     location: Location,
 ) -> IResult<Value> {
-    let _ = (arguments, return_type);
-    Err(InterpreterError::Unimplemented {
-        item: "multi_scalar_mul: the chosen field has no embedded curve".to_string(),
-        location,
-    })
-}
+    require_embedded_curve(field, "multi_scalar_mul", location)?;
 
-#[cfg(not(feature = "goldilocks"))]
-fn multi_scalar_mul(
-    arguments: Vec<(Value, Location)>,
-    return_type: Type,
-    location: Location,
-) -> IResult<Value> {
     let (points, scalars, predicate) = check_three_arguments(arguments, location)?;
     assert_eq!(predicate.0, Value::Bool(true), "multi_scalar_mul predicate should be true");
 
@@ -267,12 +244,7 @@ fn multi_scalar_mul(
     }
 
     let (x, y) = Bn254BlackBoxSolver
-        .multi_scalar_mul(
-            &points,
-            &scalars_lo,
-            &scalars_hi,
-            true, // Predicate is always true as interpreter has control flow to handle false case
-        )
+        .multi_scalar_mul(&points, &scalars_lo, &scalars_hi, true)
         .map_err(|e| InterpreterError::BlackBoxError(e, location))?;
 
     let embedded_curve_point_typ = match &return_type {
@@ -290,27 +262,26 @@ fn multi_scalar_mul(
 }
 
 /// `poseidon2_permutation<let N: u32>(_input: [Field; N], _state_length: u32) -> [Field; N]`
-#[cfg(feature = "goldilocks")]
-fn poseidon2_permutation(arguments: Vec<(Value, Location)>, location: Location) -> IResult<Value> {
-    let _ = arguments;
-    Err(InterpreterError::Unimplemented {
-        item: "poseidon2_permutation: no bn254-independent implementation for the chosen field"
-            .to_string(),
-        location,
-    })
-}
+fn poseidon2_permutation(
+    field: FieldConfig,
+    arguments: Vec<(Value, Location)>,
+    location: Location,
+) -> IResult<Value> {
+    if !field.has_poseidon2_permutation() {
+        return Err(InterpreterError::Unimplemented {
+            item: "poseidon2_permutation: no bn254-independent implementation for the chosen field"
+                .to_string(),
+            location,
+        });
+    }
 
-#[cfg(not(feature = "goldilocks"))]
-fn poseidon2_permutation(arguments: Vec<(Value, Location)>, location: Location) -> IResult<Value> {
     let input = check_one_argument(arguments, location)?;
-
     let (input, typ) = get_array_map(input, get_field)?;
-
+    let input: Vec<_> = input.into_iter().map(to_bn254).collect();
     let fields = Bn254BlackBoxSolver
         .poseidon2_permutation(&input)
         .map_err(|error| InterpreterError::BlackBoxError(error, location))?;
-
-    let array = fields.into_iter().map(Value::field).collect();
+    let array = fields.into_iter().map(from_bn254).collect();
     Ok(Value::Array(array, typ))
 }
 
@@ -349,35 +320,51 @@ fn sha256_compression(arguments: Vec<(Value, Location)>, location: Location) -> 
     Ok(Value::Array(state, typ))
 }
 
+fn require_embedded_curve(field: FieldConfig, builtin: &str, location: Location) -> IResult<()> {
+    match field.embedded_curve() {
+        None => Err(InterpreterError::Unimplemented {
+            item: format!("{builtin}: the chosen field has no embedded curve"),
+            location,
+        }),
+        Some(EmbeddedCurve::Grumpkin) => Ok(()),
+    }
+}
+
+/// Callers check the field capability before converting solver inputs.
+fn to_bn254(value: FieldValue) -> Bn254FieldElement {
+    value.to_bn254_element().expect("ICE: a bn254 compilation holds only bn254 field values")
+}
+
+fn from_bn254(value: Bn254FieldElement) -> Value {
+    Value::field(FieldValue::from_bn254_element(value))
+}
+
 /// Decode an `EmbeddedCurvePoint` struct.
 ///
 /// Returns `(x, y)`.
-#[cfg_attr(feature = "goldilocks", allow(dead_code))]
 fn get_embedded_curve_point(
     (value, location): (Value, Location),
-) -> IResult<(FieldElement, FieldElement)> {
+) -> IResult<(Bn254FieldElement, Bn254FieldElement)> {
     let (fields, typ) = get_struct_fields("EmbeddedCurvePoint", (value, location))?;
     let x = get_struct_field("x", &fields, &typ, location, get_field)?;
     let y = get_struct_field("y", &fields, &typ, location, get_field)?;
-    Ok((x, y))
+    Ok((to_bn254(x), to_bn254(y)))
 }
 
 /// Decode an `EmbeddedCurveScalar` struct.
 ///
 /// Returns `(lo, hi)`.
-#[cfg_attr(feature = "goldilocks", allow(dead_code))]
 fn get_embedded_curve_scalar(
     (value, location): (Value, Location),
-) -> IResult<(FieldElement, FieldElement)> {
+) -> IResult<(Bn254FieldElement, Bn254FieldElement)> {
     let (fields, typ) = get_struct_fields("EmbeddedCurveScalar", (value, location))?;
     let lo = get_struct_field("lo", &fields, &typ, location, get_field)?;
     let hi = get_struct_field("hi", &fields, &typ, location, get_field)?;
-    Ok((lo, hi))
+    Ok((to_bn254(lo), to_bn254(hi)))
 }
 
-#[cfg_attr(feature = "goldilocks", allow(dead_code))]
-fn to_embedded_curve_point(x: FieldElement, y: FieldElement, typ: Type) -> Value {
-    to_struct([("x", Value::field(x)), ("y", Value::field(y))], typ)
+fn to_embedded_curve_point(x: Bn254FieldElement, y: Bn254FieldElement, typ: Type) -> Value {
+    to_struct([("x", from_bn254(x)), ("y", from_bn254(y))], typ)
 }
 
 #[cfg(test)]
@@ -386,6 +373,8 @@ mod tests {
     use noirc_errors::Location;
     use strum::IntoEnumIterator;
 
+    use acvm::{FieldConfig, FieldId};
+
     use crate::Type;
     use crate::hir::comptime::InterpreterError::{
         ArgumentCountMismatch, InvalidInComptimeContext, Unimplemented,
@@ -393,9 +382,8 @@ mod tests {
 
     use super::call_foreign;
 
-    /// Check that all `BlackBoxFunc` are covered by `call_foreign`.
-    #[test]
-    fn test_blackbox_implemented() {
+    /// The blackbox functions `call_foreign` does not implement under `field`, in one build.
+    fn unimplemented_under(field: FieldId) -> Vec<&'static str> {
         let no_location = Location::dummy();
         let mut not_implemented = Vec::new();
 
@@ -407,7 +395,7 @@ mod tests {
             }
 
             let name = blackbox.name();
-            match call_foreign(name, Vec::new(), Type::Unit, no_location) {
+            match call_foreign(FieldConfig::new(field), name, Vec::new(), Type::Unit, no_location) {
                 Ok(_) => {
                     // Exists and works with no args (unlikely)
                 }
@@ -419,10 +407,30 @@ mod tests {
                 Err(other) => panic!("unexpected error: {other:?}"),
             }
         }
+        not_implemented
+    }
 
+    /// Check that all `BlackBoxFunc` are covered by `call_foreign` for a field that has every
+    /// capability they need.
+    #[test]
+    fn test_blackbox_implemented() {
+        let not_implemented = unimplemented_under(FieldId::Bn254);
         assert!(
             not_implemented.is_empty(),
             "unimplemented blackbox functions: {not_implemented:?}"
         );
+    }
+
+    #[test]
+    fn unsupported_field_capabilities_reject_their_builtins() {
+        for field in FieldId::ALL.into_iter().filter(|id| *id != FieldId::Bn254) {
+            let mut not_implemented = unimplemented_under(field);
+            not_implemented.sort_unstable();
+            assert_eq!(
+                not_implemented,
+                ["embedded_curve_add", "multi_scalar_mul", "poseidon2_permutation"],
+                "{field}"
+            );
+        }
     }
 }

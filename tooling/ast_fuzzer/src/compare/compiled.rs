@@ -68,7 +68,7 @@ impl NargoErrorWithTypes {
                                 // textually and avoids needing full ABI formatting of the values.
                                 if let HirType::FmtString(length, _) = hir_type
                                     && let HirType::Constant(int) = length.as_ref()
-                                    && let Some(len) = int.as_field().try_to_u64()
+                                    && let Ok(len) = u64::try_from(int.to_bigint())
                                 {
                                     return raw
                                         .data

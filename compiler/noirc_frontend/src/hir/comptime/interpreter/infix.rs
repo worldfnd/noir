@@ -1,5 +1,3 @@
-use acvm::AcirField as _;
-
 use super::{IResult, InterpreterError, Value};
 use crate::ast::BinaryOpKind;
 use crate::hir::Location;
@@ -24,7 +22,7 @@ pub(super) fn evaluate_infix(
     let math_error = |operator| InterpreterError::BinaryOperationOverflow { location, operator };
 
     if matches!(operator.kind, BinaryOpKind::Divide | BinaryOpKind::Modulo)
-        && let Value::Integer(rhs_value) = rhs_value
+        && let Value::Integer(rhs_value) = &rhs_value
         && rhs_value.is_zero()
     {
         return Err(InterpreterError::InvalidValuesForBinary {
@@ -185,10 +183,9 @@ pub(super) fn evaluate_infix(
         },
         BinaryOpKind::Divide => match_arithmetic! {
             (lhs_value as lhs "/" rhs_value as rhs) {
-                field: if rhs.is_zero() {
-                   return Err( InterpreterError::InvalidValuesForBinary { lhs: lhs_type, rhs: rhs_type, location, operator: "/" });
-                } else {
-                    lhs / rhs
+                field: match lhs.checked_div(&rhs) {
+                    Some(quotient) => quotient,
+                    None => return Err(InterpreterError::InvalidValuesForBinary { lhs: lhs_type, rhs: rhs_type, location, operator: "/" }),
                 },
                 int: lhs.checked_div(rhs),
             }
@@ -281,11 +278,10 @@ mod tests {
 
     #[test]
     fn field_ordering_is_rejected() {
-        use crate::hir::comptime::Integer;
-        use acvm::{AcirField, FieldElement};
+        use acvm::{FieldId, FieldValue};
 
-        let neg_one = Value::field(Integer::I64(-1).as_field());
-        let zero = Value::field(FieldElement::zero());
+        let neg_one = Value::field(-FieldValue::one(FieldId::linked()));
+        let zero = Value::field(FieldValue::zero(FieldId::linked()));
 
         for kind in [
             BinaryOpKind::Less,
@@ -305,10 +301,10 @@ mod tests {
 
     #[test]
     fn field_equality_is_still_allowed() {
-        use acvm::FieldElement;
+        use acvm::{FieldId, FieldValue};
 
-        let one = Value::field(FieldElement::from(1u64));
-        let other_one = Value::field(FieldElement::from(1u64));
+        let one = Value::field(FieldValue::one(FieldId::linked()));
+        let other_one = Value::field(FieldValue::one(FieldId::linked()));
 
         let operator = HirBinaryOp { kind: BinaryOpKind::Equal, location: Location::dummy() };
         let result = evaluate_infix(one, other_one, operator, Location::dummy()).unwrap();

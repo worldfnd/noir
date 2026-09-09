@@ -2,7 +2,7 @@
 //! comptime interpreter when evaluating code.
 use std::{borrow::Cow, rc::Rc, vec};
 
-use acvm::FieldElement;
+use acvm::FieldValue;
 use fm::FileMap;
 use im::Vector;
 use iter_extended::{try_vecmap, vecmap};
@@ -126,8 +126,8 @@ macro_rules! int_constructor {
 }
 
 impl Value {
-    pub fn field(x: FieldElement) -> Self {
-        Value::Integer(Integer::Field(x))
+    pub fn field(value: FieldValue) -> Self {
+        Value::Integer(Integer::Field(value))
     }
 
     int_constructor!(u8, U8);

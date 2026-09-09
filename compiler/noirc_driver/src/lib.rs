@@ -782,7 +782,7 @@ fn compile_contract_inner(
                         };
                         let global_info = context.def_interner.get_global(*global_id);
                         let name = global_info.ident.to_string();
-                        let value = value_to_abi_value(value);
+                        let value = value_to_abi_value(value, context.def_interner.field());
                         AbiNamedValue { name, value }
                     })
                     .collect();
