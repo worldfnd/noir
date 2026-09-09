@@ -45,6 +45,11 @@ fn run_package_comptime(
     file_manager: &FileManager,
     parsed_files: &ParsedFiles,
 ) -> Result<(), CliError> {
+    // The ABI parser and the evaluator's numeric values carry the linked field, so the inputs
+    // below can only be read for it.
+    noirc_driver::ensure_field_is_linked(args.compile_options.field)
+        .map_err(|error| CliError::Generic(CustomDiagnostic::from(error).message))?;
+
     let (mut context, crate_id) = nargo::prepare_package(file_manager, parsed_files, package);
     context.package_build_path = workspace.package_build_path(package);
     noirc_driver::link_to_debug_crate(&mut context, crate_id);
