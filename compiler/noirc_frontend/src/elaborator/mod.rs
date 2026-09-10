@@ -484,6 +484,7 @@ impl<'context> Elaborator<'context> {
         options: ElaboratorOptions<'context>,
         elaborate_reasons: im::Vector<ElaborateReason>,
     ) -> Self {
+        interner.seed_field(options.field);
         Self {
             scopes: ScopeForest::default(),
             errors: CompilationErrors::default(),
@@ -1433,6 +1434,8 @@ pub mod test_utils {
         let def_map = CrateDefMap::new(krate, root_module);
         let root_module_id = def_map.root();
         let mut collector = DefCollector::new(def_map);
+        let options = ElaboratorOptions::test_default();
+        context.def_interner.seed_field(options.field);
         let reuse_existing_module_declarations = false;
 
         collect_defs(
@@ -1448,12 +1451,8 @@ pub mod test_utils {
 
         let main = context.get_main_function(&krate).expect("Expected 'main' function");
 
-        let mut elaborator = Elaborator::elaborate_and_return_self(
-            &mut context,
-            krate,
-            collector.items,
-            ElaboratorOptions::test_default(),
-        );
+        let mut elaborator =
+            Elaborator::elaborate_and_return_self(&mut context, krate, collector.items, options);
 
         // Skip the elaborator's compilation warnings
         let errors: Vec<_> = elaborator.errors.iter().filter(|&e| e.is_error()).cloned().collect();

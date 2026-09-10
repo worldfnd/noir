@@ -1,14 +1,11 @@
-use core::str;
 use std::path::Path;
 use std::rc::Rc;
 use std::vec;
 
-use acvm::{AcirField, FieldElement};
+use acvm::FieldConfig;
 use fm::{FILE_EXTENSION, FileId, FileManager};
 use iter_extended::vecmap;
 use noirc_errors::{Location, Span};
-use num_bigint::BigUint;
-use num_traits::Num;
 use rustc_hash::FxHashMap as HashMap;
 
 use crate::ast::{
@@ -164,7 +161,7 @@ impl ModCollector<'_> {
     ) -> CompilationErrors {
         let mut errors = CompilationErrors::default();
         for (global, visibility) in globals {
-            if is_gated_out(&global.item.attributes) {
+            if is_gated_out(context.def_interner.field(), &global.item.attributes) {
                 continue;
             }
 
@@ -220,7 +217,7 @@ impl ModCollector<'_> {
         let mut errors = CompilationErrors::default();
 
         for mut trait_impl in impls {
-            if is_gated_out(&trait_impl.attributes) {
+            if is_gated_out(context.def_interner.field(), &trait_impl.attributes) {
                 continue;
             }
 
@@ -779,7 +776,7 @@ impl ModCollector<'_> {
             let mut doc_comments = submodule.doc_comments;
             let submodule = submodule.item;
 
-            if is_gated_out(&submodule.outer_attributes) {
+            if is_gated_out(context.def_interner.field(), &submodule.outer_attributes) {
                 continue;
             }
 
@@ -867,7 +864,7 @@ impl ModCollector<'_> {
         let mut errors = CompilationErrors::default();
 
         // Gated out before `find_module`, so the file need not exist.
-        if is_gated_out(&mod_decl.outer_attributes) {
+        if is_gated_out(context.def_interner.field(), &mod_decl.outer_attributes) {
             return errors;
         }
 
@@ -1150,7 +1147,7 @@ pub fn collect_function(
     );
 
     if let Some(field) = function.attributes().get_field_attribute()
-        && !is_native_field(&field)
+        && !interner.field().matches_field_attribute(&field)
     {
         return None;
     }
@@ -1460,7 +1457,7 @@ pub fn collect_impl(
     module_id: ModuleId,
     errors: &mut CompilationErrors,
 ) {
-    if is_gated_out(&r#impl.attributes) {
+    if is_gated_out(interner.field(), &r#impl.attributes) {
         return;
     }
 
@@ -1477,7 +1474,7 @@ pub fn collect_impl(
         let mut method = method.item;
 
         // Skip before `push_empty_fn`, so a gated-out method never gets a `FuncId`.
-        if is_gated_out(method.secondary_attributes()) {
+        if is_gated_out(interner.field(), method.secondary_attributes()) {
             continue;
         }
 
@@ -1590,32 +1587,13 @@ fn should_check_siblings_for_module(module_path: &Path, parent_path: &Path) -> b
     }
 }
 
-cfg_if::cfg_if! {
-    if #[cfg(feature = "goldilocks")] {
-        pub const CHOSEN_FIELD: &str = "goldilocks";
-    } else if #[cfg(feature = "bls12_381")] {
-        pub const CHOSEN_FIELD: &str = "bls12_381";
-    } else {
-        pub const CHOSEN_FIELD: &str = "bn254";
-    }
-}
-
-/// Whether a `#[field(..)]` attribute names a field other than the one the compiler was built for; such an item is dropped before anything about it is interned.
-// TODO: compare against a runtime FieldConfig instead of the linked field, and gate structs, traits and a negated #[field(not(..))] form too.
-pub(crate) fn is_gated_out(attributes: &[SecondaryAttribute]) -> bool {
+/// Whether a `#[field(..)]` attribute names a field other than `field`; such an item is dropped before anything about it is interned.
+// Structs, traits, and negated field predicates are not supported.
+pub(crate) fn is_gated_out(field: FieldConfig, attributes: &[SecondaryAttribute]) -> bool {
     attributes.iter().any(|attribute| match &attribute.kind {
-        SecondaryAttributeKind::Field(field) => !is_native_field(&field.to_lowercase()),
+        SecondaryAttributeKind::Field(name) => !field.matches_field_attribute(&name.to_lowercase()),
         _ => false,
     })
-}
-
-fn is_native_field(str: &str) -> bool {
-    let big_num = if let Some(hex) = str.strip_prefix("0x") {
-        BigUint::from_str_radix(hex, 16)
-    } else {
-        BigUint::from_str_radix(str, 10)
-    };
-    if let Ok(big_num) = big_num { big_num == FieldElement::modulus() } else { CHOSEN_FIELD == str }
 }
 
 type AssociatedTypes = Vec<(Ident, Option<UnresolvedType>)>;

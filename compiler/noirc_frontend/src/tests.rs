@@ -41,6 +41,7 @@ use crate::elaborator::{FrontendOptions, UnstableFeature};
 use crate::error_reporting::{self};
 use crate::hir::printer::display_crate;
 use crate::test_utils::{GetProgramOptions, get_program, get_program_with_options};
+use acvm::FieldId;
 
 use noirc_errors::reporter::ReportedErrors;
 use noirc_errors::{CustomDiagnostic, Span};
@@ -68,6 +69,11 @@ pub(crate) fn get_program_using_features(
 
 pub(crate) fn get_program_errors(src: &str) -> Vec<CompilationError> {
     get_program_with_options(src, Default::default()).2
+}
+
+/// The errors of compiling `src` under `field` rather than the field the compiler is built with.
+pub(crate) fn get_program_errors_for_field(src: &str, field: FieldId) -> Vec<CompilationError> {
+    get_program_with_options(src, GetProgramOptions::for_field(field)).2
 }
 
 pub(crate) fn assert_no_errors(src: &str) -> Context<'static, 'static> {

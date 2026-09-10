@@ -2,6 +2,8 @@
 
 use std::str::FromStr;
 
+use acvm::FieldConfig;
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum UnstableFeature {
     Enums,
@@ -43,6 +45,9 @@ pub struct GenericOptions<'a, T> {
 
     /// Deny crates from requiring unstable features.
     pub disable_required_unstable_features: bool,
+
+    /// The field the compilation runs under.
+    pub field: FieldConfig,
 }
 
 /// Options from `nargo_cli` that need to be passed down to the elaborator
@@ -59,6 +64,7 @@ impl<T> GenericOptions<'_, T> {
             debug_comptime_in_file: None,
             enabled_unstable_features: &[UnstableFeature::Enums],
             disable_required_unstable_features: true,
+            field: FieldConfig::linked(),
         }
     }
 }

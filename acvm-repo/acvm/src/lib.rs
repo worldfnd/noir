@@ -13,7 +13,7 @@ use pwg::OpcodeResolutionError;
 
 // re-export acir
 pub use acir;
-pub use acir::{AcirField, FieldElement};
+pub use acir::{AcirField, FieldConfig, FieldElement, FieldId};
 // re-export brillig vm
 pub use brillig_vm;
 // re-export blackbox solver

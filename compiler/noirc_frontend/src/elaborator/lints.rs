@@ -20,7 +20,6 @@ use crate::{
     token::{FunctionAttributeKind, SecondaryAttributeKind},
 };
 
-use acvm::{AcirField, FieldElement};
 use noirc_errors::Location;
 use num_bigint::BigInt;
 
@@ -613,7 +612,7 @@ pub(crate) fn check_integer_literal_fits_its_type(
             // deliberately do NOT route this through `integral_maximum_size()` (which returns
             // `None` for Field as the field-arithmetic selector).
             Type::FieldElement => {
-                let modulus = FieldElement::modulus();
+                let modulus = interner.field().modulus();
                 if value >= BigInt::from(modulus.clone()) {
                     return Some(TypeCheckError::IntegerLiteralDoesNotFitItsType {
                         expr: value,

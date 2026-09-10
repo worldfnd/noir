@@ -11,6 +11,7 @@ use std::path::Path;
 
 use crate::elaborator::FrontendOptions;
 use crate::error_reporting::report_all;
+use acvm::{FieldConfig, FieldId};
 
 use iter_extended::vecmap;
 use noirc_errors::CustomDiagnostic;
@@ -27,7 +28,13 @@ use crate::token::SecondaryAttribute;
 use crate::{ParsedModule, parse_program};
 use fm::FileManager;
 
-use crate::monomorphization::{ast::Program, errors::MonomorphizationError, monomorphize};
+use crate::debug::DebugInstrumenter;
+use crate::monomorphization::debug_types::DebugTypeTracker;
+use crate::monomorphization::{
+    MonomorphizationOutput, Monomorphizer, ast::Program, errors::MonomorphizationError,
+    monomorphize,
+};
+use crate::node_interner::FuncId;
 
 #[derive(Copy, Clone, Debug)]
 pub struct GetProgramOptions<'a> {
@@ -50,9 +57,30 @@ impl Default for GetProgramOptions<'_> {
     }
 }
 
+impl GetProgramOptions<'_> {
+    /// The default options, compiling under `field` rather than the field the compiler is built with.
+    pub fn for_field(field: FieldId) -> Self {
+        Self {
+            frontend_options: FrontendOptions {
+                field: FieldConfig::new(field),
+                ..FrontendOptions::test_default()
+            },
+            ..Default::default()
+        }
+    }
+}
+
 /// Compile and monomorphize a program.
 pub fn get_monomorphized(src: &str) -> Result<Program, MonomorphizationError> {
     get_monomorphized_with_options(src, GetProgramOptions::default())
+}
+
+/// Compile and monomorphize a program under `field`.
+pub fn get_monomorphized_for_field(
+    src: &str,
+    field: FieldId,
+) -> Result<Program, MonomorphizationError> {
+    get_monomorphized_with_options(src, GetProgramOptions::for_field(field))
 }
 
 /// Helper to monomorphize code which needs some parts of the stdlib repeated for the test.
@@ -60,16 +88,34 @@ pub fn get_monomorphized_with_stdlib(
     user_src: &str,
     stdlib_src: &[&str],
 ) -> Result<Program, MonomorphizationError> {
+    get_monomorphized_with_stdlib_and_options(user_src, stdlib_src, GetProgramOptions::default())
+}
+
+/// Like `get_monomorphized_with_stdlib`, compiling under `field`.
+pub fn get_monomorphized_with_stdlib_for_field(
+    user_src: &str,
+    stdlib_src: &[&str],
+    field: FieldId,
+) -> Result<Program, MonomorphizationError> {
+    get_monomorphized_with_stdlib_and_options(
+        user_src,
+        stdlib_src,
+        GetProgramOptions::for_field(field),
+    )
+}
+
+fn get_monomorphized_with_stdlib_and_options(
+    user_src: &str,
+    stdlib_src: &[&str],
+    options: GetProgramOptions,
+) -> Result<Program, MonomorphizationError> {
     let mut src = String::new();
     for s in stdlib_src {
         src.push_str(s);
         src.push_str("\n\n");
     }
     src.push_str(user_src);
-    get_monomorphized_with_options(
-        &src,
-        GetProgramOptions { root_and_stdlib: true, ..Default::default() },
-    )
+    get_monomorphized_with_options(&src, GetProgramOptions { root_and_stdlib: true, ..options })
 }
 
 /// Compile and monomorphize a program.
@@ -77,7 +123,33 @@ pub fn get_monomorphized_with_options(
     src: &str,
     options: GetProgramOptions,
 ) -> Result<Program, MonomorphizationError> {
-    let (_parsed_module, mut context, errors) = get_program_with_options(src, options);
+    let (mut context, main) = elaborate_main(src, options);
+    monomorphize(main, &mut context.def_interner, context.file_manager.as_file_map(), false)
+}
+
+/// Compile and monomorphize a program, driving the monomorphizer the way an in-process consumer of the labeled output does.
+pub fn get_monomorphization_output(
+    src: &str,
+    options: GetProgramOptions,
+) -> Result<MonomorphizationOutput, MonomorphizationError> {
+    let (mut context, main) = elaborate_main(src, options);
+    let debug_type_tracker =
+        DebugTypeTracker::build_from_debug_instrumenter(&DebugInstrumenter::default());
+    let mut monomorphizer = Monomorphizer::new(
+        &mut context.def_interner,
+        context.file_manager.as_file_map(),
+        debug_type_tracker,
+        None,
+        false,
+    );
+    monomorphizer.compile_main(main)?;
+    monomorphizer.process_queue()?;
+    Ok(monomorphizer.into_output())
+}
+
+/// Elaborates `src` and returns its context and `main`, panicking on any error the options do not allow.
+fn elaborate_main(src: &str, options: GetProgramOptions) -> (Context<'static, 'static>, FuncId) {
+    let (_parsed_module, context, errors) = get_program_with_options(src, options);
 
     let only_warnings = errors.iter().all(|err| !err.is_error());
     let has_defs = !context.def_maps.is_empty();
@@ -92,8 +164,7 @@ pub fn get_monomorphized_with_options(
     let main = context
         .get_main_function(context.root_crate_id())
         .unwrap_or_else(|| panic!("get_monomorphized: test program contains no 'main' function"));
-
-    monomorphize(main, &mut context.def_interner, context.file_manager.as_file_map(), false)
+    (context, main)
 }
 
 pub(crate) fn has_parser_error(errors: &[CompilationError]) -> bool {

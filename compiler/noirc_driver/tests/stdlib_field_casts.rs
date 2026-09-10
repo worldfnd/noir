@@ -70,7 +70,7 @@ fn compile_errors(source: &str) -> Vec<String> {
 /// The stdlib's conversions from an unsigned integer into `Field` exist exactly for the types whose values all lie below the modulus.
 #[test]
 fn stdlib_conversions_into_field_follow_the_field_width() {
-    use acvm::{AcirField, FieldElement};
+    use acvm::FieldConfig;
     for bits in [8u32, 16, 32, 64, 128] {
         let source = format!(
             "fn main() {{
@@ -81,7 +81,7 @@ fn stdlib_conversions_into_field_follow_the_field_width() {
             }}"
         );
         let errors = compile_errors(&source);
-        if bits < FieldElement::max_num_bits() {
+        if FieldConfig::linked().fits_unsigned(bits) {
             assert!(errors.is_empty(), "u{bits}: {errors:?}");
         } else {
             assert!(!errors.is_empty(), "u{bits} should have no conversion into Field");

@@ -53,6 +53,8 @@ pub(crate) fn with_interpreter<T>(
     let root_module_id = def_map.root();
     let mut collector = DefCollector::new(def_map);
 
+    let options = ElaboratorOptions::test_default();
+    context.def_interner.seed_field(options.field);
     let reuse_existing_module_declarations = false;
     collect_defs(
         &mut collector,
@@ -67,12 +69,8 @@ pub(crate) fn with_interpreter<T>(
 
     let main = context.get_main_function(&krate).expect("Expected 'main' function");
 
-    let mut elaborator = Elaborator::elaborate_and_return_self(
-        &mut context,
-        krate,
-        collector.items,
-        ElaboratorOptions::test_default(),
-    );
+    let mut elaborator =
+        Elaborator::elaborate_and_return_self(&mut context, krate, collector.items, options);
 
     let errors = elaborator.errors.clone();
 

@@ -7,7 +7,7 @@ use std::{
 };
 
 use crate::hir::comptime::bigint_to_field;
-use acvm::{AcirField, FieldElement};
+use acvm::{AcirField, FieldConfig, FieldElement};
 use builtin_helpers::{
     block_expression_to_value, byte_array_type, check_argument_count,
     check_function_not_yet_resolved, check_one_argument, check_return_type_shape,
@@ -192,11 +192,11 @@ impl Interpreter<'_, '_> {
             "module_name" => module_name(interner, arguments, location),
             "module_parent" => module_parent(self, arguments, return_type, location),
             "module_structs" => module_structs(self, arguments, location),
-            "modulus_be_bits" => modulus_be_bits(&arguments, location),
-            "modulus_be_bytes" => modulus_be_bytes(&arguments, location),
-            "modulus_le_bits" => modulus_le_bits(&arguments, location),
-            "modulus_le_bytes" => modulus_le_bytes(&arguments, location),
-            "modulus_num_bits" => modulus_num_bits(&arguments, location),
+            "modulus_be_bits" => modulus_be_bits(interner.field(), &arguments, location),
+            "modulus_be_bytes" => modulus_be_bytes(interner.field(), &arguments, location),
+            "modulus_le_bits" => modulus_le_bits(interner.field(), &arguments, location),
+            "modulus_le_bytes" => modulus_le_bytes(interner.field(), &arguments, location),
+            "modulus_num_bits" => modulus_num_bits(interner.field(), &arguments, location),
             "quoted_as_expr" => quoted_as_expr(self.elaborator, arguments, return_type, location),
             "quoted_as_module" => quoted_as_module(self, arguments, return_type, location),
             "quoted_as_trait_constraint" => quoted_as_trait_constraint(self, arguments, location),
@@ -3102,20 +3102,28 @@ fn module_name(
     Ok(Value::Quoted(tokens))
 }
 
-fn modulus_be_bits(arguments: &[(Value, Location)], location: Location) -> IResult<Value> {
+fn modulus_be_bits(
+    field: FieldConfig,
+    arguments: &[(Value, Location)],
+    location: Location,
+) -> IResult<Value> {
     check_argument_count(0, arguments, location)?;
 
-    let bits = FieldElement::modulus().to_radix_be(2);
+    let bits = field.modulus().to_radix_be(2);
     let bits_vector = bits.into_iter().map(|bit| Value::Bool(bit != 0)).collect();
 
     let typ = Type::Vector(Box::new(Type::Bool));
     Ok(Value::Vector(bits_vector, typ))
 }
 
-fn modulus_be_bytes(arguments: &[(Value, Location)], location: Location) -> IResult<Value> {
+fn modulus_be_bytes(
+    field: FieldConfig,
+    arguments: &[(Value, Location)],
+    location: Location,
+) -> IResult<Value> {
     check_argument_count(0, arguments, location)?;
 
-    let bytes = FieldElement::modulus().to_bytes_be();
+    let bytes = field.modulus().to_bytes_be();
     let bytes_vector = bytes.into_iter().map(Value::u8).collect();
 
     let int_type = Type::Integer(Signedness::Unsigned, IntegerBitSize::Eight);
@@ -3123,25 +3131,37 @@ fn modulus_be_bytes(arguments: &[(Value, Location)], location: Location) -> IRes
     Ok(Value::Vector(bytes_vector, typ))
 }
 
-fn modulus_le_bits(arguments: &[(Value, Location)], location: Location) -> IResult<Value> {
-    let Value::Vector(bits, typ) = modulus_be_bits(arguments, location)? else {
+fn modulus_le_bits(
+    field: FieldConfig,
+    arguments: &[(Value, Location)],
+    location: Location,
+) -> IResult<Value> {
+    let Value::Vector(bits, typ) = modulus_be_bits(field, arguments, location)? else {
         unreachable!("modulus_be_bits must return vector")
     };
     let reversed_bits = bits.into_iter().rev().collect();
     Ok(Value::Vector(reversed_bits, typ))
 }
 
-fn modulus_le_bytes(arguments: &[(Value, Location)], location: Location) -> IResult<Value> {
-    let Value::Vector(bytes, typ) = modulus_be_bytes(arguments, location)? else {
+fn modulus_le_bytes(
+    field: FieldConfig,
+    arguments: &[(Value, Location)],
+    location: Location,
+) -> IResult<Value> {
+    let Value::Vector(bytes, typ) = modulus_be_bytes(field, arguments, location)? else {
         unreachable!("modulus_be_bytes must return vector")
     };
     let reversed_bytes = bytes.into_iter().rev().collect();
     Ok(Value::Vector(reversed_bytes, typ))
 }
 
-fn modulus_num_bits(arguments: &[(Value, Location)], location: Location) -> IResult<Value> {
+fn modulus_num_bits(
+    field: FieldConfig,
+    arguments: &[(Value, Location)],
+    location: Location,
+) -> IResult<Value> {
     check_argument_count(0, arguments, location)?;
-    let bits = FieldElement::max_num_bits().into();
+    let bits = field.num_bits().into();
     Ok(Value::u64(bits))
 }
 

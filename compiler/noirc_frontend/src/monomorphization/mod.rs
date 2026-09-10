@@ -68,6 +68,7 @@ use crate::{
     node_interner::{self, DefinitionKind, NodeInterner, StmtId, TraitImplKind},
 };
 use crate::{NamedGeneric, TypeVariable, TypeVariableId};
+use acvm::FieldId;
 use ast::{GlobalId, IdentId, While};
 use fm::FileMap;
 use iter_extended::{btree_map, try_vecmap, vecmap};
@@ -226,6 +227,17 @@ fn entry_point_field_count_saturating(typ: &ast::Type) -> u64 {
         | ast::Type::Reference(..)
         | ast::Type::Function(..) => 0,
     }
+}
+
+/// The result of monomorphizing a program, labeled with the field it was compiled under.
+///
+/// Consumers must check the field identity before lowering the program.
+pub struct MonomorphizationOutput {
+    pub program: Program,
+    /// The field the program was elaborated and monomorphized under.
+    pub field_id: FieldId,
+    /// Source files of every function, global, trait constant, and trait-impl associated constant that was monomorphized into the program; see [`Monomorphizer::monomorphized_source_files`].
+    pub monomorphized_source_files: BTreeSet<fm::FileId>,
 }
 
 /// Starting from the given `main` function, monomorphize the entire program,
@@ -417,6 +429,17 @@ impl<'interner> Monomorphizer<'interner> {
         )
         .handle_ownership()
         .create_foreign_proxies()
+    }
+
+    /// Collect the finished program together with the field it was compiled under and the files it drew code from; [`Self::into_program`] returns the program alone.
+    pub fn into_output(mut self) -> MonomorphizationOutput {
+        let field_id = self.interner.field().id();
+        let monomorphized_source_files = std::mem::take(&mut self.monomorphized_source_files);
+        MonomorphizationOutput {
+            program: self.into_program(),
+            field_id,
+            monomorphized_source_files,
+        }
     }
 
     pub(super) fn next_local_id(&mut self) -> LocalId {
@@ -851,7 +874,6 @@ impl<'interner> Monomorphizer<'interner> {
     ) -> Result<(), MonomorphizationError> {
         use crate::hir::type_check::TypeCheckError;
         use crate::shared::Signedness;
-        use acvm::{AcirField, FieldElement};
 
         if !matches!(to.follow_bindings(), HirType::FieldElement) {
             return Ok(());
@@ -860,7 +882,7 @@ impl<'interner> Monomorphizer<'interner> {
         let err = if from.is_signed() {
             TypeCheckError::UnsupportedFieldCast { location }
         } else if let HirType::Integer(Signedness::Unsigned, bits) = from
-            && u32::from(bits.bit_size()) >= FieldElement::max_num_bits()
+            && !self.interner.field().fits_unsigned(u32::from(bits.bit_size()))
         {
             TypeCheckError::IntegerTypeExceedsField { typ: from, location }
         } else {

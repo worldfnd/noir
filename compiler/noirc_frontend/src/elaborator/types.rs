@@ -3,7 +3,7 @@ mod similarly_named_types;
 
 use std::{borrow::Cow, collections::BTreeSet, rc::Rc};
 
-use acvm::{AcirField, FieldElement};
+use acvm::{AcirField, FieldElement, FieldId};
 use im::HashSet;
 use iter_extended::vecmap;
 use itertools::Itertools;
@@ -1106,6 +1106,23 @@ impl Elaborator<'_> {
         location: Location,
         wildcard_allowed: WildcardAllowed,
     ) -> Type {
+        // Type expressions fold through Integer::Field without entering the comptime
+        // interpreter. Reject them before creating values in the linked field.
+        // TODO: Remove this guard once type-level Field values carry their field.
+        let uses_field = matches!(expected_kind.follow_bindings(), Kind::Numeric(typ) if typ.is_field())
+            || matches!(&expr, UnresolvedTypeExpression::Constant(_, Some(suffix), _) if suffix.as_type().is_field());
+        let field = self.interner.field().id();
+        let linked = FieldId::linked();
+        if uses_field && field != linked {
+            self.push_err(crate::hir::comptime::InterpreterError::Unimplemented {
+                item: format!(
+                    "Type-level Field evaluation for {field} in a compiler built for {linked}"
+                ),
+                location,
+            });
+            return Type::Error;
+        }
+
         match expr {
             UnresolvedTypeExpression::Variable(path) => {
                 let mut ab = GenericTypeArgs::default();
@@ -2561,8 +2578,12 @@ impl Elaborator<'_> {
             && *value < BigInt::ZERO
             && to.is_integer()
             && (from_follow_bindings.is_field() || from_follow_bindings.is_bindable())
-            && let Ok(Value::Integer(result)) =
-                evaluate_cast_one_step(&to, location, Value::field(bigint_to_field(value)))
+            && let Ok(Value::Integer(result)) = evaluate_cast_one_step(
+                self.interner.field(),
+                &to,
+                location,
+                Value::field(bigint_to_field(value)),
+            )
         {
             self.push_err(TypeCheckError::NegativeLiteralCastToInteger {
                 value: value.clone(),
@@ -2596,10 +2617,9 @@ impl Elaborator<'_> {
                 if from_follow_bindings.is_signed() {
                     self.push_err(TypeCheckError::UnsupportedFieldCast { location });
                 } else if let Type::Integer(Signedness::Unsigned, bits) = from_follow_bindings
-                    && u32::from(bits.bit_size()) >= FieldElement::max_num_bits()
+                    && !self.interner.field().fits_unsigned(u32::from(bits.bit_size()))
                 {
                     // `Field` never reduces a cast, so only a type whose every value lies below the modulus may be cast to it. A source that is still a type variable here is checked again by the monomorphizer once bound.
-                    // TODO: take the width from FieldConfig once the field is a runtime setting.
                     let typ = from_follow_bindings;
                     self.push_err(TypeCheckError::IntegerTypeExceedsField { typ, location });
                 }

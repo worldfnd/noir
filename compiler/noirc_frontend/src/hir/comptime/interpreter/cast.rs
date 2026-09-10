@@ -6,16 +6,17 @@ use crate::{
         integer::{field_to_bigint, try_bigint_to_field},
     },
 };
-use acvm::{AcirField, FieldElement};
+use acvm::FieldConfig;
 use noirc_errors::Location;
 use num_bigint::BigInt;
 
-fn bit_size(typ: &Type) -> u32 {
+/// The width at which a value of `typ` is read as a two's complement pattern under `field`.
+fn bit_size(field: FieldConfig, typ: &Type) -> u32 {
     match typ {
-        Type::FieldElement => FieldElement::max_num_bits(),
+        Type::FieldElement => field.num_bits(),
         Type::Integer(_, bit_size) => u32::from(bit_size.bit_size()),
         Type::Bool => 1,
-        _ => FieldElement::max_num_bits(),
+        _ => field.num_bits(),
     }
 }
 
@@ -27,6 +28,7 @@ fn twos_complement_pattern(value: &BigInt, bits: u32) -> BigInt {
 
 /// An integer target takes the source's two's complement pattern at the target width and reads it by the target's signedness; a `Field` target takes the source's own-width pattern exactly, and is an error if that pattern is not below the modulus (the type checker admits only source types whose every pattern is).
 pub(crate) fn evaluate_cast_one_step(
+    field: FieldConfig,
     output_type: &Type,
     location: Location,
     evaluated_lhs: Value,
@@ -40,8 +42,7 @@ pub(crate) fn evaluate_cast_one_step(
     };
     match output_type.follow_bindings() {
         Type::FieldElement => {
-            // TODO: try_bigint_to_field should take the field once comptime values carry their field.
-            let pattern = twos_complement_pattern(&value, bit_size(&lhs_type));
+            let pattern = twos_complement_pattern(&value, bit_size(field, &lhs_type));
             try_bigint_to_field(&pattern).map(Value::field).ok_or_else(|| {
                 InterpreterError::IntegerOutOfRangeForType {
                     value: pattern,
@@ -69,6 +70,7 @@ pub(crate) fn evaluate_cast_one_step(
 
 #[cfg(test)]
 mod tests {
+    use acvm::{AcirField, FieldElement};
     use noirc_errors::Location;
     use num_bigint::BigUint;
     use proptest::prelude::*;
@@ -98,7 +100,7 @@ mod tests {
 
         for lhs in lhs_values {
             assert_eq!(
-                evaluate_cast_one_step(&typ, location, lhs),
+                evaluate_cast_one_step(FieldConfig::linked(), &typ, location, lhs),
                 Ok(Value::field(FieldElement::one()))
             );
         }
@@ -139,7 +141,7 @@ mod tests {
         ];
 
         for (lhs, typ, expected) in tests {
-            let actual = evaluate_cast_one_step(&typ, location, lhs.clone());
+            let actual = evaluate_cast_one_step(FieldConfig::linked(), &typ, location, lhs.clone());
             assert_eq!(
                 actual,
                 Ok(expected.clone()),
@@ -182,7 +184,7 @@ mod tests {
         ];
 
         for (lhs, typ, expected) in tests {
-            let actual = evaluate_cast_one_step(&typ, location, lhs.clone());
+            let actual = evaluate_cast_one_step(FieldConfig::linked(), &typ, location, lhs.clone());
             assert_eq!(
                 actual,
                 Ok(expected.clone()),
@@ -195,7 +197,7 @@ mod tests {
     fn bool_cast() {
         let location = Location::dummy();
         let lhs = Value::field(0u32.into());
-        let actual = evaluate_cast_one_step(&Type::Bool, location, lhs);
+        let actual = evaluate_cast_one_step(FieldConfig::linked(), &Type::Bool, location, lhs);
         assert!(matches!(actual, Err(InterpreterError::CannotCastNumericToBool { .. })));
     }
 
@@ -220,7 +222,7 @@ mod tests {
         ];
 
         for (lhs, typ, expected) in tests {
-            let actual = evaluate_cast_one_step(&typ, location, lhs.clone());
+            let actual = evaluate_cast_one_step(FieldConfig::linked(), &typ, location, lhs.clone());
             assert_eq!(
                 actual,
                 Ok(expected.clone()),
@@ -238,10 +240,16 @@ mod tests {
         let expected = FieldElement::from_be_bytes_reduce(&largest.to_bytes_be());
 
         let source = Value::u128(u128::try_from(largest).unwrap());
-        let actual = evaluate_cast_one_step(&Type::FieldElement, location, source);
+        let actual =
+            evaluate_cast_one_step(FieldConfig::linked(), &Type::FieldElement, location, source);
         assert_eq!(actual, Ok(Value::field(expected)));
 
-        let actual = evaluate_cast_one_step(&Type::FieldElement, location, Value::u64(u64::MAX));
+        let actual = evaluate_cast_one_step(
+            FieldConfig::linked(),
+            &Type::FieldElement,
+            location,
+            Value::u64(u64::MAX),
+        );
         if BigUint::from(u64::MAX) < modulus {
             assert_eq!(actual, Ok(Value::field(FieldElement::from(u128::from(u64::MAX)))));
         } else {
@@ -327,7 +335,7 @@ mod tests {
                 }
                 _ => unreachable!("integer and field targets only"),
             };
-            let actual = evaluate_cast_one_step(&target, Location::dummy(), source.clone());
+            let actual = evaluate_cast_one_step(FieldConfig::linked(), &target, Location::dummy(), source.clone());
             match expected {
                 Some(expected) => prop_assert_eq!(actual, Ok(expected), "{:?} as {}", source, target),
                 None => prop_assert!(

@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(not(test), warn(unused_crate_dependencies, unused_extern_crates))]
 
+mod field_config;
 mod field_element;
 mod generic_ark;
 #[cfg(feature = "goldilocks")]
@@ -11,6 +12,7 @@ mod goldilocks;
 #[cfg(feature = "goldilocks")]
 use ark_bn254 as _;
 
+pub use field_config::{FieldConfig, FieldId};
 pub use generic_ark::AcirField;
 
 /// Temporarily exported generic field to aid migration to `AcirField`

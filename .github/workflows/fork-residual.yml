@@ -1,0 +1,38 @@
+name: Fork residual
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches:
+      - master
+      - provekit-v2
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  residual:
+    name: Fork residual matches its manifest
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Keep the set of files changed from upstream explicit across rebases.
+      - name: Compare the residual against the manifest
+        run: |
+          base="$(cat .github/fork-base.txt)"
+          git fetch --no-tags --depth=1 https://github.com/noir-lang/noir.git "refs/tags/${base}:refs/tags/${base}"
+          git diff --name-only --no-renames "${base}" HEAD | sort > residual.txt
+          if ! diff -u .github/fork-residual.txt residual.txt; then
+            echo "::error::the fork's diff against ${base} does not match .github/fork-residual.txt; regenerate it with: git diff --name-only --no-renames ${base} HEAD | sort > .github/fork-residual.txt"
+            exit 1
+          fi
