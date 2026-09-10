@@ -3,17 +3,17 @@
 
 mod field_config;
 mod field_element;
+mod field_value;
 mod generic_ark;
 #[cfg(feature = "goldilocks")]
 mod goldilocks;
 
-// `ark_bn254` backs only the default field selection below; when the Goldilocks field is
-// chosen it is otherwise unreferenced, so keep the dependency edge alive for the crate lint.
-#[cfg(feature = "goldilocks")]
-use ark_bn254 as _;
-
-pub use field_config::{FieldConfig, FieldId};
+pub use field_config::{EmbeddedCurve, FieldConfig, FieldId};
+pub use field_value::FieldValue;
 pub use generic_ark::AcirField;
+
+/// The bn254 blackbox solvers' element type, independent of the selected backend.
+pub type Bn254FieldElement = field_element::FieldElement<ark_bn254::Fr>;
 
 /// Temporarily exported generic field to aid migration to `AcirField`
 pub use field_element::FieldElement as GenericFieldElement;

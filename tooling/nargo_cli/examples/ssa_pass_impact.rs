@@ -22,6 +22,7 @@ use nargo_toml::{
 };
 use noirc_driver::{
     CompilationResult, CompileOptions, CrateName, NOIR_ARTIFACT_VERSION_STRING, check_crate,
+    ensure_field_is_linked,
 };
 use noirc_errors::CustomDiagnostic;
 use noirc_evaluator::{
@@ -244,6 +245,8 @@ fn compile_into_program(
     context.disable_comptime_printing();
     context.debug_instrumenter = DebugInstrumenter::default();
     context.package_build_path = workspace.package_build_path(package);
+    ensure_field_is_linked(options.field).map_err(|error| vec![CustomDiagnostic::from(error)])?;
+
     let (_, warnings) = check_crate(&mut context, crate_id, options)?;
     let Some(main) = context.get_main_function(&crate_id) else {
         return Ok((None, warnings));

@@ -17,7 +17,9 @@ mod serialization;
 pub mod test_fixtures;
 
 pub use acir_field;
-pub use acir_field::{AcirField, FieldConfig, FieldElement, FieldId};
+pub use acir_field::{
+    AcirField, Bn254FieldElement, EmbeddedCurve, FieldConfig, FieldElement, FieldId, FieldValue,
+};
 pub use brillig;
 pub use circuit::black_box_functions::BlackBoxFunc;
 pub use circuit::opcodes::InvalidInputBitSize;

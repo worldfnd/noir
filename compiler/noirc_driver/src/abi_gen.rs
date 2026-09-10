@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use acvm::AcirField;
+use acvm::FieldConfig;
 use acvm::acir::circuit::ErrorSelector;
 use iter_extended::vecmap;
 use noirc_abi::{
@@ -9,7 +9,7 @@ use noirc_abi::{
 use noirc_errors::Location;
 use noirc_evaluator::ErrorType;
 use noirc_frontend::TypeBinding;
-use noirc_frontend::hir::comptime::Value;
+use noirc_frontend::hir::comptime::{Integer, Value};
 use noirc_frontend::shared::{Signedness, Visibility};
 use noirc_frontend::{
     hir::Context,
@@ -188,13 +188,20 @@ fn into_abi_params(context: &Context, params: Vec<Param>) -> Vec<AbiParameter> {
 /// The elaborator rejects globals whose type the ABI cannot represent (via
 /// `Type::program_validity`), so this function only needs to handle the value shapes that
 /// correspond to ABI-compatible types.
-pub(super) fn value_to_abi_value(value: &Value) -> AbiValue {
+pub(super) fn value_to_abi_value(value: &Value, field: FieldConfig) -> AbiValue {
     match value {
         Value::Bool(value) => AbiValue::Boolean { value: *value },
         Value::Integer(integer) => {
             let sign = integer.is_negative();
-            let field = if sign { -integer.as_field() } else { integer.as_field() };
-            AbiValue::Integer { sign, value: field.to_hex() }
+            // Preserve wide integer magnitudes; ABI tags must not reduce them modulo the field.
+            let value = match integer {
+                Integer::Field(value) => value.to_hex(),
+                other => {
+                    let width = field.num_bytes() as usize * 2;
+                    format!("{:0width$x}", other.to_bigint().magnitude())
+                }
+            };
+            AbiValue::Integer { sign, value }
         }
         Value::String(bytes) => match std::str::from_utf8(bytes.as_ref()) {
             Ok(value) => AbiValue::String { value: value.to_string() },
@@ -207,12 +214,14 @@ pub(super) fn value_to_abi_value(value: &Value) -> AbiValue {
             }
         },
         Value::Array(elements, _) => {
-            let value = elements.iter().map(value_to_abi_value).collect();
+            let value = elements.iter().map(|element| value_to_abi_value(element, field)).collect();
             AbiValue::Array { value }
         }
         Value::Tuple(elements) => {
-            let fields =
-                elements.iter().map(|element| value_to_abi_value(&element.borrow())).collect();
+            let fields = elements
+                .iter()
+                .map(|element| value_to_abi_value(&element.borrow(), field))
+                .collect();
             AbiValue::Tuple { fields }
         }
         Value::Struct(fields, typ) => {
@@ -222,16 +231,46 @@ pub(super) fn value_to_abi_value(value: &Value) -> AbiValue {
             let definition = definition.borrow();
             let fields_raw =
                 definition.fields_raw().expect("ABI-valid struct values must have named fields");
-            let abi_fields = vecmap(fields_raw, |field| {
-                let name = field.name.as_string();
+            let abi_fields = vecmap(fields_raw, |struct_field| {
+                let name = struct_field.name.as_string();
                 let value = fields
                     .iter()
                     .find_map(|(key, value)| (key.as_ref() == name).then_some(value))
                     .expect("ABI struct value should have all fields populated");
-                (name.clone(), value_to_abi_value(&value.borrow()))
+                (name.clone(), value_to_abi_value(&value.borrow(), field))
             });
             AbiValue::Struct { fields: abi_fields }
         }
         _ => unreachable!("Value cannot be used in the abi: {value:?}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use acvm::{FieldId, FieldValue};
+
+    use super::*;
+
+    #[test]
+    fn abi_tag_integers_preserve_sign_width_and_magnitude() {
+        for id in FieldId::ALL {
+            let field = FieldConfig::new(id);
+            let width = field.num_bytes() as usize * 2;
+            for (integer, sign, magnitude) in [
+                (
+                    Integer::Field(-FieldValue::one(id)),
+                    false,
+                    (field.modulus() - 1u8).to_str_radix(16),
+                ),
+                (Integer::I8(i8::MIN), true, "80".to_owned()),
+                (Integer::U128(u128::MAX), false, "f".repeat(32)),
+            ] {
+                assert_eq!(
+                    value_to_abi_value(&Value::Integer(integer), field),
+                    AbiValue::Integer { sign, value: format!("{magnitude:0>width$}") },
+                    "{id}"
+                );
+            }
+        }
     }
 }

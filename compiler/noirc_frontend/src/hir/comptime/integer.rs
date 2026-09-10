@@ -1,6 +1,8 @@
+//! Comptime numeric values carry the configured field. The free conversion functions use the linked backend's `FieldElement`.
+
 use std::fmt::Display;
 
-use acvm::{AcirField, FieldElement};
+use acvm::{AcirField, FieldElement, FieldId, FieldValue};
 use num_bigint::{BigInt, BigUint, Sign};
 
 use crate::{
@@ -19,10 +21,8 @@ pub(crate) fn field_to_bigint(value: &FieldElement) -> BigInt {
 /// Converts a `BigInt` to a `FieldElement`, encoding negative values via field negation:
 /// `-7` becomes `-FieldElement::from(7)`.
 ///
-/// Returns `None` if the value's magnitude is not canonical (not less than the field
-/// modulus) rather than silently reducing it. The lexer rejects literals which exceed
-/// the field modulus, so every value in the literal pipeline is already canonical.
-pub(crate) fn try_bigint_to_field(value: &BigInt) -> Option<FieldElement> {
+/// Returns `None` if the magnitude is at or above the linked field's modulus.
+fn try_bigint_to_field(value: &BigInt) -> Option<FieldElement> {
     if *value.magnitude() >= FieldElement::modulus() {
         return None;
     }
@@ -33,8 +33,7 @@ pub(crate) fn try_bigint_to_field(value: &BigInt) -> Option<FieldElement> {
 /// Converts a `BigInt` to a `FieldElement`, like `try_bigint_to_field`, for values which
 /// are known to be canonical (with a magnitude less than the field modulus).
 ///
-/// Panics if the value is not canonical: a non-canonical value here is a compiler bug,
-/// since the lexer rejects literals which exceed the field modulus.
+/// Panics if the magnitude is at or above the linked field's modulus. Callers must check this bound before lowering exact literals.
 pub fn bigint_to_field(value: &BigInt) -> FieldElement {
     try_bigint_to_field(value)
         .unwrap_or_else(|| panic!("ICE: value does not fit in the field: {value}"))
@@ -49,9 +48,9 @@ pub fn field_to_signed_bigint(value: &FieldElement) -> BigInt {
     if negated.to_string().len() < positive.to_string().len() { -negated } else { positive }
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Integer {
-    Field(FieldElement),
+    Field(FieldValue),
     I8(i8),
     I16(i16),
     I32(i32),
@@ -64,29 +63,11 @@ pub enum Integer {
 }
 
 impl Integer {
-    /// Converts this [Integer] to a [`FieldElement`]. Any negative values are
-    /// encoded as negative fields such that `-7 == -FieldElement::from(7)`.
-    /// In other words, the resulting field is not in two's complement form.
-    pub fn as_field(self) -> FieldElement {
-        match self {
-            Integer::Field(value) => value,
-            Integer::I8(value) => value.into(),
-            Integer::I16(value) => value.into(),
-            Integer::I32(value) => value.into(),
-            Integer::I64(value) => value.into(),
-            Integer::U8(value) => value.into(),
-            Integer::U16(value) => value.into(),
-            Integer::U32(value) => value.into(),
-            Integer::U64(value) => value.into(),
-            Integer::U128(value) => value.into(),
-        }
-    }
-
     /// Returns whether this integer is strictly less than zero.
     ///
     /// Only the signed variants can be negative. Unsigned integers cannot represent a negative
-    /// value, and a Noir `Field` has no signedness: `Integer::Field` wraps a `FieldElement`,
-    /// which is an element of a prime field with no notion of sign. Both therefore return `false`.
+    /// value, and a Noir `Field` has no signedness: `Integer::Field` wraps an element of a prime
+    /// field, which has no notion of sign. Both therefore return `false`.
     pub fn is_negative(&self) -> bool {
         match self {
             Integer::I8(x) => *x < 0,
@@ -127,18 +108,18 @@ impl Integer {
     /// Converts this [Integer] to a [BigInt]. Negative signed values become negative
     /// bigints, and field values which display as negative numbers (see
     /// [field_to_signed_bigint]) also become negative bigints.
-    pub(crate) fn to_bigint(self) -> BigInt {
+    pub fn to_bigint(&self) -> BigInt {
         match self {
-            Integer::Field(value) => field_to_signed_bigint(&value),
-            Integer::I8(value) => value.into(),
-            Integer::I16(value) => value.into(),
-            Integer::I32(value) => value.into(),
-            Integer::I64(value) => value.into(),
-            Integer::U8(value) => value.into(),
-            Integer::U16(value) => value.into(),
-            Integer::U32(value) => value.into(),
-            Integer::U64(value) => value.into(),
-            Integer::U128(value) => value.into(),
+            Integer::Field(value) => value.to_signed_bigint(),
+            Integer::I8(value) => (*value).into(),
+            Integer::I16(value) => (*value).into(),
+            Integer::I32(value) => (*value).into(),
+            Integer::I64(value) => (*value).into(),
+            Integer::U8(value) => (*value).into(),
+            Integer::U16(value) => (*value).into(),
+            Integer::U32(value) => (*value).into(),
+            Integer::U64(value) => (*value).into(),
+            Integer::U128(value) => (*value).into(),
         }
     }
 
@@ -147,7 +128,7 @@ impl Integer {
         use ExpressionKind::Literal;
         match self {
             Integer::Field(value) => {
-                Literal(Int(field_to_signed_bigint(&value), Some(IntegerTypeSuffix::Field)))
+                Literal(Int(value.to_signed_bigint(), Some(IntegerTypeSuffix::Field)))
             }
             Integer::I8(value) => Literal(Int(value.into(), Some(IntegerTypeSuffix::I8))),
             Integer::I16(value) => Literal(Int(value.into(), Some(IntegerTypeSuffix::I16))),
@@ -164,7 +145,7 @@ impl Integer {
     pub(crate) fn into_hir_expression(self) -> HirExpression {
         match self {
             Integer::Field(value) => {
-                HirExpression::Literal(HirLiteral::Integer(field_to_signed_bigint(&value)))
+                HirExpression::Literal(HirLiteral::Integer(value.to_signed_bigint()))
             }
             Integer::I8(value) => HirExpression::Literal(HirLiteral::Integer(value.into())),
             Integer::I16(value) => HirExpression::Literal(HirLiteral::Integer(value.into())),
@@ -208,14 +189,14 @@ impl Integer {
                 vec![Token::Int(value.into(), Some(IntegerTypeSuffix::I64))]
             }
             Integer::Field(value) => {
-                vec![Token::Int(field_to_signed_bigint(&value), Some(IntegerTypeSuffix::Field))]
+                vec![Token::Int(value.to_signed_bigint(), Some(IntegerTypeSuffix::Field))]
             }
         }
     }
 
     pub fn is_zero(&self) -> bool {
         match self {
-            Integer::Field(field) => field.is_zero(),
+            Integer::Field(value) => value.is_zero(),
             Integer::I8(value) => *value == 0,
             Integer::I16(value) => *value == 0,
             Integer::I32(value) => *value == 0,
@@ -243,25 +224,34 @@ impl Integer {
         }
     }
 
-    /// Try to create an integer of the given type from the given field value.
-    /// Expects the field to be encoded such that `-7 == -FieldElement::from(7)`.
+    /// Try to create an integer of the given type from the given field value, which encodes a
+    /// negative number as the negation of its magnitude.
     ///
-    /// Returns `None` if the given type is not a field or integer, or
-    /// if the field value does not fit the type.
-    pub fn try_from_type(value: FieldElement, typ: &Type) -> Option<Integer> {
+    /// An unsigned target takes the value when it is below `2^width`; a signed target reads the
+    /// shorter of the value's two spellings, so `p - 1` becomes `-1`. Returns `None` if the given
+    /// type is not a field or integer, or if the value does not fit the type.
+    pub fn try_from_field(value: FieldValue, typ: &Type) -> Option<Integer> {
         use IntegerBitSize::*;
         use Signedness::*;
         match typ.follow_bindings_shallow().as_ref() {
             Type::FieldElement => Some(Integer::Field(value)),
-            Type::Integer(Unsigned, Eight) => value.try_into().ok().map(Integer::U8),
-            Type::Integer(Unsigned, Sixteen) => value.try_into().ok().map(Integer::U16),
-            Type::Integer(Unsigned, ThirtyTwo) => value.try_into().ok().map(Integer::U32),
-            Type::Integer(Unsigned, SixtyFour) => value.try_into().ok().map(Integer::U64),
-            Type::Integer(Unsigned, HundredTwentyEight) => value.try_into().ok().map(Integer::U128),
-            Type::Integer(Signed, Eight) => value.try_into().ok().map(Integer::I8),
-            Type::Integer(Signed, Sixteen) => value.try_into().ok().map(Integer::I16),
-            Type::Integer(Signed, ThirtyTwo) => value.try_into().ok().map(Integer::I32),
-            Type::Integer(Signed, SixtyFour) => value.try_into().ok().map(Integer::I64),
+            Type::Integer(Unsigned, Eight) => value.try_to_u32()?.try_into().ok().map(Integer::U8),
+            Type::Integer(Unsigned, Sixteen) => {
+                value.try_to_u32()?.try_into().ok().map(Integer::U16)
+            }
+            Type::Integer(Unsigned, ThirtyTwo) => value.try_to_u32().map(Integer::U32),
+            Type::Integer(Unsigned, SixtyFour) => value.try_to_u64().map(Integer::U64),
+            Type::Integer(Unsigned, HundredTwentyEight) => value.try_into_u128().map(Integer::U128),
+            Type::Integer(Signed, Eight) => value.try_into_i128()?.try_into().ok().map(Integer::I8),
+            Type::Integer(Signed, Sixteen) => {
+                value.try_into_i128()?.try_into().ok().map(Integer::I16)
+            }
+            Type::Integer(Signed, ThirtyTwo) => {
+                value.try_into_i128()?.try_into().ok().map(Integer::I32)
+            }
+            Type::Integer(Signed, SixtyFour) => {
+                value.try_into_i128()?.try_into().ok().map(Integer::I64)
+            }
             _ => None,
         }
     }
@@ -271,11 +261,11 @@ impl Integer {
     /// Returns `None` if the given type is not a field or integer, or
     /// if the value does not fit the type. Field values may be negative,
     /// in which case they are encoded via field negation.
-    pub(crate) fn try_from_bigint(value: &BigInt, typ: &Type) -> Option<Integer> {
+    pub(crate) fn try_from_bigint(value: &BigInt, typ: &Type, field: FieldId) -> Option<Integer> {
         use IntegerBitSize::*;
         use Signedness::*;
         match typ.follow_bindings_shallow().as_ref() {
-            Type::FieldElement => try_bigint_to_field(value).map(Integer::Field),
+            Type::FieldElement => FieldValue::try_from_bigint(value, field).map(Integer::Field),
             Type::Integer(Unsigned, Eight) => u8::try_from(value).ok().map(Integer::U8),
             Type::Integer(Unsigned, Sixteen) => u16::try_from(value).ok().map(Integer::U16),
             Type::Integer(Unsigned, ThirtyTwo) => u32::try_from(value).ok().map(Integer::U32),
@@ -296,8 +286,9 @@ impl Integer {
     pub(crate) fn try_from_bigint_and_type_suffix(
         value: &BigInt,
         suffix: IntegerTypeSuffix,
+        field: FieldId,
     ) -> Option<Integer> {
-        Self::try_from_bigint(value, &suffix.as_type())
+        Self::try_from_bigint(value, &suffix.as_type(), field)
     }
 
     pub fn integer_type_suffix(&self) -> IntegerTypeSuffix {
@@ -416,8 +407,7 @@ impl std::ops::Div for Integer {
 
     fn div(self, rhs: Self) -> Self::Output {
         match (self, rhs) {
-            (Integer::Field(_), Integer::Field(rhs)) if rhs.is_zero() => None,
-            (Integer::Field(lhs), Integer::Field(rhs)) => Some(Integer::Field(lhs / rhs)),
+            (Integer::Field(lhs), Integer::Field(rhs)) => lhs.checked_div(&rhs).map(Integer::Field),
             (Integer::U8(lhs), Integer::U8(rhs)) => lhs.checked_div(rhs).map(Integer::U8),
             (Integer::U16(lhs), Integer::U16(rhs)) => lhs.checked_div(rhs).map(Integer::U16),
             (Integer::U32(lhs), Integer::U32(rhs)) => lhs.checked_div(rhs).map(Integer::U32),
@@ -516,7 +506,7 @@ impl std::ops::Neg for Integer {
 
 #[cfg(test)]
 mod tests {
-    use acvm::{AcirField, FieldElement};
+    use acvm::{AcirField, FieldElement, FieldId, FieldValue};
     use proptest::prelude::*;
 
     use num_bigint::{BigInt, BigUint, Sign};
@@ -527,6 +517,20 @@ mod tests {
     use crate::Type;
     use crate::ast::IntegerBitSize;
     use crate::shared::Signedness;
+
+    /// A value of the field this build is linked against, the only field the tests below can
+    /// compare with a `FieldElement`.
+    fn linked(value: impl Into<BigUint>) -> FieldValue {
+        FieldValue::from_linked_element(FieldElement::from_be_bytes_reduce(
+            &value.into().to_bytes_be(),
+        ))
+    }
+
+    /// The field value a native integer encodes, negatives by field negation.
+    fn encoded(integer: &Integer) -> FieldValue {
+        FieldValue::try_from_bigint(&integer.to_bigint(), FieldId::linked())
+            .expect("a native integer is canonical in every supported field")
+    }
 
     // === Proptests: Integer arithmetic matches Rust checked arithmetic ===
 
@@ -632,9 +636,9 @@ mod tests {
                 (any::<u64>(), any::<u64>()),
             ]
         ) {
-            let fa = Integer::Field(FieldElement::from(u128::from(a)));
-            let fb = Integer::Field(FieldElement::from(u128::from(b)));
-            let result = (fa - fb).unwrap();
+            let fa = Integer::Field(linked(a));
+            let fb = Integer::Field(linked(b));
+            let result = (fa.clone() - fb.clone()).unwrap();
             let check = (result + fb).unwrap();
             assert_eq!(check, fa);
         }
@@ -645,65 +649,60 @@ mod tests {
         fn field_negation_is_additive_inverse(
             a in prop_oneof![Just(0u64), any::<u64>()]
         ) {
-            let fa = Integer::Field(FieldElement::from(u128::from(a)));
-            let neg_a = (-fa).unwrap();
+            let fa = Integer::Field(linked(a));
+            let neg_a = (-fa.clone()).unwrap();
             let check = (neg_a + fa).unwrap();
-            assert_eq!(check, Integer::Field(FieldElement::zero()));
+            assert_eq!(check, Integer::Field(FieldValue::zero(FieldId::linked())));
         }
 
         // Field values are never considered negative
         #[test]
         fn field_is_never_negative(a: u64) {
-            assert!(!Integer::Field(FieldElement::from(u128::from(a))).is_negative());
+            assert!(!Integer::Field(linked(a)).is_negative());
         }
 
-        // Round-trip: Integer -> as_field -> try_from_type -> same Integer
+        // Round-trip: Integer -> field value -> try_from_field -> same Integer
         // Tests that negative signed values survive the field encoding round-trip.
         #[test]
-        fn i8_try_from_type_roundtrips(a: i8) {
+        fn i8_try_from_field_roundtrips(a: i8) {
             let integer = Integer::I8(a);
-            let field = integer.as_field();
             let typ = Type::Integer(Signedness::Signed, IntegerBitSize::Eight);
-            assert_eq!(Integer::try_from_type(field, &typ), Some(integer));
+            assert_eq!(Integer::try_from_field(encoded(&integer), &typ), Some(integer));
         }
 
         #[test]
-        fn i16_try_from_type_roundtrips(a: i16) {
+        fn i16_try_from_field_roundtrips(a: i16) {
             let integer = Integer::I16(a);
-            let field = integer.as_field();
             let typ = Type::Integer(Signedness::Signed, IntegerBitSize::Sixteen);
-            assert_eq!(Integer::try_from_type(field, &typ), Some(integer));
+            assert_eq!(Integer::try_from_field(encoded(&integer), &typ), Some(integer));
         }
 
         #[test]
-        fn i32_try_from_type_roundtrips(a: i32) {
+        fn i32_try_from_field_roundtrips(a: i32) {
             let integer = Integer::I32(a);
-            let field = integer.as_field();
             let typ = Type::Integer(Signedness::Signed, IntegerBitSize::ThirtyTwo);
-            assert_eq!(Integer::try_from_type(field, &typ), Some(integer));
+            assert_eq!(Integer::try_from_field(encoded(&integer), &typ), Some(integer));
         }
 
         #[test]
-        fn i64_try_from_type_roundtrips(a: i64) {
+        fn i64_try_from_field_roundtrips(a: i64) {
             let integer = Integer::I64(a);
-            let field = integer.as_field();
             let typ = Type::Integer(Signedness::Signed, IntegerBitSize::SixtyFour);
-            assert_eq!(Integer::try_from_type(field, &typ), Some(integer));
+            assert_eq!(Integer::try_from_field(encoded(&integer), &typ), Some(integer));
         }
 
         #[test]
-        fn u8_try_from_type_roundtrips(a: u8) {
+        fn u8_try_from_field_roundtrips(a: u8) {
             let integer = Integer::U8(a);
-            let field = integer.as_field();
             let typ = Type::Integer(Signedness::Unsigned, IntegerBitSize::Eight);
-            assert_eq!(Integer::try_from_type(field, &typ), Some(integer));
+            assert_eq!(Integer::try_from_field(encoded(&integer), &typ), Some(integer));
         }
 
         #[test]
-        fn field_try_from_type_roundtrips(a: u64) {
-            let integer = Integer::Field(FieldElement::from(u128::from(a)));
-            let field = integer.as_field();
-            assert_eq!(Integer::try_from_type(field, &Type::FieldElement), Some(integer));
+        fn field_try_from_field_roundtrips(a: u64) {
+            let value = linked(a);
+            let integer = Integer::Field(value.clone());
+            assert_eq!(Integer::try_from_field(value, &Type::FieldElement), Some(integer));
         }
     }
 
@@ -713,23 +712,21 @@ mod tests {
     fn type_mismatch_returns_none() {
         let a = Integer::I8(1);
         let b = Integer::I16(1);
-        assert_eq!(a + b, None);
-        assert_eq!(a - b, None);
-        assert_eq!(a * b, None);
-        assert_eq!(a / b, None);
+        assert_eq!(a.clone() + b.clone(), None);
+        assert_eq!(a.clone() - b.clone(), None);
+        assert_eq!(a.clone() * b.clone(), None);
+        assert_eq!(a.clone() / b.clone(), None);
         assert_eq!(a.lt(&b), None);
 
-        let c = Integer::U8(1);
-        let d = Integer::I8(1);
-        assert_eq!(c + d, None);
+        assert_eq!(Integer::U8(1) + Integer::I8(1), None);
     }
 
     // === Field-specific tests (not equivalent to Rust arithmetic) ===
 
     #[test]
     fn field_division_by_zero() {
-        let a = Integer::Field(FieldElement::from(5u64));
-        let b = Integer::Field(FieldElement::zero());
+        let a = Integer::Field(linked(5u64));
+        let b = Integer::Field(FieldValue::zero(FieldId::linked()));
         // Division by zero must honor the `None`-on-failure contract rather than
         // silently canonicalizing to the field-element inverse of zero (which is zero).
         assert_eq!(a / b, None);
@@ -737,23 +734,23 @@ mod tests {
 
     #[test]
     fn field_remainder_rejected() {
-        let a = Integer::Field(FieldElement::from(10u64));
-        let b = Integer::Field(FieldElement::from(3u64));
+        let a = Integer::Field(linked(10u64));
+        let b = Integer::Field(linked(3u64));
         assert_eq!(a % b, None);
     }
 
     #[test]
     fn field_lt_is_unordered() {
-        let neg_one = Integer::Field(Integer::I64(-1).as_field());
-        let zero = Integer::Field(FieldElement::zero());
+        let neg_one = Integer::Field(encoded(&Integer::I64(-1)));
+        let zero = Integer::Field(FieldValue::zero(FieldId::linked()));
         assert_eq!(neg_one.lt(&zero), None);
         assert_eq!(zero.lt(&neg_one), None);
     }
 
     #[test]
     fn field_lte_is_unordered() {
-        let neg_one = Integer::Field(Integer::I64(-1).as_field());
-        let zero = Integer::Field(FieldElement::zero());
+        let neg_one = Integer::Field(encoded(&Integer::I64(-1)));
+        let zero = Integer::Field(FieldValue::zero(FieldId::linked()));
         assert_eq!(neg_one.lte(&zero), None);
         assert_eq!(zero.lte(&neg_one), None);
     }
@@ -783,21 +780,20 @@ mod tests {
             assert_eq!(field_to_signed_bigint(&field), -BigInt::from(a));
         }
 
-        // try_from_bigint matches try_from_type given the equivalent field encoding
         #[test]
-        fn try_from_bigint_matches_try_from_type_for_i8(a: i128) {
+        fn try_from_bigint_matches_rust_conversion_for_i8(a: i128) {
             let value = BigInt::from(a);
             let typ = Type::Integer(Signedness::Signed, IntegerBitSize::Eight);
             let expected = i8::try_from(a).ok().map(Integer::I8);
-            assert_eq!(Integer::try_from_bigint(&value, &typ), expected);
+            assert_eq!(Integer::try_from_bigint(&value, &typ, FieldId::linked()), expected);
         }
 
         #[test]
-        fn try_from_bigint_matches_try_from_type_for_u8(a: i128) {
+        fn try_from_bigint_matches_rust_conversion_for_u8(a: i128) {
             let value = BigInt::from(a);
             let typ = Type::Integer(Signedness::Unsigned, IntegerBitSize::Eight);
             let expected = u8::try_from(a).ok().map(Integer::U8);
-            assert_eq!(Integer::try_from_bigint(&value, &typ), expected);
+            assert_eq!(Integer::try_from_bigint(&value, &typ, FieldId::linked()), expected);
         }
 
         // Integer -> BigInt -> Integer round-trips through try_from_bigint
@@ -805,7 +801,8 @@ mod tests {
         fn to_bigint_roundtrips_for_i64(a: i64) {
             let integer = Integer::I64(a);
             let typ = Type::Integer(Signedness::Signed, IntegerBitSize::SixtyFour);
-            assert_eq!(Integer::try_from_bigint(&integer.to_bigint(), &typ), Some(integer));
+            let value = Integer::try_from_bigint(&integer.to_bigint(), &typ, FieldId::linked());
+            assert_eq!(value, Some(integer));
         }
     }
 
@@ -815,21 +812,18 @@ mod tests {
         use Signedness::*;
 
         let i8_type = Type::Integer(Signed, Eight);
-        assert_eq!(
-            Integer::try_from_bigint(&BigInt::from(-128), &i8_type),
-            Some(Integer::I8(-128))
-        );
-        assert_eq!(Integer::try_from_bigint(&BigInt::from(127), &i8_type), Some(Integer::I8(127)));
-        assert_eq!(Integer::try_from_bigint(&BigInt::from(-129), &i8_type), None);
-        assert_eq!(Integer::try_from_bigint(&BigInt::from(128), &i8_type), None);
+        let field = FieldId::linked();
+        let from = |value: BigInt, typ: &Type| Integer::try_from_bigint(&value, typ, field);
+
+        assert_eq!(from(BigInt::from(-128), &i8_type), Some(Integer::I8(-128)));
+        assert_eq!(from(BigInt::from(127), &i8_type), Some(Integer::I8(127)));
+        assert_eq!(from(BigInt::from(-129), &i8_type), None);
+        assert_eq!(from(BigInt::from(128), &i8_type), None);
 
         let u128_type = Type::Integer(Unsigned, HundredTwentyEight);
-        assert_eq!(
-            Integer::try_from_bigint(&BigInt::from(u128::MAX), &u128_type),
-            Some(Integer::U128(u128::MAX))
-        );
-        assert_eq!(Integer::try_from_bigint(&(BigInt::from(u128::MAX) + 1), &u128_type), None);
-        assert_eq!(Integer::try_from_bigint(&BigInt::from(-1), &u128_type), None);
+        assert_eq!(from(BigInt::from(u128::MAX), &u128_type), Some(Integer::U128(u128::MAX)));
+        assert_eq!(from(BigInt::from(u128::MAX) + 1, &u128_type), None);
+        assert_eq!(from(BigInt::from(-1), &u128_type), None);
     }
 
     #[test]
@@ -845,7 +839,75 @@ mod tests {
         assert_eq!(try_bigint_to_field(&modulus), None);
         assert_eq!(try_bigint_to_field(&-(modulus.clone())), None);
         assert_eq!(try_bigint_to_field(&(modulus.clone() + 1)), None);
-        assert_eq!(Integer::try_from_bigint(&modulus, &Type::FieldElement), None);
+        assert_eq!(
+            Integer::try_from_bigint(&modulus, &Type::FieldElement, FieldId::linked()),
+            None
+        );
+    }
+
+    /// Reading an integer out of a `Field` value must agree with the linked element's own
+    /// conversions, which the back half and the ABI still use.
+    #[test]
+    fn try_from_field_agrees_with_the_linked_element() {
+        use IntegerBitSize::*;
+        use Signedness::*;
+
+        let mut values = vec![BigUint::ZERO, BigUint::from(1u8), FieldElement::modulus() - 1u8];
+        for power in [7u32, 8, 15, 16, 31, 32, 63, 64, 127, 128] {
+            let value = BigUint::from(1u8) << power;
+            if value < FieldElement::modulus() {
+                values.push(FieldElement::modulus() - &value);
+                values.push(value);
+            }
+        }
+
+        for value in values {
+            let element = FieldElement::from_be_bytes_reduce(&value.to_bytes_be());
+            let field = linked(value);
+            let cases = [
+                (Type::Integer(Unsigned, Eight), u8::try_from(element).ok().map(Integer::U8)),
+                (Type::Integer(Unsigned, Sixteen), u16::try_from(element).ok().map(Integer::U16)),
+                (Type::Integer(Unsigned, ThirtyTwo), u32::try_from(element).ok().map(Integer::U32)),
+                (Type::Integer(Unsigned, SixtyFour), u64::try_from(element).ok().map(Integer::U64)),
+                (
+                    Type::Integer(Unsigned, HundredTwentyEight),
+                    u128::try_from(element).ok().map(Integer::U128),
+                ),
+                (Type::Integer(Signed, Eight), i8::try_from(element).ok().map(Integer::I8)),
+                (Type::Integer(Signed, Sixteen), i16::try_from(element).ok().map(Integer::I16)),
+                (Type::Integer(Signed, ThirtyTwo), i32::try_from(element).ok().map(Integer::I32)),
+                (Type::Integer(Signed, SixtyFour), i64::try_from(element).ok().map(Integer::I64)),
+            ];
+            for (typ, expected) in cases {
+                assert_eq!(
+                    Integer::try_from_field(field.clone(), &typ),
+                    expected,
+                    "{element} as {typ}"
+                );
+            }
+        }
+    }
+
+    /// A field narrower than the target type reads `2^63` as a negative number, since `p - 2^63`
+    /// is the shorter spelling. The linked element cannot show this under bn254.
+    #[test]
+    fn a_narrow_field_reads_the_shorter_spelling_as_negative() {
+        let field = FieldId::Goldilocks;
+        let two_to_the_63 = BigUint::from(1u8) << 63;
+        let value = FieldValue::try_from_biguint(two_to_the_63, field).unwrap();
+        let i64_type = Type::Integer(Signedness::Signed, IntegerBitSize::SixtyFour);
+
+        // p - 2^63 == 2^63 - 2^32 + 1
+        assert_eq!(
+            Integer::try_from_field(value.clone(), &i64_type),
+            Some(Integer::I64(-9223372032559808513))
+        );
+        let u64_type = Type::Integer(Signedness::Unsigned, IntegerBitSize::SixtyFour);
+        assert_eq!(
+            Integer::try_from_field(value, &u64_type),
+            Some(Integer::U64(1 << 63)),
+            "an unsigned target reads the value itself"
+        );
     }
 
     #[test]

@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::rc::Rc;
 
-use acvm::FieldElement;
+use acvm::FieldValue;
 use iter_extended::vecmap;
 use noirc_errors::CustomDiagnostic as Diagnostic;
 use noirc_errors::DiagnosticKind;
@@ -41,7 +41,7 @@ pub enum TypeCheckError {
     #[error("Division by zero: {lhs} / {rhs}")]
     DivisionByZero { lhs: Integer, rhs: Integer, location: Location },
     #[error("Modulo on Field elements: {lhs} % {rhs}")]
-    ModuloOnFields { lhs: FieldElement, rhs: FieldElement, location: Location },
+    ModuloOnFields { lhs: FieldValue, rhs: FieldValue, location: Location },
     #[error("Modulo by zero: {lhs} % {rhs}")]
     ModuloByZero { lhs: Integer, rhs: Integer, location: Location },
     #[error("The value `{expr}` cannot fit into `{ty}` which has range `{range}`")]

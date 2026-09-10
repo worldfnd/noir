@@ -6,23 +6,21 @@ use std::{
     rc::Rc,
 };
 
-use crate::hir::comptime::bigint_to_field;
-use acvm::{AcirField, FieldConfig, FieldElement};
+use acvm::{Bn254FieldElement, EmbeddedCurve, FieldConfig, FieldId, FieldValue};
 use builtin_helpers::{
     block_expression_to_value, byte_array_type, check_argument_count,
     check_function_not_yet_resolved, check_one_argument, check_return_type_shape,
     check_three_arguments, check_two_arguments, get_bool, get_expr, get_field, get_format_string,
     get_function_def, get_location, get_module, get_quoted, get_trait_constraint, get_trait_def,
     get_trait_impl, get_type, get_type_id, get_typed_expr, get_u32, get_unresolved_type,
-    get_vector, has_builtin_attribute, has_named_attribute, hir_pattern_to_tokens, new_binary_op,
-    new_unary_op, parse, quote_ident, type_shape, visibility_to_quoted,
+    get_vector, has_builtin_attribute, has_named_attribute, hash_to_field, hir_pattern_to_tokens,
+    new_binary_op, new_unary_op, parse, quote_ident, type_shape, visibility_to_quoted,
 };
 use fm::FileMap;
 use im::Vector;
 use iter_extended::{try_vecmap, vecmap};
 use itertools::Itertools;
 use noirc_errors::Location;
-use num_bigint::BigUint;
 use rustc_hash::FxHashMap as HashMap;
 
 use crate::{
@@ -90,8 +88,10 @@ impl Interpreter<'_, '_> {
             "checked_transmute" => checked_transmute(arguments, return_type, location),
             "ctstring_append" => ctstring_append(arguments, location),
             "ctstring_eq" => eq_item(arguments, location, get_ctstring),
-            "ctstring_hash" => hash_item(arguments, location, get_ctstring),
-            "derive_pedersen_generators" => derive_generators(arguments, return_type, location),
+            "ctstring_hash" => hash_item(arguments, location, interner.field().id(), get_ctstring),
+            "derive_pedersen_generators" => {
+                derive_generators(interner.field(), arguments, return_type, location)
+            }
             "expr_as_array" => expr_as_array(interner, arguments, return_type, location),
             "expr_as_assert" => expr_as_assert(interner, arguments, return_type, location),
             "expr_as_assert_eq" => expr_as_assert_eq(interner, arguments, return_type, location),
@@ -149,7 +149,7 @@ impl Interpreter<'_, '_> {
             "issue_error" => issue_diagnostic(self, arguments, location, false),
             "issue_warning" => issue_diagnostic(self, arguments, location, true),
             "location_eq" => eq_item(arguments, location, get_location),
-            "location_hash" => hash_item(arguments, location, get_location),
+            "location_hash" => hash_item(arguments, location, interner.field().id(), get_location),
             "fmtstr_as_ctstring" => {
                 fmtstr_as_ctstring(interner, self.elaborator.files, arguments, location)
             }
@@ -170,7 +170,9 @@ impl Interpreter<'_, '_> {
             "function_def_named_attribute_args" => {
                 function_def_named_attribute_args(interner, arguments, location)
             }
-            "function_def_hash" => hash_item(arguments, location, get_function_def),
+            "function_def_hash" => {
+                hash_item(arguments, location, interner.field().id(), get_function_def)
+            }
             "function_def_is_unconstrained" => {
                 function_def_is_unconstrained(self, arguments, location)
             }
@@ -186,7 +188,7 @@ impl Interpreter<'_, '_> {
             "module_has_builtin_attribute" => module_has_attribute(self, arguments, location, true),
             "module_has_named_attribute" => module_has_attribute(self, arguments, location, false),
             "module_named_attribute_args" => module_named_attribute_args(self, arguments, location),
-            "module_hash" => hash_item(arguments, location, get_module),
+            "module_hash" => hash_item(arguments, location, interner.field().id(), get_module),
             "module_is_contract" => module_is_contract(self, arguments, location),
             "module_location" => module_location(interner, arguments, location),
             "module_name" => module_name(interner, arguments, location),
@@ -207,7 +209,9 @@ impl Interpreter<'_, '_> {
             "quoted_hash" => {
                 quoted_hash(self.elaborator.interner, self.elaborator.files, arguments, location)
             }
-            "quoted_location" => quoted_location(arguments, return_type, location),
+            "quoted_location" => {
+                quoted_location(arguments, return_type, location, interner.field().id())
+            }
             "quoted_tokens" => quoted_tokens(arguments, location),
             "vector_insert" => vector_insert(arguments, location, call_stack),
             "vector_pop_back" => vector_pop_back(arguments, location, call_stack),
@@ -226,27 +230,43 @@ impl Interpreter<'_, '_> {
             "to_be_bits" => to_be_bits(arguments, return_type, location, call_stack),
             "to_le_bits" => to_le_bits(arguments, return_type, location, call_stack),
             "trait_constraint_eq" => eq_item(arguments, location, get_trait_constraint),
-            "trait_constraint_hash" => hash_item(arguments, location, get_trait_constraint),
+            "trait_constraint_hash" => {
+                hash_item(arguments, location, interner.field().id(), get_trait_constraint)
+            }
             "trait_def_as_trait_constraint" => {
                 trait_def_as_trait_constraint(interner, arguments, location)
             }
             "trait_def_eq" => eq_item(arguments, location, get_trait_def),
-            "trait_def_hash" => hash_item(arguments, location, get_trait_def),
+            "trait_def_hash" => {
+                hash_item(arguments, location, interner.field().id(), get_trait_def)
+            }
             "trait_def_location" => trait_def_location(interner, arguments, location),
             "trait_impl_methods" => trait_impl_methods(interner, arguments, location),
             "trait_impl_trait_generic_args" => {
                 trait_impl_trait_generic_args(interner, arguments, location)
             }
-            "type_as_array" => type_as_array(arguments, return_type, location),
-            "type_as_constant" => type_as_constant(arguments, return_type, location),
-            "type_as_integer" => type_as_integer(arguments, return_type, location),
-            "type_as_mutable_reference" => {
-                type_as_mutable_reference(arguments, return_type, location)
+            "type_as_array" => {
+                type_as_array(arguments, return_type, location, interner.field().id())
             }
-            "type_as_vector" => type_as_vector(arguments, return_type, location),
-            "type_as_str" => type_as_str(arguments, return_type, location),
-            "type_as_data_type" => type_as_data_type(arguments, return_type, location),
-            "type_as_tuple" => type_as_tuple(arguments, return_type, location),
+            "type_as_constant" => {
+                type_as_constant(arguments, return_type, location, interner.field().id())
+            }
+            "type_as_integer" => {
+                type_as_integer(arguments, return_type, location, interner.field().id())
+            }
+            "type_as_mutable_reference" => {
+                type_as_mutable_reference(arguments, return_type, location, interner.field().id())
+            }
+            "type_as_vector" => {
+                type_as_vector(arguments, return_type, location, interner.field().id())
+            }
+            "type_as_str" => type_as_str(arguments, return_type, location, interner.field().id()),
+            "type_as_data_type" => {
+                type_as_data_type(arguments, return_type, location, interner.field().id())
+            }
+            "type_as_tuple" => {
+                type_as_tuple(arguments, return_type, location, interner.field().id())
+            }
             "type_def_add_abi" => type_def_add_abi(self, arguments, location),
             "type_def_as_type" => type_def_as_type(interner, arguments, location),
             "type_def_as_type_with_generics" => {
@@ -265,7 +285,7 @@ impl Interpreter<'_, '_> {
             "type_def_named_attribute_args" => {
                 type_def_named_attribute_args(interner, arguments, location)
             }
-            "type_def_hash" => hash_item(arguments, location, get_type_id),
+            "type_def_hash" => hash_item(arguments, location, interner.field().id(), get_type_id),
             "type_def_location" => type_def_location(interner, arguments, location),
             "type_def_module" => type_def_module(self, arguments, location),
             "type_def_name" => type_def_name(interner, arguments, location),
@@ -273,7 +293,7 @@ impl Interpreter<'_, '_> {
             "type_get_trait_impl" => {
                 type_get_trait_impl(interner, arguments, return_type, location)
             }
-            "type_hash" => hash_item(arguments, location, get_type),
+            "type_hash" => hash_item(arguments, location, interner.field().id(), get_type),
             "type_implements" => type_implements(interner, arguments, location),
             "type_is_bool" => type_is_bool(arguments, location),
             "type_is_field" => type_is_field(arguments, location),
@@ -296,12 +316,13 @@ impl Interpreter<'_, '_> {
             "unresolved_type_is_field" => unresolved_type_is_field(interner, arguments, location),
             "unresolved_type_is_unit" => unresolved_type_is_unit(interner, arguments, location),
             "zeroed" => {
+                let field = interner.field().id();
                 // Resolve any deferred struct fields or enum variants in the
                 // return type so `zeroed` returns a real `Value::Struct`/`Enum`
                 // instead of an opaque `Value::Zeroed` placeholder when called
                 // before the post-attribute drain.
                 self.elaborator.define_deferred_data_types_in(&return_type);
-                Ok(zeroed(return_type, location))
+                Ok(zeroed(return_type, location, field))
             }
             _ => {
                 let item = format!("Comptime evaluation for builtin function '{name}'");
@@ -546,6 +567,7 @@ fn type_def_as_type_with_generics(
     return_type: Type,
     location: Location,
 ) -> IResult<Value> {
+    let field = interner.field().id();
     let (type_def, generics) = check_two_arguments(arguments, location)?;
     let type_id = get_type_id(type_def)?;
     let type_def_rc = interner.get_type(type_id);
@@ -565,7 +587,7 @@ fn type_def_as_type_with_generics(
 
     let type_result = valid.then(|| Value::Type(Type::DataType(type_def_rc, generics)));
 
-    Ok(option(return_type, type_result, location))
+    Ok(option(return_type, type_result, location, field))
 }
 
 /// fn generics(self) -> [(Type, `Option<Type>`)]
@@ -575,6 +597,7 @@ fn type_def_generics(
     return_type: Type,
     location: Location,
 ) -> IResult<Value> {
+    let field = interner.field().id();
     let argument = check_one_argument(arguments, location)?;
     let type_id = get_type_id(argument)?;
     let type_def = interner.get_type(type_id);
@@ -609,7 +632,8 @@ fn type_def_generics(
                 Kind::Numeric(numeric_type) => Some(Value::Type(*numeric_type)),
                 _ => None,
             };
-            let numeric_type = Shared::new(option(option_typ.clone(), numeric_type, location));
+            let numeric_type =
+                Shared::new(option(option_typ.clone(), numeric_type, location, field));
             Value::Tuple(vec![Shared::new(Value::Type(generic_as_named)), numeric_type])
         })
         .collect();
@@ -1003,6 +1027,7 @@ fn quoted_as_expr(
     return_type: Type,
     location: Location,
 ) -> IResult<Value> {
+    let field = elaborator.interner.field().id();
     let argument = check_one_argument(arguments, location)?;
 
     let result = parse(
@@ -1023,7 +1048,7 @@ fn quoted_as_expr(
             },
         );
 
-    Ok(option(return_type, value, location))
+    Ok(option(return_type, value, location, field))
 }
 
 // fn as_module(quoted: Quoted) -> Option<Module>
@@ -1033,6 +1058,7 @@ fn quoted_as_module(
     return_type: Type,
     location: Location,
 ) -> IResult<Value> {
+    let field = interpreter.elaborator.interner.field().id();
     let argument = check_one_argument(arguments, location)?;
 
     let path =
@@ -1048,7 +1074,7 @@ fn quoted_as_module(
         module.map(Value::ModuleDefinition)
     });
 
-    Ok(option(return_type, option_value, location))
+    Ok(option(return_type, option_value, location, field))
 }
 
 // fn as_trait_constraint(quoted: Quoted) -> TraitConstraint
@@ -1115,6 +1141,7 @@ fn quoted_location(
     arguments: Vec<(Value, Location)>,
     return_type: Type,
     location: Location,
+    field: FieldId,
 ) -> IResult<Value> {
     let argument = check_one_argument(arguments, location)?;
     let tokens = get_quoted(argument)?;
@@ -1124,7 +1151,7 @@ fn quoted_location(
         _ => None,
     };
 
-    Ok(option(return_type, merged.map(Value::Location), location))
+    Ok(option(return_type, merged.map(Value::Location), location, field))
 }
 
 fn to_be_bits(
@@ -1188,7 +1215,7 @@ fn to_le_radix(
     let return_type_is_bits = *element_type == Type::Bool;
 
     // Decompose the integer into its radix digits in little endian form.
-    let decomposed_integer = compute_to_radix_le(value, radix);
+    let decomposed_integer = compute_to_radix_le(&value, radix);
 
     // Validate that the value fits in the requested number of limbs.
     // This matches the runtime behavior in our black box solvers.
@@ -1215,7 +1242,7 @@ fn to_le_radix(
     Ok(Value::Array(decomposed_integer.into(), result_type))
 }
 
-fn compute_to_radix_le(field: FieldElement, radix: u32) -> Vec<u8> {
+fn compute_to_radix_le(value: &FieldValue, radix: u32) -> Vec<u8> {
     // `BigUint::to_radix_le` requires the radix to be in `2..=256` and only checks this in debug
     // builds. The stdlib `static_assert`s the same bound for user code, so reaching here with an
     // out-of-range radix is an internal precondition violation.
@@ -1224,14 +1251,12 @@ fn compute_to_radix_le(field: FieldElement, radix: u32) -> Vec<u8> {
     // `BigUint::to_radix_le` represents zero as a single zero limb (`[0]`), which would make
     // a zero value appear to require one limb. Decomposing zero requires no significant limbs,
     // matching the runtime black box solvers, so report an empty decomposition instead.
-    if field.is_zero() {
+    if value.is_zero() {
         return Vec::new();
     }
 
-    let big_integer = BigUint::from_bytes_be(&field.to_be_bytes());
-
     // Decompose the integer into its radix digits in little endian form.
-    big_integer.to_radix_le(radix)
+    value.as_biguint().to_radix_le(radix)
 }
 
 // fn as_array(self) -> Option<(Type, Type)>
@@ -1239,8 +1264,9 @@ fn type_as_array(
     arguments: Vec<(Value, Location)>,
     return_type: Type,
     location: Location,
+    field: FieldId,
 ) -> IResult<Value> {
-    type_as(arguments, return_type, location, |typ| {
+    type_as(arguments, return_type, location, field, |typ| {
         if let Type::Array(array_type, length) = typ {
             let array_type = Shared::new(Value::Type(*array_type));
             let length_type = Shared::new(Value::Type(*length));
@@ -1256,8 +1282,9 @@ fn type_as_constant(
     arguments: Vec<(Value, Location)>,
     return_type: Type,
     location: Location,
+    field: FieldId,
 ) -> IResult<Value> {
-    type_as_or_err(arguments, return_type, location, |typ| {
+    type_as_or_err(arguments, return_type, location, field, |typ| {
         // Prefer to use `evaluate_to_u32` over matching on `Type::Constant`
         // since arithmetic generics may be `Type::InfixExpr`s which evaluate to
         // constants but are not actually the `Type::Constant` variant.
@@ -1281,8 +1308,9 @@ fn type_as_integer(
     arguments: Vec<(Value, Location)>,
     return_type: Type,
     location: Location,
+    field: FieldId,
 ) -> IResult<Value> {
-    type_as(arguments, return_type, location, |typ| {
+    type_as(arguments, return_type, location, field, |typ| {
         if let Type::Integer(sign, bits) = typ {
             let sign = Shared::new(Value::Bool(sign.is_signed()));
             let bit_size = Shared::new(Value::u8(bits.bit_size()));
@@ -1298,8 +1326,9 @@ fn type_as_mutable_reference(
     arguments: Vec<(Value, Location)>,
     return_type: Type,
     location: Location,
+    field: FieldId,
 ) -> IResult<Value> {
-    type_as(arguments, return_type, location, |typ| {
+    type_as(arguments, return_type, location, field, |typ| {
         if let Type::Reference(typ, true) = typ { Some(Value::Type(*typ)) } else { None }
     })
 }
@@ -1309,8 +1338,9 @@ fn type_as_vector(
     arguments: Vec<(Value, Location)>,
     return_type: Type,
     location: Location,
+    field: FieldId,
 ) -> IResult<Value> {
-    type_as(arguments, return_type, location, |typ| {
+    type_as(arguments, return_type, location, field, |typ| {
         if let Type::Vector(vector_type) = typ { Some(Value::Type(*vector_type)) } else { None }
     })
 }
@@ -1320,8 +1350,9 @@ fn type_as_str(
     arguments: Vec<(Value, Location)>,
     return_type: Type,
     location: Location,
+    field: FieldId,
 ) -> IResult<Value> {
-    type_as(arguments, return_type, location, |typ| {
+    type_as(arguments, return_type, location, field, |typ| {
         if let Type::String(n) = typ { Some(Value::Type(*n)) } else { None }
     })
 }
@@ -1331,8 +1362,9 @@ fn type_as_data_type(
     arguments: Vec<(Value, Location)>,
     return_type: Type,
     location: Location,
+    field: FieldId,
 ) -> IResult<Value> {
-    type_as(arguments, return_type, location, |typ| {
+    type_as(arguments, return_type, location, field, |typ| {
         if let Type::DataType(struct_type, generics) = typ {
             Some(Value::Tuple(vec![
                 Shared::new(Value::TypeDefinition(struct_type.borrow().id)),
@@ -1352,8 +1384,9 @@ fn type_as_tuple(
     arguments: Vec<(Value, Location)>,
     return_type: Type,
     location: Location,
+    field: FieldId,
 ) -> IResult<Value> {
-    type_as(arguments, return_type.clone(), location, |typ| {
+    type_as(arguments, return_type.clone(), location, field, |typ| {
         if let Type::Tuple(types) = typ {
             let t = extract_option_generic_type(return_type);
 
@@ -1372,12 +1405,13 @@ fn type_as<F>(
     arguments: Vec<(Value, Location)>,
     return_type: Type,
     location: Location,
+    field: FieldId,
     f: F,
 ) -> IResult<Value>
 where
     F: FnOnce(Type) -> Option<Value>,
 {
-    type_as_or_err(arguments, return_type, location, |x| Ok(f(x)))
+    type_as_or_err(arguments, return_type, location, field, |x| Ok(f(x)))
 }
 
 // Helper function for implementing the `type_as_...` functions.
@@ -1385,6 +1419,7 @@ fn type_as_or_err<F>(
     arguments: Vec<(Value, Location)>,
     return_type: Type,
     location: Location,
+    field: FieldId,
     f: F,
 ) -> IResult<Value>
 where
@@ -1395,7 +1430,7 @@ where
 
     let option_value = f(typ)?;
 
-    Ok(option(return_type, option_value, location))
+    Ok(option(return_type, option_value, location, field))
 }
 
 // fn type_eq(_first: Type, _second: Type) -> bool
@@ -1406,6 +1441,7 @@ fn type_get_trait_impl(
     return_type: Type,
     location: Location,
 ) -> IResult<Value> {
+    let field = interner.field().id();
     let (typ, constraint) = check_two_arguments(arguments, location)?;
 
     let typ = get_type(typ)?;
@@ -1421,7 +1457,7 @@ fn type_get_trait_impl(
         _ => None,
     };
 
-    Ok(option(return_type, option_value, location))
+    Ok(option(return_type, option_value, location, field))
 }
 
 // fn implements(self, constraint: TraitConstraint) -> bool
@@ -1513,6 +1549,7 @@ fn typed_expr_as_function_definition(
     return_type: Type,
     location: Location,
 ) -> IResult<Value> {
+    let field = interner.field().id();
     let self_argument = check_one_argument(arguments, location)?;
     let typed_expr = get_typed_expr(self_argument)?;
     let option_value = if let TypedExpr::ExprId(expr_id) = typed_expr {
@@ -1521,7 +1558,7 @@ fn typed_expr_as_function_definition(
     } else {
         None
     };
-    Ok(option(return_type, option_value, location))
+    Ok(option(return_type, option_value, location, field))
 }
 
 // fn get_type(self) -> Option<Type>
@@ -1531,6 +1568,7 @@ fn typed_expr_get_type(
     return_type: Type,
     location: Location,
 ) -> IResult<Value> {
+    let field = interner.field().id();
     let self_argument = check_one_argument(arguments, location)?;
     let typed_expr = get_typed_expr(self_argument)?;
     let option_value = if let TypedExpr::ExprId(expr_id) = typed_expr {
@@ -1539,7 +1577,7 @@ fn typed_expr_get_type(
     } else {
         None
     };
-    Ok(option(return_type, option_value, location))
+    Ok(option(return_type, option_value, location, field))
 }
 
 // fn as_mutable_reference(self) -> Option<UnresolvedType>
@@ -1648,26 +1686,27 @@ fn unresolved_type_as<F>(
 where
     F: FnOnce(UnresolvedTypeData) -> Option<Value>,
 {
+    let field = interner.field().id();
     let value = check_one_argument(arguments, location)?;
     let typ = get_unresolved_type(interner, value)?;
 
     let option_value = f(typ);
-    Ok(option(return_type, option_value, location))
+    Ok(option(return_type, option_value, location, field))
 }
 
 // fn zeroed<T>() -> T
-fn zeroed(return_type: Type, location: Location) -> Value {
+fn zeroed(return_type: Type, location: Location, field: FieldId) -> Value {
     match return_type {
-        Type::FieldElement => Value::field(FieldElement::zero()),
+        Type::FieldElement => Value::field(FieldValue::zero(field)),
         Type::Array(elem, length_type) => {
             if let Ok(length) = length_type.evaluate_to_u32(location) {
                 let array = if elem.contains_reference() {
                     // A reference becomes a fresh `Value::Pointer`. Cloning one shares its
                     // underlying cell, so build an independent zeroed value per slot instead
                     // of repeating a single element, matching the `Tuple` arm below.
-                    (0..length).map(|_| zeroed(elem.as_ref().clone(), location)).collect()
+                    (0..length).map(|_| zeroed(elem.as_ref().clone(), location, field)).collect()
                 } else {
-                    let element = zeroed(elem.as_ref().clone(), location);
+                    let element = zeroed(elem.as_ref().clone(), location, field);
                     std::iter::repeat_n(element, length as usize).collect()
                 };
                 Value::Array(array, Type::Array(elem, length_type))
@@ -1713,7 +1752,7 @@ fn zeroed(return_type: Type, location: Location) -> Value {
         }
         Type::Unit => Value::Unit,
         Type::Tuple(fields) => {
-            Value::Tuple(vecmap(fields, |field| Shared::new(zeroed(field, location))))
+            Value::Tuple(vecmap(fields, |typ| Shared::new(zeroed(typ, location, field))))
         }
         Type::DataType(data_type, generics) => {
             let typ = data_type.borrow();
@@ -1722,7 +1761,7 @@ fn zeroed(return_type: Type, location: Location) -> Value {
                 let mut values = HashMap::default();
 
                 for (field_name, field_type, _) in fields {
-                    let field_value = Shared::new(zeroed(field_type, location));
+                    let field_value = Shared::new(zeroed(field_type, location, field));
                     values.insert(Rc::new(field_name), field_value);
                 }
 
@@ -1736,7 +1775,7 @@ fn zeroed(return_type: Type, location: Location) -> Value {
                 if !variants.is_empty() {
                     // is_empty & swap_remove let us avoid a .clone() we'd need if we did .get(0)
                     let (_name, params) = variants.swap_remove(0);
-                    args = vecmap(params, |param| zeroed(param, location));
+                    args = vecmap(params, |param| zeroed(param, location, field));
                 }
 
                 drop(typ);
@@ -1746,14 +1785,14 @@ fn zeroed(return_type: Type, location: Location) -> Value {
                 Value::Zeroed(Type::DataType(data_type, generics))
             }
         }
-        Type::Alias(alias, generics) => zeroed(alias.borrow().get_type(&generics), location),
-        Type::CheckedCast { to, .. } => zeroed(*to, location),
+        Type::Alias(alias, generics) => zeroed(alias.borrow().get_type(&generics), location, field),
+        Type::CheckedCast { to, .. } => zeroed(*to, location, field),
         typ @ Type::Function(..) => {
             // Using Value::Zeroed here is probably safer than using FuncId::dummy_id() or similar
             Value::Zeroed(typ)
         }
         Type::Reference(element, mutable) => {
-            let element = zeroed(*element, location);
+            let element = zeroed(*element, location, field);
             Value::Pointer(Shared::new(element), false, mutable)
         }
         // Optimistically assume we can resolve this type later or that the value is unused
@@ -1796,6 +1835,7 @@ fn expr_as_assert(
     return_type: Type,
     location: Location,
 ) -> IResult<Value> {
+    let field = interner.field().id();
     expr_as(interner, arguments, return_type.clone(), location, |expr| {
         if let ExprValue::Expression(ExpressionKind::Constrain(mut constrain)) = expr {
             if constrain.kind == ConstrainKind::Assert
@@ -1817,7 +1857,7 @@ fn expr_as_assert(
 
                 let option_type = tuple_types.pop().unwrap();
                 let message = message.map(|msg| Value::expression(msg.kind));
-                let message = Shared::new(option(option_type, message, location));
+                let message = Shared::new(option(option_type, message, location, field));
 
                 Some(Value::Tuple(vec![predicate, message]))
             } else {
@@ -1836,6 +1876,7 @@ fn expr_as_assert_eq(
     return_type: Type,
     location: Location,
 ) -> IResult<Value> {
+    let field = interner.field().id();
     expr_as(interner, arguments, return_type.clone(), location, |expr| {
         if let ExprValue::Expression(ExpressionKind::Constrain(mut constrain)) = expr {
             if constrain.kind == ConstrainKind::AssertEq
@@ -1863,7 +1904,7 @@ fn expr_as_assert_eq(
 
                 let option_type = tuple_types.pop().unwrap();
                 let message = message.map(|message| Value::expression(message.kind));
-                let message = Shared::new(option(option_type, message, location));
+                let message = Shared::new(option(option_type, message, location, field));
 
                 Some(Value::Tuple(vec![lhs, rhs, message]))
             } else {
@@ -1900,6 +1941,7 @@ fn expr_as_binary_op(
     return_type: Type,
     location: Location,
 ) -> IResult<Value> {
+    let field = interner.field().id();
     expr_as(interner, arguments, return_type.clone(), location, |expr| {
         if let ExprValue::Expression(ExpressionKind::Infix(infix_expr)) = expr {
             let option_type = extract_option_generic_type(return_type);
@@ -1910,7 +1952,7 @@ fn expr_as_binary_op(
 
             tuple_types.pop().unwrap();
             let binary_op_type = tuple_types.pop().unwrap();
-            let binary_op = Shared::new(new_binary_op(&infix_expr.operator, binary_op_type));
+            let binary_op = Shared::new(new_binary_op(&infix_expr.operator, binary_op_type, field));
             let lhs = Shared::new(Value::expression(infix_expr.lhs.kind));
             let rhs = Shared::new(Value::expression(infix_expr.rhs.kind));
             Some(Value::Tuple(vec![lhs, binary_op, rhs]))
@@ -2010,6 +2052,7 @@ fn expr_as_constructor(
     return_type: Type,
     location: Location,
 ) -> IResult<Value> {
+    let field = interner.field().id();
     let self_argument = check_one_argument(arguments, location)?;
     let expr_value = get_expr(interner, self_argument)?;
     let expr_value = unwrap_expr_value(interner, expr_value);
@@ -2034,7 +2077,7 @@ fn expr_as_constructor(
             None
         };
 
-    Ok(option(return_type, option_value, location))
+    Ok(option(return_type, option_value, location, field))
 }
 
 // fn as_for(self) -> Option<(Quoted, Expr, Expr)>
@@ -2119,6 +2162,7 @@ fn expr_as_if(
     return_type: Type,
     location: Location,
 ) -> IResult<Value> {
+    let field = interner.field().id();
     expr_as(interner, arguments, return_type.clone(), location, |expr| {
         if let ExprValue::Expression(ExpressionKind::If(if_expr)) = expr {
             // Get the type of `Option<Expr>`
@@ -2133,6 +2177,7 @@ fn expr_as_if(
                 alternative_option_type,
                 if_expr.alternative.map(|e| Value::expression(e.kind)),
                 location,
+                field,
             );
 
             Some(Value::Tuple(vec![
@@ -2172,13 +2217,14 @@ fn expr_as_integer(
     return_type: Type,
     location: Location,
 ) -> IResult<Value> {
+    let field = interner.field().id();
     expr_as(interner, arguments, return_type, location, |expr| match expr {
         ExprValue::Expression(ExpressionKind::Literal(Literal::Integer(value, _suffix))) => {
-            Some(Value::field(bigint_to_field(&value)))
+            FieldValue::try_from_bigint(&value, field).map(Value::field)
         }
         ExprValue::Expression(ExpressionKind::Resolved(id)) => {
             if let HirExpression::Literal(HirLiteral::Integer(value)) = interner.expression(&id) {
-                Some(Value::field(bigint_to_field(&value)))
+                FieldValue::try_from_bigint(&value, field).map(Value::field)
             } else {
                 None
             }
@@ -2194,6 +2240,7 @@ fn expr_as_lambda(
     return_type: Type,
     location: Location,
 ) -> IResult<Value> {
+    let field = interner.field().id();
     expr_as(interner, arguments, return_type.clone(), location, |expr| {
         if let ExprValue::Expression(ExpressionKind::Lambda(lambda)) = expr {
             // ([(Expr, Option<UnresolvedType>)], Option<UnresolvedType>, Expr)
@@ -2215,7 +2262,8 @@ fn expr_as_lambda(
                 .map(|(pattern, typ)| {
                     let pattern = Shared::new(Value::pattern(pattern));
                     let typ = typ.map(|typ| Value::UnresolvedType(typ.typ));
-                    let typ = Shared::new(option(option_unresolved_type.clone(), typ, location));
+                    let typ =
+                        Shared::new(option(option_unresolved_type.clone(), typ, location, field));
                     Value::Tuple(vec![pattern, typ])
                 })
                 .collect();
@@ -2228,7 +2276,8 @@ fn expr_as_lambda(
             ));
 
             let return_type = lambda.return_type.map(|typ| Value::UnresolvedType(typ.typ));
-            let return_type = Shared::new(option(option_unresolved_type, return_type, location));
+            let return_type =
+                Shared::new(option(option_unresolved_type, return_type, location, field));
 
             let body = Shared::new(Value::expression(lambda.body.kind));
 
@@ -2246,6 +2295,7 @@ fn expr_as_let(
     return_type: Type,
     location: Location,
 ) -> IResult<Value> {
+    let field = interner.field().id();
     expr_as(interner, arguments, return_type.clone(), location, |expr| match expr {
         ExprValue::Statement(StatementKind::Let(let_statement)) => {
             let option_type = extract_option_generic_type(return_type);
@@ -2257,7 +2307,7 @@ fn expr_as_let(
             let option_type = tuple_types.pop().unwrap();
 
             let typ = let_statement.r#type.map(|typ| Value::UnresolvedType(typ.typ));
-            let typ = option(option_type, typ, location);
+            let typ = option(option_type, typ, location, field);
 
             Some(Value::Tuple(vec![
                 Shared::new(Value::pattern(let_statement.pattern)),
@@ -2418,6 +2468,7 @@ fn expr_as_unary_op(
     return_type: Type,
     location: Location,
 ) -> IResult<Value> {
+    let field = interner.field().id();
     expr_as(interner, arguments, return_type.clone(), location, |expr| {
         if let ExprValue::Expression(ExpressionKind::Prefix(prefix_expr)) = expr {
             let option_type = extract_option_generic_type(return_type);
@@ -2428,7 +2479,7 @@ fn expr_as_unary_op(
 
             tuple_types.pop().unwrap();
             let unary_op_type = tuple_types.pop().unwrap();
-            let unary_op = Shared::new(new_unary_op(prefix_expr.operator, unary_op_type)?);
+            let unary_op = Shared::new(new_unary_op(prefix_expr.operator, unary_op_type, field)?);
             let rhs = Shared::new(Value::expression(prefix_expr.rhs.kind));
             Some(Value::Tuple(vec![unary_op, rhs]))
         } else {
@@ -2501,12 +2552,13 @@ fn expr_as<F>(
 where
     F: FnOnce(ExprValue) -> Option<Value>,
 {
+    let field = interner.field().id();
     let self_argument = check_one_argument(arguments, location)?;
     let expr_value = get_expr(interner, self_argument)?;
     let expr_value = unwrap_expr_value(interner, expr_value);
 
     let option_value = f(expr_value);
-    Ok(option(return_type, option_value, location))
+    Ok(option(return_type, option_value, location, field))
 }
 
 // fn resolve(self, in_function: Option<FunctionDefinition>) -> TypedExpr
@@ -3015,6 +3067,7 @@ fn module_parent(
     return_type: Type,
     location: Location,
 ) -> IResult<Value> {
+    let field = interpreter.elaborator.interner.field().id();
     let self_argument = check_one_argument(arguments, location)?;
     let module_id = get_module(self_argument)?;
     let module_data = interpreter.elaborator.get_module(module_id);
@@ -3023,7 +3076,7 @@ fn module_parent(
         let id = ModuleId { krate: module_id.krate, local_id };
         Value::ModuleDefinition(id)
     });
-    Ok(option(return_type, value, location))
+    Ok(option(return_type, value, location, field))
 }
 
 // fn structs(self) -> [TypeDefinition]
@@ -3200,7 +3253,7 @@ fn quoted_hash(
 
     let mut hasher = DeterministicHasher::new();
     tokens_string.hash(&mut hasher);
-    Ok(Value::field(hasher.finish().into()))
+    Ok(Value::field(hash_to_field(hasher.finish(), interner.field().id())))
 }
 
 fn trait_def_as_trait_constraint(
@@ -3255,12 +3308,17 @@ fn typed_expr_location(
 
 /// Creates a value that holds an `Option`.
 /// `option_type` must be a Type referencing the `Option` type.
-pub(crate) fn option(option_type: Type, value: Option<Value>, location: Location) -> Value {
+pub(crate) fn option(
+    option_type: Type,
+    value: Option<Value>,
+    location: Location,
+    field: FieldId,
+) -> Value {
     let t = extract_option_generic_type(option_type.clone());
 
     let (is_some, value) = match value {
         Some(value) => (Value::Bool(true), value),
-        None => (Value::Bool(false), zeroed(t, location)),
+        None => (Value::Bool(false), zeroed(t, location, field)),
     };
 
     let mut fields = HashMap::default();
@@ -3292,25 +3350,23 @@ fn ctstring_append(arguments: Vec<(Value, Location)>, location: Location) -> IRe
     Ok(Value::CtString(Rc::new(bytes)))
 }
 
-#[cfg(feature = "goldilocks")]
 fn derive_generators(
+    field: FieldConfig,
     arguments: Vec<(Value, Location)>,
     return_type: Type,
     location: Location,
 ) -> IResult<Value> {
-    let _ = (arguments, return_type);
-    Err(InterpreterError::Unimplemented {
-        item: "derive_pedersen_generators: the chosen field has no embedded curve".to_string(),
-        location,
-    })
-}
+    match field.embedded_curve() {
+        None => {
+            return Err(InterpreterError::Unimplemented {
+                item: "derive_pedersen_generators: the chosen field has no embedded curve"
+                    .to_string(),
+                location,
+            });
+        }
+        Some(EmbeddedCurve::Grumpkin) => {}
+    }
 
-#[cfg(not(feature = "goldilocks"))]
-fn derive_generators(
-    arguments: Vec<(Value, Location)>,
-    return_type: Type,
-    location: Location,
-) -> IResult<Value> {
     let (domain_separator_string, starting_index) = check_two_arguments(arguments, location)?;
 
     let domain_separator_location = domain_separator_string.1;
@@ -3339,8 +3395,8 @@ fn derive_generators(
     let y_field_name: Rc<String> = Rc::new("y".to_owned());
     let mut results = Vector::new();
     for generator in generators {
-        let x = FieldElement::from_repr(generator.x);
-        let y = FieldElement::from_repr(generator.y);
+        let x = FieldValue::from_bn254_element(Bn254FieldElement::from_repr(generator.x));
+        let y = FieldValue::from_bn254_element(Bn254FieldElement::from_repr(generator.y));
         let mut embedded_curve_point_fields = HashMap::default();
         embedded_curve_point_fields.insert(x_field_name.clone(), Shared::new(Value::field(x)));
         embedded_curve_point_fields.insert(y_field_name.clone(), Shared::new(Value::field(y)));
@@ -3365,29 +3421,36 @@ fn field_less_than(arguments: Vec<(Value, Location)>, location: Location) -> IRe
 mod tests {
     use super::{compute_to_radix_le, field_less_than};
     use crate::hir::comptime::value::Value;
-    use acvm::FieldElement;
+    use acvm::{FieldId, FieldValue};
     use noirc_errors::Location;
+    use num_bigint::BigUint;
+
+    /// A `Field` value of the field this build is linked against.
+    fn linked(value: impl Into<BigUint>) -> FieldValue {
+        FieldValue::try_from_biguint(value.into(), FieldId::linked())
+            .expect("the test values are below every modulus")
+    }
 
     #[test]
     fn compute_to_radix_le_decomposes_in_range() {
         // 6 in base 2 (little endian) is 0,1,1.
-        assert_eq!(compute_to_radix_le(FieldElement::from(6u128), 2), vec![0, 1, 1]);
+        assert_eq!(compute_to_radix_le(&linked(6u128), 2), vec![0, 1, 1]);
         // Zero decomposes into no significant limbs.
-        assert_eq!(compute_to_radix_le(FieldElement::from(0u128), 2), Vec::<u8>::new());
+        assert_eq!(compute_to_radix_le(&linked(0u128), 2), Vec::<u8>::new());
         // Largest supported radix is accepted.
-        assert_eq!(compute_to_radix_le(FieldElement::from(255u128), 256), vec![255]);
+        assert_eq!(compute_to_radix_le(&linked(255u128), 256), vec![255]);
     }
 
     #[test]
     #[should_panic(expected = "radix must be in the range 2..=256")]
     fn compute_to_radix_le_rejects_radix_below_two() {
-        compute_to_radix_le(FieldElement::from(6u128), 1);
+        compute_to_radix_le(&linked(6u128), 1);
     }
 
     #[test]
     #[should_panic(expected = "radix must be in the range 2..=256")]
     fn compute_to_radix_le_rejects_radix_above_256() {
-        compute_to_radix_le(FieldElement::from(6u128), 300);
+        compute_to_radix_le(&linked(6u128), 300);
     }
 
     fn args(a: Value, b: Value) -> Vec<(Value, Location)> {
@@ -3395,11 +3458,11 @@ mod tests {
     }
 
     fn pos(v: u128) -> Value {
-        Value::field(v.into())
+        Value::field(linked(v))
     }
 
     fn neg(v: u128) -> Value {
-        Value::field(-FieldElement::from(v))
+        Value::field(-linked(v))
     }
 
     #[test]

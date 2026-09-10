@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
-use acvm::AcirField;
+use acvm::{AcirField, FieldValue};
 use fm::FileManager;
 use iter_extended::vecmap;
 use itertools::Itertools;
@@ -45,6 +45,11 @@ fn run_package_comptime(
     file_manager: &FileManager,
     parsed_files: &ParsedFiles,
 ) -> Result<(), CliError> {
+    // The ABI parser and the evaluator's numeric values carry the linked field, so the inputs
+    // below can only be read for it.
+    noirc_driver::ensure_field_is_linked(args.compile_options.field)
+        .map_err(|error| CliError::Generic(CustomDiagnostic::from(error).message))?;
+
     let (mut context, crate_id) = nargo::prepare_package(file_manager, parsed_files, package);
     context.package_build_path = workspace.package_build_path(package);
     noirc_driver::link_to_debug_crate(&mut context, crate_id);
@@ -192,7 +197,7 @@ fn input_value_to_comptime_value(input: &InputValue, typ: &Type, location: Locat
             let InputValue::Field(value) = input else {
                 panic!("expected field input for field element type");
             };
-            Value::field(*value)
+            Value::field(FieldValue::from_linked_element(*value))
         }
         Type::Array(element_typ, length) => {
             let length =

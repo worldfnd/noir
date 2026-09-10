@@ -35,12 +35,12 @@
 use std::collections::VecDeque;
 use std::{collections::hash_map::Entry, rc::Rc};
 
-use acvm::{AcirField, FieldId};
 use im::Vector;
 use iter_extended::{try_vecmap, vecmap};
 use itertools::Itertools;
 use noirc_errors::Location;
 use num_bigint::BigInt;
+use num_bigint::BigUint;
 use rustc_hash::FxHashMap as HashMap;
 
 use crate::ast::{BinaryOpKind, FunctionKind, IntegerBitSize, UnaryOp};
@@ -166,7 +166,6 @@ impl<'local, 'interner> Interpreter<'local, 'interner> {
         mut instantiation_bindings: TypeBindings,
         location: Location,
     ) -> IResult<Value> {
-        self.check_field(location)?;
         let trait_method = self.elaborator.interner.get_trait_item_id(function);
 
         resolve_type_bindings(&mut instantiation_bindings);
@@ -702,7 +701,6 @@ impl<'local, 'interner> Interpreter<'local, 'interner> {
     /// This function should be used when that is not desired - e.g. when
     /// compiling a `&mut var` expression to grab the original reference.
     fn evaluate_no_dereference(&mut self, id: ExprId) -> IResult<Value> {
-        self.check_field(self.elaborator.interner.expr_location(&id))?;
         if self.evaluation_depth >= MAX_EVALUATION_DEPTH {
             let location = self.elaborator.interner.expr_location(&id);
             return Err(InterpreterError::EvaluationDepthOverflow {
@@ -898,19 +896,6 @@ impl<'local, 'interner> Interpreter<'local, 'interner> {
         result
     }
 
-    // TODO: Remove this guard once comptime evaluation supports the configured field.
-    fn check_field(&self, location: Location) -> IResult<()> {
-        let field = self.elaborator.interner.field().id();
-        let linked = FieldId::linked();
-        if field != linked {
-            return Err(InterpreterError::Unimplemented {
-                item: format!("Comptime evaluation for {field} in a compiler built for {linked}"),
-                location,
-            });
-        }
-        Ok(())
-    }
-
     fn evaluate_literal(&mut self, literal: HirLiteral, id: ExprId) -> IResult<Value> {
         match literal {
             HirLiteral::Unit => Ok(Value::Unit),
@@ -970,7 +955,8 @@ impl<'local, 'interner> Interpreter<'local, 'interner> {
     fn evaluate_integer_literal(&self, value: BigInt, id: ExprId) -> IResult<Value> {
         let typ = self.elaborator.interner.id_type(id).follow_bindings();
         let location = self.elaborator.interner.expr_location(&id);
-        Integer::try_from_bigint(&value, &typ).map(Value::Integer).ok_or_else(|| {
+        let field = self.elaborator.interner.field().id();
+        Integer::try_from_bigint(&value, &typ, field).map(Value::Integer).ok_or_else(|| {
             let typ = typ.clone();
             InterpreterError::IntegerOutOfRangeForType { value, typ, location }
         })
@@ -1137,7 +1123,9 @@ impl<'local, 'interner> Interpreter<'local, 'interner> {
                     let first_field = fields.iter().next();
                     match first_field {
                         Some((_, value)) => match &*value.borrow() {
-                            Value::Integer(Integer::Field(ordering)) => Some(*ordering),
+                            Value::Integer(Integer::Field(ordering)) => {
+                                Some(ordering.as_biguint().clone())
+                            }
                             _ => None,
                         },
                         None => None,
@@ -1158,15 +1146,16 @@ impl<'local, 'interner> Interpreter<'local, 'interner> {
         };
 
         // Ordering::Less: 0, Ordering::Equal: 1, Ordering::Greater: 2
+        let (less, greater) = (BigUint::ZERO, BigUint::from(2u8));
         let result = match operator {
             // `<`:  `ordering == Ordering::Less`
-            BinaryOpKind::Less => ordering.is_zero(),
+            BinaryOpKind::Less => ordering == less,
             // `<=`: `ordering != Ordering::Greater`
-            BinaryOpKind::LessEqual => ordering != 2_u128.into(),
+            BinaryOpKind::LessEqual => ordering != greater,
             // `>`:  `ordering == Ordering::Greater`
-            BinaryOpKind::Greater => ordering == 2_u128.into(),
+            BinaryOpKind::Greater => ordering == greater,
             // `>=`: `ordering != Ordering::Less`
-            BinaryOpKind::GreaterEqual => !ordering.is_zero(),
+            BinaryOpKind::GreaterEqual => ordering != less,
             _ => unreachable!("evaluate_ordering called with non-ordering operator"),
         };
         Ok(Value::Bool(result))

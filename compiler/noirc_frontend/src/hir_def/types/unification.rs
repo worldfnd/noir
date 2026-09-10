@@ -288,8 +288,11 @@ impl Type {
                 } else if let InfixExpr(lhs, op, rhs, _) = other {
                     if let Some(inverse) = op.approx_inverse() {
                         // Handle cases like `4 = a + b` by trying to solve to `a = 4 - b`
-                        let new_type =
-                            Type::inverted_infix_expr(Box::new(Constant(*value)), inverse, rhs);
+                        let new_type = Type::inverted_infix_expr(
+                            Box::new(Constant(value.clone())),
+                            inverse,
+                            rhs,
+                        );
 
                         // Use DoNotMoveConstants to prevent try_unify_by_moving_single_constant_term
                         // from undoing this rewrite, which would cause infinite recursion when
@@ -723,7 +726,9 @@ mod tests {
     }
 
     fn constant(value: u128) -> Type {
-        Type::Constant(Integer::Field(value.into()))
+        let value = acvm::FieldValue::try_from_biguint(value.into(), acvm::FieldId::linked())
+            .expect("the test values are below every modulus");
+        Type::Constant(Integer::Field(value))
     }
 
     fn add(a: &Type, b: &Type) -> Type {

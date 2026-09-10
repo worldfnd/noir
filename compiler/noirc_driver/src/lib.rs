@@ -299,7 +299,7 @@ pub struct CompileOptions {
     #[arg(long, hide = true)]
     pub disable_comptime_printing: bool,
 
-    /// Field to compile for: bn254 or goldilocks. Defaults to the field this compiler is built with.
+    /// Field to compile for: bn254, goldilocks or bls12_381. Defaults to the field this compiler is built with; lowering to a circuit needs a build for that field.
     #[arg(long, value_name = "FIELD", default_value_t = FieldId::linked())]
     pub field: FieldId,
 }
@@ -414,6 +414,11 @@ impl CompileOptions {
 pub enum CompileError {
     MonomorphizationError(MonomorphizationError),
     RuntimeError(RuntimeError),
+    /// A compilation reached code that computes in the linked field under another field.
+    UnsupportedField {
+        requested: FieldId,
+        linked: FieldId,
+    },
 }
 
 impl From<MonomorphizationError> for CompileError {
@@ -433,7 +438,22 @@ impl From<CompileError> for CustomDiagnostic {
         match error {
             CompileError::RuntimeError(err) => err.into(),
             CompileError::MonomorphizationError(err) => err.into(),
+            CompileError::UnsupportedField { requested, linked } => {
+                let message = format!(
+                    "this compiler is built for {linked} and cannot compile for {requested}"
+                );
+                CustomDiagnostic::from_message(&message, FileId::default())
+            }
         }
+    }
+}
+
+/// Reject a field the linked backend cannot handle. Call before lowering, reading ABI inputs, or reusing compiled artifacts.
+pub fn ensure_field_is_linked(field: FieldId) -> Result<(), CompileError> {
+    if field == FieldId::linked() {
+        Ok(())
+    } else {
+        Err(CompileError::UnsupportedField { requested: field, linked: FieldId::linked() })
     }
 }
 
@@ -459,17 +479,6 @@ pub fn check_crate(
 ) -> CompilationResult<()> {
     if options.disable_comptime_printing {
         context.disable_comptime_printing();
-    }
-
-    // TODO: Remove this restriction once comptime evaluation supports the configured field.
-    if options.field != FieldId::linked() {
-        let message = format!(
-            "this compiler is built for {} and cannot compile for {}",
-            FieldId::linked(),
-            options.field
-        );
-        let root_file = context.crate_graph[crate_id].root_file_id;
-        return Err(vec![CustomDiagnostic::from_message(&message, root_file)]);
     }
 
     let diagnostics = CrateDefMap::collect_defs(crate_id, context, options.frontend_options());
@@ -782,7 +791,7 @@ fn compile_contract_inner(
                         };
                         let global_info = context.def_interner.get_global(*global_id);
                         let name = global_info.ident.to_string();
-                        let value = value_to_abi_value(value);
+                        let value = value_to_abi_value(value, context.def_interner.field());
                         AbiNamedValue { name, value }
                     })
                     .collect();
@@ -886,6 +895,9 @@ pub fn compile_no_check(
     cached_program: Option<CompiledProgram>,
     force_compile: bool,
 ) -> Result<CompiledProgram, CompileError> {
+    // Check before the cache can return an artifact compiled for the linked field.
+    ensure_field_is_linked(options.field)?;
+
     let force_unconstrained = options.force_brillig || options.minimal_ssa;
 
     let program = if options.instrument_debug {
