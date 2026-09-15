@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::Path;
 use std::rc::Rc;
 use std::vec;
@@ -11,8 +12,8 @@ use rustc_hash::FxHashMap as HashMap;
 use crate::ast::{
     DocComment, Documented, Expression, FunctionDefinition, Ident, ItemVisibility, LetStatement,
     ModuleDeclaration, NoirEnumeration, NoirFunction, NoirStruct, NoirTrait, NoirTraitImpl,
-    Pattern, TraitImplItemKind, TraitItem, TypeAlias, TypeImpl, UnresolvedType, UnresolvedTypeData,
-    desugar_generic_trait_bounds_and_reorder_where_clause,
+    PathKind, Pattern, TraitImplItemKind, TraitItem, TypeAlias, TypeImpl, UnresolvedType,
+    UnresolvedTypeData, desugar_generic_trait_bounds_and_reorder_where_clause,
 };
 use crate::elaborator::PrimitiveType;
 use crate::hir::def_collector::dc_crate::CompilationErrors;
@@ -48,6 +49,8 @@ struct ModCollector<'a> {
     pub(crate) def_collector: &'a mut DefCollector,
     pub(crate) file_id: FileId,
     pub(crate) module_id: LocalModuleId,
+    /// Local struct and enum names excluded by `#[field(..)]`.
+    gated_out_types: HashSet<String>,
 }
 
 /// Walk a module and collect its definitions.
@@ -68,7 +71,8 @@ pub fn collect_defs(
     context: &mut Context,
     reuse_existing_module_declarations: bool,
 ) -> CompilationErrors {
-    let mut collector = ModCollector { def_collector, file_id, module_id };
+    let mut collector =
+        ModCollector { def_collector, file_id, module_id, gated_out_types: HashSet::new() };
     let mut errors = CompilationErrors::default();
 
     // First resolve the module declarations
@@ -185,6 +189,22 @@ impl ModCollector<'_> {
         errors
     }
 
+    fn type_is_gated_out(&self, object_type: &UnresolvedType) -> bool {
+        let UnresolvedTypeData::Named(path, _, _) = &object_type.typ else {
+            return false;
+        };
+        if path.kind != PathKind::Plain || path.segments.len() != 1 {
+            return false;
+        }
+        let name = &path.segments[0].ident;
+        // A retained definition or import can reuse a gated-out type's name. Imports resolve later.
+        self.gated_out_types.contains(name.as_str())
+            && self.def_collector.def_map[self.module_id].scope().find_name(name).types.is_none()
+            && !self.def_collector.imports.iter().flatten().any(|import| {
+                import.module_id == self.module_id && import.name().as_str() == name.as_str()
+            })
+    }
+
     fn collect_impls(
         &mut self,
         context: &mut Context,
@@ -195,6 +215,10 @@ impl ModCollector<'_> {
         let module_id = ModuleId { krate, local_id: self.module_id };
 
         for r#impl in impls {
+            if self.type_is_gated_out(&r#impl.object_type) {
+                continue;
+            }
+
             collect_impl(
                 &mut context.def_interner,
                 &mut self.def_collector.items,
@@ -217,7 +241,9 @@ impl ModCollector<'_> {
         let mut errors = CompilationErrors::default();
 
         for mut trait_impl in impls {
-            if is_gated_out(context.def_interner.field(), &trait_impl.attributes) {
+            if is_gated_out(context.def_interner.field(), &trait_impl.attributes)
+                || self.type_is_gated_out(&trait_impl.object_type)
+            {
                 continue;
             }
 
@@ -334,6 +360,11 @@ impl ModCollector<'_> {
     ) -> CompilationErrors {
         let mut definition_errors = CompilationErrors::default();
         for struct_definition in types {
+            if is_gated_out(context.def_interner.field(), &struct_definition.item.attributes) {
+                self.gated_out_types.insert(struct_definition.item.name.to_string());
+                continue;
+            }
+
             if let Some((id, the_struct)) = collect_struct(
                 &mut context.def_interner,
                 &mut self.def_collector.def_map,
@@ -360,6 +391,11 @@ impl ModCollector<'_> {
     ) -> CompilationErrors {
         let mut definition_errors = CompilationErrors::default();
         for enum_definition in types {
+            if is_gated_out(context.def_interner.field(), &enum_definition.item.attributes) {
+                self.gated_out_types.insert(enum_definition.item.name.to_string());
+                continue;
+            }
+
             if let Some((id, the_enum)) = collect_enum(
                 &mut context.def_interner,
                 &mut self.def_collector.def_map,
@@ -386,6 +422,10 @@ impl ModCollector<'_> {
     ) -> CompilationErrors {
         let mut errors = CompilationErrors::default();
         for type_alias in type_aliases {
+            if is_gated_out(context.def_interner.field(), &type_alias.item.attributes) {
+                continue;
+            }
+
             let doc_comments = type_alias.doc_comments;
             let type_alias = type_alias.item;
             let name = type_alias.name.clone();
@@ -455,6 +495,10 @@ impl ModCollector<'_> {
     ) -> CompilationErrors {
         let mut errors = CompilationErrors::default();
         for trait_definition in traits {
+            if is_gated_out(context.def_interner.field(), &trait_definition.item.attributes) {
+                continue;
+            }
+
             let doc_comments = trait_definition.doc_comments;
             let mut trait_definition = trait_definition.item;
             let name = trait_definition.name.clone();
@@ -1151,9 +1195,7 @@ pub fn collect_function(
         &mut function.def.where_clause,
     );
 
-    if let Some(field) = function.attributes().get_field_attribute()
-        && !interner.field().matches_field_attribute(&field)
-    {
+    if is_gated_out(interner.field(), function.secondary_attributes()) {
         return None;
     }
 
@@ -1238,6 +1280,9 @@ pub fn collect_struct(
     krate: CrateId,
     definition_errors: &mut CompilationErrors,
 ) -> Option<(TypeId, UnresolvedStruct)> {
+    if is_gated_out(interner.field(), &struct_definition.item.attributes) {
+        return None;
+    }
     let doc_comments = struct_definition.doc_comments;
     let struct_definition = struct_definition.item;
     let file_id = struct_definition.location.file;
@@ -1357,6 +1402,9 @@ pub fn collect_enum(
     krate: CrateId,
     definition_errors: &mut CompilationErrors,
 ) -> Option<(TypeId, UnresolvedEnum)> {
+    if is_gated_out(interner.field(), &enum_def.item.attributes) {
+        return None;
+    }
     let doc_comments = enum_def.doc_comments;
     let enum_def = enum_def.item;
 
@@ -1592,11 +1640,10 @@ fn should_check_siblings_for_module(module_path: &Path, parent_path: &Path) -> b
     }
 }
 
-/// Whether a `#[field(..)]` attribute names a field other than `field`; such an item is dropped before anything about it is interned.
-// Structs, traits, and negated field predicates are not supported.
+/// Whether a `#[field(..)]` attribute keeps its item out of this build; such an item is dropped before anything about it is interned.
 pub(crate) fn is_gated_out(field: FieldConfig, attributes: &[SecondaryAttribute]) -> bool {
     attributes.iter().any(|attribute| match &attribute.kind {
-        SecondaryAttributeKind::Field(name) => !field.matches_field_attribute(&name.to_lowercase()),
+        SecondaryAttributeKind::Field(predicate) => !predicate.admits(field),
         _ => false,
     })
 }
@@ -1720,7 +1767,7 @@ fn check_duplicate_field_names(
     struct_definition: &NoirStruct,
     definition_errors: &mut CompilationErrors,
 ) {
-    let mut seen_field_names = std::collections::HashSet::new();
+    let mut seen_field_names = HashSet::new();
     for field in &struct_definition.fields {
         let field_name = &field.item.name;
 
@@ -1742,7 +1789,7 @@ fn check_duplicate_variant_names(
     enum_def: &NoirEnumeration,
     definition_errors: &mut CompilationErrors,
 ) {
-    let mut seen_variant_names = std::collections::HashSet::new();
+    let mut seen_variant_names = HashSet::new();
     for variant in &enum_def.variants {
         let variant_name = &variant.item.name;
 

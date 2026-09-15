@@ -138,6 +138,7 @@ fn pattern_with_file(pattern: Pattern, file: FileId) -> Pattern {
 
 fn type_alias_with_file(type_alias: TypeAlias, file: FileId) -> TypeAlias {
     TypeAlias {
+        attributes: secondary_attributes_with_file(type_alias.attributes, file),
         name: ident_with_file(type_alias.name, file),
         generics: unresolved_generics_with_file(type_alias.generics, file),
         typ: unresolved_type_with_file(type_alias.typ, file),
