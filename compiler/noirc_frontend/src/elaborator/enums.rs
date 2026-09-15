@@ -1656,7 +1656,12 @@ impl<'elab, 'ctx> MatchCompiler<'elab, 'ctx> {
         // used in Noir may change we recommend a match-all pattern instead.
         // If the type is a type variable, we don't know exactly which integer type this may
         // resolve to so also just suggest a catch-all in that case.
-        if typ.is_field() || typ.is_bindable() {
+        // The range set below is built over `i128` and `u128`: an integer type wider than that,
+        // or one whose width still names a generic, gets the same catch-all suggestion as a field.
+        let width_exceeds_a_native_integer =
+            matches!(typ.follow_bindings_shallow().as_ref(), Type::Integer(..))
+                && typ.integer_bit_size().is_none_or(|bits| bits > 128);
+        if typ.is_field() || typ.is_bindable() || width_exceeds_a_native_integer {
             return vec![(WILDCARD_PATTERN.to_string(), Vec::new())];
         }
 

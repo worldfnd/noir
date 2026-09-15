@@ -210,7 +210,9 @@ impl ExpressionKind {
                 Expression {
                     kind: ExpressionKind::Literal(Literal::Integer(value, suffix)), ..
                 },
-            ) if value >= BigInt::ZERO && value <= BigInt::from(u128::MAX) => {
+            ) if value >= BigInt::ZERO => {
+                // A negated literal is one literal, whatever its size: the minimum of a signed
+                // type has no positive spelling that fits the type.
                 ExpressionKind::Literal(Literal::Integer(-value, suffix))
             }
             (operator, rhs) => ExpressionKind::Prefix(Box::new(PrefixExpression { operator, rhs })),
