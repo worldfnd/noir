@@ -40,6 +40,7 @@ compiler/noirc_frontend/src/elaborator/lints.rs
 compiler/noirc_frontend/src/elaborator/mod.rs
 compiler/noirc_frontend/src/elaborator/options.rs
 compiler/noirc_frontend/src/elaborator/types.rs
+compiler/noirc_frontend/src/hir/comptime/errors.rs
 compiler/noirc_frontend/src/hir/comptime/hir_to_display_ast.rs
 compiler/noirc_frontend/src/hir/comptime/integer.rs
 compiler/noirc_frontend/src/hir/comptime/interpreter.rs
