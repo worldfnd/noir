@@ -27,8 +27,8 @@ use crate::hir::comptime::Integer;
 use crate::{
     Kind, QuotedType, Shared, Type, TypeBindings,
     ast::{
-        ArrayLiteral, ConstrainKind, Expression, ExpressionKind, ForRange, IntegerBitSize, LValue,
-        Literal, Pattern, Statement, StatementKind, UnresolvedTypeData, UnsafeExpression,
+        ArrayLiteral, ConstrainKind, Expression, ExpressionKind, ForRange, LValue, Literal,
+        Pattern, Statement, StatementKind, UnresolvedTypeData, UnsafeExpression,
     },
     elaborator::{
         ElaborateReason, Elaborator, PrimitiveType,
@@ -55,7 +55,6 @@ use crate::{
     },
     node_interner::{NodeInterner, TraitImplKind},
     parser::{Parser, StatementOrExpressionOrLValue},
-    shared::Signedness,
     token::{LocatedToken, SecondaryAttribute, SecondaryAttributeKind, Token},
 };
 
@@ -1312,9 +1311,11 @@ fn type_as_integer(
     field: FieldId,
 ) -> IResult<Value> {
     type_as(arguments, return_type, location, field, |typ| {
-        if let Type::Integer(sign, bits) = typ {
+        if let Type::Integer(sign, width) = typ {
+            // A width that still names a generic is not an integer type this can describe.
+            let bits = width.constant_width()?;
             let sign = Shared::new(Value::Bool(sign.is_signed()));
-            let bit_size = Shared::new(Value::u8(bits.bit_size()));
+            let bit_size = Shared::new(Value::u32(bits));
             Some(Value::Tuple(vec![sign, bit_size]))
         } else {
             None
@@ -1717,10 +1718,14 @@ fn zeroed(return_type: Type, location: Location, field: FieldId) -> Value {
             }
         }
         Type::Vector(_) => Value::Vector(Vector::new(), return_type),
-        Type::Integer(sign, bits) => {
-            let zero = Integer::int(sign.is_signed(), u32::from(bits), num_bigint::BigInt::ZERO);
-            Value::Integer(zero.expect("zero fits every width"))
-        }
+        Type::Integer(sign, width) => match width.evaluate_to_u32(location) {
+            Ok(bits) => {
+                let zero = Integer::int(sign.is_signed(), bits, num_bigint::BigInt::ZERO);
+                Value::Integer(zero.expect("zero fits every width"))
+            }
+            // Assume we can resolve the width later
+            Err(_) => Value::Zeroed(Type::Integer(sign, width)),
+        },
         Type::Bool => Value::Bool(false),
         Type::String(length_type) => {
             if let Ok(length) = length_type.evaluate_to_u32(location) {
@@ -3170,7 +3175,7 @@ fn modulus_be_bytes(
     let bytes = field.modulus().to_bytes_be();
     let bytes_vector = bytes.into_iter().map(Value::u8).collect();
 
-    let int_type = Type::Integer(Signedness::Unsigned, IntegerBitSize::Eight);
+    let int_type = Type::uint(8);
     let typ = Type::Vector(Box::new(int_type));
     Ok(Value::Vector(bytes_vector, typ))
 }

@@ -149,6 +149,32 @@ impl Generic for StrPrimitiveType {
     }
 }
 
+/// The parametric integer families `u<N>` and `i<N>`, whose one generic is the width.
+pub struct IntegerPrimitiveType(pub crate::shared::Signedness);
+
+impl Generic for IntegerPrimitiveType {
+    fn item_kind(&self) -> &'static str {
+        "primitive type"
+    }
+
+    fn item_name(&self, _interner: &NodeInterner) -> String {
+        self.0.type_name_prefix().to_string()
+    }
+
+    fn generic_kinds(&self, _interner: &NodeInterner) -> Vec<Kind> {
+        let width = Kind::u32();
+        vec![width]
+    }
+
+    fn accepts_named_type_args(&self) -> bool {
+        false
+    }
+
+    fn named_generics(&self, _interner: &NodeInterner) -> Vec<ResolvedGeneric> {
+        Vec::new()
+    }
+}
+
 pub struct FmtstrPrimitiveType;
 
 impl Generic for FmtstrPrimitiveType {

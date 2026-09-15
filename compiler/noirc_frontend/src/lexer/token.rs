@@ -34,18 +34,18 @@ impl IntegerTypeSuffix {
     /// `3u32` will have the type `Type::Constant(3, Kind::Numeric(u32))`. As a result, using
     /// this method for any kind checks on integer types will result in a kind error!
     pub(crate) fn as_type(self) -> crate::Type {
-        use crate::{Type::Integer, ast::IntegerBitSize::*, shared::Signedness::*};
+        use crate::Type;
         match self {
-            IntegerTypeSuffix::I8 => Integer(Signed, Eight),
-            IntegerTypeSuffix::I16 => Integer(Signed, Sixteen),
-            IntegerTypeSuffix::I32 => Integer(Signed, ThirtyTwo),
-            IntegerTypeSuffix::I64 => Integer(Signed, SixtyFour),
-            IntegerTypeSuffix::U8 => Integer(Unsigned, Eight),
-            IntegerTypeSuffix::U16 => Integer(Unsigned, Sixteen),
-            IntegerTypeSuffix::U32 => Integer(Unsigned, ThirtyTwo),
-            IntegerTypeSuffix::U64 => Integer(Unsigned, SixtyFour),
-            IntegerTypeSuffix::U128 => Integer(Unsigned, HundredTwentyEight),
-            IntegerTypeSuffix::Field => crate::Type::FieldElement,
+            IntegerTypeSuffix::I8 => Type::sint(8),
+            IntegerTypeSuffix::I16 => Type::sint(16),
+            IntegerTypeSuffix::I32 => Type::sint(32),
+            IntegerTypeSuffix::I64 => Type::sint(64),
+            IntegerTypeSuffix::U8 => Type::uint(8),
+            IntegerTypeSuffix::U16 => Type::uint(16),
+            IntegerTypeSuffix::U32 => Type::uint(32),
+            IntegerTypeSuffix::U64 => Type::uint(64),
+            IntegerTypeSuffix::U128 => Type::uint(128),
+            IntegerTypeSuffix::Field => Type::FieldElement,
         }
     }
 }

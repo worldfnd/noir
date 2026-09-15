@@ -1019,13 +1019,18 @@ impl ModCollector<'_> {
 
         // TODO: delay this to the Elaborator
         // See https://github.com/noir-lang/noir/issues/8504
-        if let UnresolvedTypeData::Named(path, _generics, _) = &typ.typ
+        if let UnresolvedTypeData::Named(path, generics, _) = &typ.typ
             && path.segments.len() == 1
-            && let Some(primitive_type) =
-                PrimitiveType::lookup_by_name(path.segments[0].ident.as_str())
-            && let Some(typ) = primitive_type.to_integer_or_field()
         {
-            return typ;
+            let name = path.segments[0].ident.as_str();
+            if let Some(primitive_type) = PrimitiveType::lookup_by_name(name)
+                && let Some(typ) = primitive_type.to_integer_or_field()
+            {
+                return typ;
+            }
+            if let Some(typ) = PrimitiveType::integer_family_with_literal_width(name, generics) {
+                return typ;
+            }
         }
 
         let error = ResolverError::AssociatedConstantsMustBeNumeric { location: typ.location };

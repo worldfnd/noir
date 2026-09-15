@@ -300,8 +300,8 @@ impl<'a> FunctionContext<'a> {
                 let element_types = Self::convert_type(element).flatten();
                 Type::Array(Arc::new(element_types), SemanticLength(*len))
             }
-            ast::Type::Integer(Signedness::Signed, bits) => Type::signed((*bits).into()),
-            ast::Type::Integer(Signedness::Unsigned, bits) => Type::unsigned((*bits).into()),
+            ast::Type::Integer(Signedness::Signed, bits) => Type::signed(*bits),
+            ast::Type::Integer(Signedness::Unsigned, bits) => Type::unsigned(*bits),
             ast::Type::Bool => Type::unsigned(1),
             ast::Type::String(len) => Type::str(*len),
             ast::Type::FmtString(_, _) => {

@@ -171,6 +171,14 @@ impl Type {
 
             (String(len_a), String(len_b)) => len_a.try_unify(len_b, bindings),
 
+            (Integer(sign_a, width_a), Integer(sign_b, width_b)) => {
+                if sign_a == sign_b {
+                    width_a.try_unify(width_b, bindings)
+                } else {
+                    Err(UnificationError)
+                }
+            }
+
             (FmtString(len_a, elements_a), FmtString(len_b, elements_b)) => {
                 len_a.try_unify(len_b, bindings)?;
                 elements_a.try_unify(elements_b, bindings)
@@ -277,6 +285,14 @@ impl Type {
             (Constant(value), other) | (other, Constant(value)) => {
                 let dummy_location = Location::dummy();
                 let other = other.substitute(bindings);
+
+                // Two constants are equal when their values, widths and signedness are, which
+                // is what comparing their kinds would establish. Comparing kinds would also
+                // recurse: the kind of a `u32` constant is the type `u32`, whose width is a
+                // `u32` constant.
+                if let Constant(other_value) = &other {
+                    return if value == other_value { Ok(()) } else { Err(UnificationError) };
+                }
 
                 let kind = value.numeric_kind();
                 if let Ok(other_value) = other.evaluate_to_integer(&kind, dummy_location) {
