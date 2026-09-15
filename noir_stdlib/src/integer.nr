@@ -1,136 +1,37 @@
-impl u8 {
-    /// Returns the maximum value representable by `u8`: 255.
-    pub fn max_value() -> u8 {
-        255
+impl<let N: u32> u<N> {
+    /// Returns the maximum value representable by `u<N>`: `2^N - 1`.
+    pub fn max_value() -> Self {
+        !(0 as Self)
     }
 
-    /// Returns the minimum value representable by `u8`: 0.
-    pub fn min_value() -> u8 {
+    /// Returns the minimum value representable by `u<N>`: 0.
+    pub fn min_value() -> Self {
         0
     }
 
-    /// Returns the number of bits in `u8`: 8.
+    /// Returns the number of bits in `u<N>`: `N`.
     pub fn bits() -> u32 {
-        8
+        N
     }
 }
 
-impl u16 {
-    /// Returns the maximum value representable by `u16`: 65535.
-    pub fn max_value() -> u16 {
-        65535
+impl<let N: u32> i<N> {
+    /// Returns the maximum value representable by `i<N>`: `2^(N-1) - 1`.
+    pub fn max_value() -> Self {
+        // Avoid constructing 2^(N-1), which exceeds the signed range.
+        let half = (1 as Self) << ((N - 2) as Self);
+        half - 1 + half
     }
 
-    /// Returns the minimum value representable by `u16`: 0.
-    pub fn min_value() -> u16 {
-        0
+    /// Returns the minimum value representable by `i<N>`: `-2^(N-1)`.
+    pub fn min_value() -> Self {
+        let half = (1 as Self) << ((N - 2) as Self);
+        -half - half
     }
 
-    /// Returns the number of bits in `u16`: 16.
+    /// Returns the number of bits in `i<N>`: `N`.
     pub fn bits() -> u32 {
-        16
-    }
-}
-
-impl u32 {
-    /// Returns the maximum value representable by `u32`: 4294967295.
-    pub fn max_value() -> u32 {
-        4294967295
-    }
-
-    /// Returns the minimum value representable by `u32`: 0.
-    pub fn min_value() -> u32 {
-        0
-    }
-
-    /// Returns the number of bits in `u32`: 32.
-    pub fn bits() -> u32 {
-        32
-    }
-}
-
-impl u64 {
-    /// Returns the maximum value representable by `u64`: 18446744073709551615.
-    pub fn max_value() -> u64 {
-        18446744073709551615
-    }
-
-    /// Returns the minimum value representable by `u64`: 0.
-    pub fn min_value() -> u64 {
-        0
-    }
-
-    /// Returns the number of bits in `u64`: 64.
-    pub fn bits() -> u32 {
-        64
-    }
-}
-
-impl i8 {
-    /// Returns the maximum value representable by `i8`: 127.
-    pub fn max_value() -> i8 {
-        127
-    }
-
-    /// Returns the minimum value representable by `i8`: -128.
-    pub fn min_value() -> i8 {
-        -128
-    }
-
-    /// Returns the number of bits in `i8`: 8.
-    pub fn bits() -> u32 {
-        8
-    }
-}
-
-impl i16 {
-    /// Returns the maximum value representable by `i16`: 32767.
-    pub fn max_value() -> i16 {
-        32767
-    }
-
-    /// Returns the minimum value representable by `i16`: -32768.
-    pub fn min_value() -> i16 {
-        -32768
-    }
-
-    /// Returns the number of bits in `i16`: 16.
-    pub fn bits() -> u32 {
-        16
-    }
-}
-
-impl i32 {
-    /// Returns the maximum value representable by `i32`: 2147483647.
-    pub fn max_value() -> i32 {
-        2147483647
-    }
-
-    /// Returns the minimum value representable by `i32`: -2147483648.
-    pub fn min_value() -> i32 {
-        -2147483648
-    }
-
-    /// Returns the number of bits in `i32`: 32.
-    pub fn bits() -> u32 {
-        32
-    }
-}
-
-impl i64 {
-    /// Returns the maximum value representable by `i64`: 9223372036854775807.
-    pub fn max_value() -> i64 {
-        9223372036854775807
-    }
-
-    /// Returns the minimum value representable by `i64`: -9223372036854775808.
-    pub fn min_value() -> i64 {
-        -9223372036854775808
-    }
-
-    /// Returns the number of bits in `i64`: 64.
-    pub fn bits() -> u32 {
-        64
+        N
     }
 }
 
@@ -161,6 +62,13 @@ mod tests {
         assert_eq(u64::max_value(), 18446744073709551615);
         assert_eq(u64::min_value(), 0);
         assert_eq(u64::bits(), 64);
+    }
+
+    #[test]
+    fn test_u128_limits() {
+        assert_eq(u128::max_value(), 340282366920938463463374607431768211455);
+        assert_eq(u128::min_value(), 0);
+        assert_eq(u128::bits(), 128);
     }
 
     #[test]
