@@ -10,248 +10,77 @@ pub(super) fn evaluate_infix(
     operator: HirBinaryOp,
     location: Location,
 ) -> IResult<Value> {
+    use BinaryOpKind::*;
+
     let lhs_type = lhs_value.get_type().into_owned();
     let rhs_type = rhs_value.get_type().into_owned();
+    let symbol = operator.kind.as_str();
 
-    let error = |operator| {
+    let error = || {
         let lhs = lhs_type.clone();
         let rhs = rhs_type.clone();
-        InterpreterError::InvalidValuesForBinary { lhs, rhs, location, operator }
+        InterpreterError::InvalidValuesForBinary { lhs, rhs, location, operator: symbol }
     };
-    let shr_overflow = || InterpreterError::BinaryOperationOverflow { operator: ">>", location };
-    let math_error = |operator| InterpreterError::BinaryOperationOverflow { location, operator };
+    let overflow = |operator| InterpreterError::BinaryOperationOverflow { location, operator };
 
-    if matches!(operator.kind, BinaryOpKind::Divide | BinaryOpKind::Modulo)
+    if matches!(operator.kind, Divide | Modulo)
         && let Value::Integer(rhs_value) = &rhs_value
         && rhs_value.is_zero()
     {
-        return Err(InterpreterError::InvalidValuesForBinary {
-            lhs: lhs_type,
-            rhs: rhs_type,
-            location,
-            operator: if operator.kind == BinaryOpKind::Divide { "/" } else { "%" },
-        });
+        return Err(error());
     }
 
-    /// Generate matches that can promote the type of one side to the other if they are compatible.
-    macro_rules! match_values {
-        (($lhs_value:ident as $lhs:ident $op:literal $rhs_value:ident as $rhs:ident) {
-            $(
-                ($lhs_var:ident, $rhs_var:ident) to $res_var:ident => $expr:expr
-            ),*
-                , $(Bool case to $res_var2:ident => $expr2:expr)?
-            $(,)?
-         }
-        ) => {
-            match ($lhs_value, $rhs_value) {
-                $(
-                (Value::Integer(Integer::$lhs_var($lhs)), Value::Integer(Integer::$rhs_var($rhs))) => {
-                    Ok(Value::$res_var(($expr).ok_or(math_error($op))?))
-                },
-                )*
-                $(
-                (Value::Bool($lhs), Value::Bool($rhs)) => {
-                    Ok(Value::$res_var2(($expr2).ok_or(math_error($op))?))
-                },
-                )?
-                (_, _) => {
-                    Err(error($op))
-                },
+    match (lhs_value, rhs_value) {
+        (Value::Integer(lhs), Value::Integer(rhs)) => {
+            if lhs.signed_and_bits() != rhs.signed_and_bits() {
+                return Err(error());
             }
-        };
-    }
-
-    /// Generate matches for arithmetic operations on `Field` and integers.
-    macro_rules! match_arithmetic {
-        (($lhs_value:ident as $lhs:ident $op:literal $rhs_value:ident as $rhs:ident) { field: $field_expr:expr, int: $int_expr:expr, }) => {
-            match_values! {
-                ($lhs_value as $lhs $op $rhs_value as $rhs) {
-                    (Field, Field) to field => Some($field_expr),
-                    (I8,  I8)      to i8    => $int_expr,
-                    (I16, I16)     to i16   => $int_expr,
-                    (I32, I32)     to i32   => $int_expr,
-                    (I64, I64)     to i64   => $int_expr,
-                    (U8,  U8)      to u8    => $int_expr,
-                    (U16, U16)     to u16   => $int_expr,
-                    (U32, U32)     to u32   => $int_expr,
-                    (U64, U64)     to u64   => $int_expr,
-                    (U128, U128)   to u128  => $int_expr,
-                }
-            }
-        };
-    }
-
-    /// Generate matches for equality operations on all types, returning `Bool`.
-    macro_rules! match_cmp {
-        (($lhs_value:ident as $lhs:ident $op:literal $rhs_value:ident as $rhs:ident) => $expr:expr) => {
-            match_values! {
-                ($lhs_value as $lhs $op $rhs_value as $rhs) {
-                    (Field, Field) to Bool => Some($expr),
-                    (I8,  I8)      to Bool => Some($expr),
-                    (I16, I16)     to Bool => Some($expr),
-                    (I32, I32)     to Bool => Some($expr),
-                    (I64, I64)     to Bool => Some($expr),
-                    (U8,  U8)      to Bool => Some($expr),
-                    (U16, U16)     to Bool => Some($expr),
-                    (U32, U32)     to Bool => Some($expr),
-                    (U64, U64)     to Bool => Some($expr),
-                    (U128, U128)   to Bool => Some($expr),
-                    Bool case to Bool => Some($expr),
-                }
-            }
-        };
-    }
-
-    /// Generate matches for ordering comparisons, returning `Bool`.
-    macro_rules! match_ord {
-        (($lhs_value:ident as $lhs:ident $op:literal $rhs_value:ident as $rhs:ident) => $expr:expr) => {
-            match_values! {
-                ($lhs_value as $lhs $op $rhs_value as $rhs) {
-                    (I8,  I8)      to Bool => Some($expr),
-                    (I16, I16)     to Bool => Some($expr),
-                    (I32, I32)     to Bool => Some($expr),
-                    (I64, I64)     to Bool => Some($expr),
-                    (U8,  U8)      to Bool => Some($expr),
-                    (U16, U16)     to Bool => Some($expr),
-                    (U32, U32)     to Bool => Some($expr),
-                    (U64, U64)     to Bool => Some($expr),
-                    (U128, U128)   to Bool => Some($expr),
-                    Bool case to Bool => Some($expr),
-                }
-            }
-        };
-    }
-
-    /// Generate matches for bitwise operations on `Bool` and integers.
-    macro_rules! match_bitwise {
-        (($lhs_value:ident as $lhs:ident $op:literal $rhs_value:ident as $rhs:ident) => $expr:expr) => {
-            match_values! {
-                ($lhs_value as $lhs $op $rhs_value as $rhs) {
-                    (I8,  I8)      to i8   => Some($expr),
-                    (I16, I16)     to i16  => Some($expr),
-                    (I32, I32)     to i32  => Some($expr),
-                    (I64, I64)     to i64  => Some($expr),
-                    (U8,  U8)      to u8   => Some($expr),
-                    (U16, U16)     to u16  => Some($expr),
-                    (U32, U32)     to u32  => Some($expr),
-                    (U64, U64)     to u64  => Some($expr),
-                    (U128, U128)   to u128  => Some($expr),
-                    Bool case      to Bool => Some($expr),
-                }
-            }
-        };
-    }
-
-    /// Generate matches for operations on just integer values.
-    macro_rules! match_integer {
-        (($lhs_value:ident as $lhs:ident $op:literal $rhs_value:ident as $rhs:ident) { int: $int_expr:expr, }) => {
-            match_values! {
-                ($lhs_value as $lhs $op $rhs_value as $rhs) {
-                    (I8,  I8)      to i8   => $int_expr,
-                    (I16, I16)     to i16  => $int_expr,
-                    (I32, I32)     to i32  => $int_expr,
-                    (I64, I64)     to i64  => $int_expr,
-                    (U8,  U8)      to u8   => $int_expr,
-                    (U16, U16)     to u16  => $int_expr,
-                    (U32, U32)     to u32  => $int_expr,
-                    (U64, U64)     to u64  => $int_expr,
-                    (U128, U128)   to u128 => $int_expr,
-                }
-            }
-        };
-    }
-
-    #[allow(clippy::bool_comparison)]
-    match operator.kind {
-        BinaryOpKind::Add => match_arithmetic! {
-            (lhs_value as lhs "+" rhs_value as rhs) {
-                field: lhs + rhs,
-                int: lhs.checked_add(rhs),
-            }
-        },
-        BinaryOpKind::Subtract => match_arithmetic! {
-            (lhs_value as lhs "-" rhs_value as rhs) {
-                field: lhs - rhs,
-                int: lhs.checked_sub(rhs),
-            }
-        },
-        BinaryOpKind::Multiply => match_arithmetic! {
-            (lhs_value as lhs "*" rhs_value as rhs) {
-                field: lhs * rhs,
-                int: lhs.checked_mul(rhs),
-            }
-        },
-        BinaryOpKind::Divide => match_arithmetic! {
-            (lhs_value as lhs "/" rhs_value as rhs) {
-                field: match lhs.checked_div(&rhs) {
-                    Some(quotient) => quotient,
-                    None => return Err(InterpreterError::InvalidValuesForBinary { lhs: lhs_type, rhs: rhs_type, location, operator: "/" }),
-                },
-                int: lhs.checked_div(rhs),
-            }
-        },
-        BinaryOpKind::Equal => match_cmp! {
-            (lhs_value as lhs "==" rhs_value as rhs) => lhs == rhs
-        },
-        BinaryOpKind::NotEqual => match_cmp! {
-            (lhs_value as lhs "!=" rhs_value as rhs) => lhs != rhs
-        },
-        BinaryOpKind::Less => match_ord! {
-            (lhs_value as lhs "<" rhs_value as rhs) => lhs < rhs
-        },
-        BinaryOpKind::LessEqual => match_ord! {
-            (lhs_value as lhs "<=" rhs_value as rhs) => lhs <= rhs
-        },
-        BinaryOpKind::Greater => match_ord! {
-            (lhs_value as lhs ">" rhs_value as rhs) => lhs > rhs
-        },
-        BinaryOpKind::GreaterEqual => match_ord! {
-            (lhs_value as lhs ">=" rhs_value as rhs) => lhs >= rhs
-        },
-        BinaryOpKind::And => match_bitwise! {
-            (lhs_value as lhs "&" rhs_value as rhs) => lhs & rhs
-        },
-        BinaryOpKind::Or => match_bitwise! {
-            (lhs_value as lhs "|" rhs_value as rhs) => lhs | rhs
-        },
-        BinaryOpKind::Xor => match_bitwise! {
-            (lhs_value as lhs "^" rhs_value as rhs) => lhs ^ rhs
-        },
-        #[allow(trivial_numeric_casts)]
-        BinaryOpKind::ShiftRight => match_integer! {
-            (lhs_value as lhs ">>" rhs_value as rhs) {
-                int: {
-                    #[allow(clippy::useless_conversion)]
-                    #[allow(clippy::unnecessary_fallible_conversions)]
-                    let rhs: Result<u32, _> = rhs.try_into();
-                    #[allow(irrefutable_let_patterns)]
-                    let Ok(rhs) = rhs else {
-                        return Err(shr_overflow());
+            let is_field = matches!(lhs, Integer::Field(_));
+            let checked = |result: Option<Integer>| {
+                result.map(Value::Integer).ok_or_else(|| overflow(symbol))
+            };
+            match operator.kind {
+                Add => checked(lhs + rhs),
+                Subtract => checked(lhs - rhs),
+                Multiply => checked(lhs * rhs),
+                Divide => checked(lhs / rhs),
+                Modulo if is_field => Err(error()),
+                Modulo => checked(lhs % rhs),
+                Equal => Ok(Value::Bool(lhs == rhs)),
+                NotEqual => Ok(Value::Bool(lhs != rhs)),
+                Less => lhs.lt(&rhs).map(Value::Bool).ok_or_else(error),
+                LessEqual => lhs.lte(&rhs).map(Value::Bool).ok_or_else(error),
+                Greater => rhs.lt(&lhs).map(Value::Bool).ok_or_else(error),
+                GreaterEqual => rhs.lte(&lhs).map(Value::Bool).ok_or_else(error),
+                And => (lhs & rhs).map(Value::Integer).ok_or_else(error),
+                Or => (lhs | rhs).map(Value::Integer).ok_or_else(error),
+                Xor => (lhs ^ rhs).map(Value::Integer).ok_or_else(error),
+                ShiftLeft | ShiftRight if is_field => Err(error()),
+                ShiftLeft | ShiftRight => {
+                    // An amount that is not a `u32` is reported as a `>>` overflow for either direction.
+                    let amount = u32::try_from(&rhs.to_bigint()).map_err(|_| overflow(">>"))?;
+                    let shifted = if operator.kind == ShiftLeft {
+                        lhs.checked_shl(amount)
+                    } else {
+                        lhs.checked_shr(amount)
                     };
-                    lhs.checked_shr(rhs)
-                },
+                    checked(shifted)
+                }
             }
+        }
+        (Value::Bool(lhs), Value::Bool(rhs)) => match operator.kind {
+            Equal => Ok(Value::Bool(lhs == rhs)),
+            NotEqual => Ok(Value::Bool(lhs != rhs)),
+            Less => Ok(Value::Bool(!lhs & rhs)),
+            LessEqual => Ok(Value::Bool(lhs <= rhs)),
+            Greater => Ok(Value::Bool(lhs & !rhs)),
+            GreaterEqual => Ok(Value::Bool(lhs >= rhs)),
+            And => Ok(Value::Bool(lhs & rhs)),
+            Or => Ok(Value::Bool(lhs | rhs)),
+            Xor => Ok(Value::Bool(lhs ^ rhs)),
+            Add | Subtract | Multiply | Divide | Modulo | ShiftLeft | ShiftRight => Err(error()),
         },
-        #[allow(trivial_numeric_casts)]
-        BinaryOpKind::ShiftLeft => match_integer! {
-            (lhs_value as lhs "<<" rhs_value as rhs) {
-                int: {
-                    #[allow(clippy::useless_conversion)]
-                    #[allow(clippy::unnecessary_fallible_conversions)]
-                    let rhs: Result<u32, _> = rhs.try_into();
-                    #[allow(irrefutable_let_patterns)]
-                    let Ok(rhs) = rhs else {
-                        return Err(shr_overflow());
-                    };
-                    lhs.checked_shl(rhs)
-                },
-            }
-        },
-        BinaryOpKind::Modulo => match_integer! {
-            (lhs_value as lhs "%" rhs_value as rhs) {
-                int: lhs.checked_rem(rhs),
-            }
-        },
+        _ => Err(error()),
     }
 }
 
@@ -300,7 +129,7 @@ mod tests {
     }
 
     #[test]
-    fn field_equality_is_still_allowed() {
+    fn field_equality() {
         use acvm::{FieldId, FieldValue};
 
         let one = Value::field(FieldValue::one(FieldId::linked()));
@@ -505,7 +334,6 @@ mod tests {
                 let x_field = 8;
                 let x_i32: i32 = -7;
 
-                // Field division is weird so I'm not testing with a remainder here
                 assert_eq(x_field / 2, 4);
                 assert_eq(x_i32 / 2, -3);
             }
@@ -534,5 +362,63 @@ mod tests {
         "#;
         let result = interpret_expect_error(src);
         assert!(matches!(result, InterpreterError::BinaryOperationOverflow { operator: ">>", .. }));
+    }
+
+    #[test]
+    fn binary_type_mismatch_is_reported() {
+        for kind in [
+            BinaryOpKind::Add,
+            BinaryOpKind::Equal,
+            BinaryOpKind::Less,
+            BinaryOpKind::And,
+            BinaryOpKind::ShiftLeft,
+            BinaryOpKind::Modulo,
+        ] {
+            let operator = HirBinaryOp { kind, location: Location::dummy() };
+            let err = evaluate_infix(Value::u8(1), Value::u16(1), operator, Location::dummy())
+                .unwrap_err();
+            assert!(
+                matches!(err, InterpreterError::InvalidValuesForBinary { .. }),
+                "{kind:?}: {err:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn field_integer_operations_are_rejected() {
+        use acvm::{FieldId, FieldValue};
+
+        let one = Value::field(FieldValue::one(FieldId::linked()));
+        for kind in [
+            BinaryOpKind::And,
+            BinaryOpKind::Or,
+            BinaryOpKind::Xor,
+            BinaryOpKind::ShiftLeft,
+            BinaryOpKind::ShiftRight,
+            BinaryOpKind::Modulo,
+        ] {
+            let operator = HirBinaryOp { kind, location: Location::dummy() };
+            let err =
+                evaluate_infix(one.clone(), one.clone(), operator, Location::dummy()).unwrap_err();
+            assert!(
+                matches!(err, InterpreterError::InvalidValuesForBinary { .. }),
+                "{kind:?}: {err:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn left_shift_truncates_to_width() {
+        let shl = |lhs, rhs| {
+            let operator =
+                HirBinaryOp { kind: BinaryOpKind::ShiftLeft, location: Location::dummy() };
+            evaluate_infix(lhs, rhs, operator, Location::dummy())
+        };
+        assert_eq!(shl(Value::u8(255), Value::u8(1)), Ok(Value::u8(254)));
+        assert_eq!(shl(Value::i8(1), Value::i8(7)), Ok(Value::i8(-128)));
+        assert!(matches!(
+            shl(Value::u8(1), Value::u8(8)),
+            Err(InterpreterError::BinaryOperationOverflow { operator: "<<", .. })
+        ));
     }
 }

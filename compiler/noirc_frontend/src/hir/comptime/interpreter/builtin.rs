@@ -23,6 +23,7 @@ use itertools::Itertools;
 use noirc_errors::Location;
 use rustc_hash::FxHashMap as HashMap;
 
+use crate::hir::comptime::Integer;
 use crate::{
     Kind, QuotedType, Shared, Type, TypeBindings,
     ast::{
@@ -1716,20 +1717,10 @@ fn zeroed(return_type: Type, location: Location, field: FieldId) -> Value {
             }
         }
         Type::Vector(_) => Value::Vector(Vector::new(), return_type),
-        Type::Integer(sign, bits) => match (sign, bits) {
-            (Signedness::Unsigned, IntegerBitSize::Eight) => Value::u8(0),
-            (Signedness::Unsigned, IntegerBitSize::Sixteen) => Value::u16(0),
-            (Signedness::Unsigned, IntegerBitSize::ThirtyTwo) => Value::u32(0),
-            (Signedness::Unsigned, IntegerBitSize::SixtyFour) => Value::u64(0),
-            (Signedness::Unsigned, IntegerBitSize::HundredTwentyEight) => Value::u128(0),
-            (Signedness::Signed, IntegerBitSize::Eight) => Value::i8(0),
-            (Signedness::Signed, IntegerBitSize::Sixteen) => Value::i16(0),
-            (Signedness::Signed, IntegerBitSize::ThirtyTwo) => Value::i32(0),
-            (Signedness::Signed, IntegerBitSize::SixtyFour) => Value::i64(0),
-            (Signedness::Signed, IntegerBitSize::HundredTwentyEight) => {
-                unreachable!("invalid type: i128")
-            }
-        },
+        Type::Integer(sign, bits) => {
+            let zero = Integer::int(sign.is_signed(), u32::from(bits), num_bigint::BigInt::ZERO);
+            Value::Integer(zero.expect("zero fits every width"))
+        }
         Type::Bool => Value::Bool(false),
         Type::String(length_type) => {
             if let Ok(length) = length_type.evaluate_to_u32(location) {

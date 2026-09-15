@@ -478,7 +478,7 @@ impl Type {
             Type::Constant(value) => {
                 UnresolvedTypeData::Expression(UnresolvedTypeExpression::Constant(
                     value.to_bigint(),
-                    Some(value.integer_type_suffix()),
+                    value.integer_type_suffix(),
                     Location::dummy(),
                 ))
             }
@@ -505,7 +505,7 @@ impl Type {
         match self.follow_bindings() {
             Type::Constant(length) => UnresolvedTypeExpression::Constant(
                 length.to_bigint(),
-                Some(length.integer_type_suffix()),
+                length.integer_type_suffix(),
                 location,
             ),
             Type::NamedGeneric(NamedGeneric { name, .. }) => {
@@ -560,7 +560,7 @@ impl HirArrayLiteral {
                 let repeated_element = Box::new(repeated_element.to_display_ast(interner));
                 let length = match length {
                     Type::Constant(length) => {
-                        let suffix = Some(length.integer_type_suffix());
+                        let suffix = length.integer_type_suffix();
                         let literal = Literal::Integer(length.to_bigint(), suffix);
                         let expr_kind = ExpressionKind::Literal(literal);
                         Box::new(Expression::new(expr_kind, location))

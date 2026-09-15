@@ -47,15 +47,9 @@ pub(crate) fn evaluate_cast_one_step(
                 }
             })
         }
-        typ @ Type::Integer(sign, size) => {
+        Type::Integer(sign, size) => {
             let bits = u32::from(size.bit_size());
-            let mut value = twos_complement_pattern(&value, bits);
-            if sign.is_signed() && value >= (BigInt::from(1) << (bits - 1)) {
-                value -= BigInt::from(1) << bits;
-            }
-            Integer::try_from_bigint(&value, &typ, field.id())
-                .map(Value::Integer)
-                .ok_or(InterpreterError::TypeUnsupported { typ, location })
+            Ok(Value::Integer(Integer::wrapping_int(sign.is_signed(), bits, value)))
         }
         Type::Bool if lhs_type == Type::Bool => Ok(Value::Bool(value != BigInt::ZERO)),
         // Numeric conversions to booleans must use `!= 0`

@@ -118,9 +118,9 @@ pub enum TypedExpr {
 }
 
 macro_rules! int_constructor {
-    ($name: ident, $capitalized: ident) => {
+    ($name: ident) => {
         pub fn $name(x: $name) -> Self {
-            Value::Integer(Integer::$capitalized(x))
+            Value::Integer(Integer::$name(x))
         }
     };
 }
@@ -130,15 +130,15 @@ impl Value {
         Value::Integer(Integer::Field(value))
     }
 
-    int_constructor!(u8, U8);
-    int_constructor!(u16, U16);
-    int_constructor!(u32, U32);
-    int_constructor!(u64, U64);
-    int_constructor!(u128, U128);
-    int_constructor!(i8, I8);
-    int_constructor!(i16, I16);
-    int_constructor!(i32, I32);
-    int_constructor!(i64, I64);
+    int_constructor!(u8);
+    int_constructor!(u16);
+    int_constructor!(u32);
+    int_constructor!(u64);
+    int_constructor!(u128);
+    int_constructor!(i8);
+    int_constructor!(i16);
+    int_constructor!(i32);
+    int_constructor!(i64);
 
     pub(crate) fn expression(expr: ExpressionKind) -> Self {
         Value::Expr(Box::new(ExprValue::Expression(expr)))
@@ -207,7 +207,7 @@ impl Value {
 
     /// Lowers this value into a runtime expression.
     ///
-    /// For literals this is often simple, e.g. `Value::I8(3)` translates to `3`, but not
+    /// For literals this is often simple, e.g. `Value::i8(3)` translates to `3`, but not
     /// all values are valid to lower. Lowering quoted code will simply return the quoted code (after
     /// parsing), this is how macros are implemented.
     pub(crate) fn into_expression(

@@ -79,8 +79,7 @@ impl Type {
                 let rhs_evaluated =
                     rhs.evaluate_to_integer_helper(&kind, dummy_location, run_simplifications);
 
-                // evaluate_to_field_element also calls canonicalize so if we just called
-                // `self.evaluate_to_field_element(..)` we'd get infinite recursion.
+                // Evaluating `self` would re-enter canonicalization and recurse indefinitely.
                 if let Ok(lhs_value) = &lhs_evaluated
                     && let Ok(rhs_value) = &rhs_evaluated
                     && let Ok(result) =
@@ -542,18 +541,18 @@ mod tests {
         let field_zero = Integer::Field(FieldValue::zero(FieldId::linked()));
 
         let failures = [
-            BinaryTypeOperator::Division.function(Integer::U32(1), Integer::U32(0), location),
-            BinaryTypeOperator::Modulo.function(Integer::U32(1), Integer::U32(0), location),
+            BinaryTypeOperator::Division.function(Integer::u32(1), Integer::u32(0), location),
+            BinaryTypeOperator::Modulo.function(Integer::u32(1), Integer::u32(0), location),
             BinaryTypeOperator::Modulo.function(field_zero.clone(), field_zero, location),
-            BinaryTypeOperator::Subtraction.function(Integer::U32(0), Integer::U32(1), location),
+            BinaryTypeOperator::Subtraction.function(Integer::u32(0), Integer::u32(1), location),
             BinaryTypeOperator::Addition.function(
-                Integer::U32(u32::MAX),
-                Integer::U32(1),
+                Integer::u32(u32::MAX),
+                Integer::u32(1),
                 location,
             ),
             BinaryTypeOperator::Multiplication.function(
-                Integer::U32(u32::MAX),
-                Integer::U32(2),
+                Integer::u32(u32::MAX),
+                Integer::u32(2),
                 location,
             ),
         ];
@@ -786,7 +785,7 @@ mod proptests {
             }
             Type::Constant(value) => {
                 let integer_type_suffix = value.integer_type_suffix();
-                let literal = Literal::Integer(value.to_bigint(), Some(integer_type_suffix));
+                let literal = Literal::Integer(value.to_bigint(), integer_type_suffix);
                 ExpressionKind::Literal(literal)
             }
             Type::TypeVariable(type_var) => unimplemented!(

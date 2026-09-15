@@ -196,9 +196,9 @@ pub(super) fn value_to_abi_value(value: &Value, field: FieldConfig) -> AbiValue 
             // Preserve wide integer magnitudes; ABI tags must not reduce them modulo the field.
             let value = match integer {
                 Integer::Field(value) => value.to_hex(),
-                other => {
+                Integer::Int { value, .. } => {
                     let width = field.num_bytes() as usize * 2;
-                    format!("{:0width$x}", other.to_bigint().magnitude())
+                    format!("{:0width$x}", value.magnitude())
                 }
             };
             AbiValue::Integer { sign, value }
@@ -262,8 +262,8 @@ mod tests {
                     false,
                     (field.modulus() - 1u8).to_str_radix(16),
                 ),
-                (Integer::I8(i8::MIN), true, "80".to_owned()),
-                (Integer::U128(u128::MAX), false, "f".repeat(32)),
+                (Integer::i8(i8::MIN), true, "80".to_owned()),
+                (Integer::u128(u128::MAX), false, "f".repeat(32)),
             ] {
                 assert_eq!(
                     value_to_abi_value(&Value::Integer(integer), field),

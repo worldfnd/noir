@@ -444,7 +444,6 @@ mod tests {
         ErrorLocation, OpcodeResolutionError, RawAssertionPayload, ResolvedAssertionPayload,
     };
     use nargo::errors::ExecutionError;
-    use noirc_frontend::hir::comptime::Integer;
     use noirc_frontend::hir_def::types::Type as HirType;
 
     use super::{ErrorType, NargoErrorWithTypes};
@@ -581,7 +580,7 @@ mod tests {
         // string bytes. Extracting the message used to `panic!("didn't expect dynamic error
         // types")`; instead the bytes must be decoded back into the original string so the
         // morphed program compares equal to the original.
-        let str_type = HirType::String(Box::new(HirType::Constant(Integer::U32(3))));
+        let str_type = HirType::String(Box::new(HirType::constant_u32(3)));
         let selector = ErrorSelector::new(9230725515038505495);
         let plh_payload = vec![
             FieldElement::from(u32::from(b'P')),
@@ -628,7 +627,7 @@ mod tests {
         data.push(FieldElement::from(869191887u32));
 
         let fmtstr_type = HirType::FmtString(
-            Box::new(HirType::Constant(Integer::U32(template.len() as u32))),
+            Box::new(HirType::constant_u32(template.len() as u32)),
             Box::new(HirType::Tuple(vec![HirType::u32()])),
         );
         let acir_selector = ErrorSelector::new(9034042597070725729);

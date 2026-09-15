@@ -314,24 +314,14 @@ impl Kind {
             return Ok(value);
         };
 
-        use IntegerBitSize::*;
-        use Signedness::*;
-
         match (typ.as_ref(), &value) {
-            // First case: exact match, integer is already of type
-            (Type::FieldElement, Integer::Field(_))
-            | (Type::Integer(Unsigned, Eight), Integer::U8(_))
-            | (Type::Integer(Unsigned, Sixteen), Integer::U16(_))
-            | (Type::Integer(Unsigned, ThirtyTwo), Integer::U32(_))
-            | (Type::Integer(Unsigned, SixtyFour), Integer::U64(_))
-            | (Type::Integer(Unsigned, HundredTwentyEight), Integer::U128(_))
-            | (Type::Integer(Signed, Eight), Integer::I8(_))
-            | (Type::Integer(Signed, Sixteen), Integer::I16(_))
-            | (Type::Integer(Signed, ThirtyTwo), Integer::I32(_))
-            | (Type::Integer(Signed, SixtyFour), Integer::I64(_)) => Ok(value),
-            // Otherwise, to keep this working with the existing system, treat `Integer::Field` as
-            // a stand-in for an inferred type integer and attempt to cast it into the correct slot
-            // as long as it is within range.
+            (Type::FieldElement, Integer::Field(_)) => Ok(value),
+            (Type::Integer(sign, size), Integer::Int { signed, bits, .. })
+                if sign.is_signed() == *signed && u32::from(*size) == *bits =>
+            {
+                Ok(value)
+            }
+            // Field constants can stand in for inferred integers if their value fits.
             (other, Integer::Field(value)) => {
                 if let Some(integer) = Integer::try_from_field(value.clone(), other) {
                     Ok(integer)
@@ -1404,7 +1394,7 @@ impl Type {
     }
 
     pub fn constant_u32(value: u32) -> Type {
-        Type::Constant(Integer::U32(value))
+        Type::Constant(Integer::u32(value))
     }
 
     /// A bit of an awkward name for this function - this function returns
@@ -2510,9 +2500,11 @@ impl Type {
     /// If this type is a `Type::Constant` (used in array lengths), or is bound
     /// to a `Type::Constant`, return the constant as a u32.
     pub fn evaluate_to_u32(&self, location: Location) -> Result<u32, TypeCheckError> {
-        self.evaluate_to_integer(&Kind::u32(), location).map(|int| match int {
-            Integer::U32(value) => value,
-            _ => panic!("ICE: size should have already been checked by evaluate_to_field_element"),
+        let int = self.evaluate_to_integer(&Kind::u32(), location)?;
+        int.as_u32().ok_or_else(|| TypeCheckError::TypeKindMismatch {
+            expected_kind: Kind::u32(),
+            expr_kind: int.numeric_kind(),
+            expr_location: location,
         })
     }
 
@@ -2527,7 +2519,7 @@ impl Type {
         self.evaluate_to_integer_helper(target_kind, location, run_simplifications)
     }
 
-    /// `evaluate_to_field_element` with optional generic arithmetic simplifications
+    /// `evaluate_to_integer` with optional generic arithmetic simplifications.
     pub(crate) fn evaluate_to_integer_helper(
         &self,
         target_kind: &Kind,
@@ -3878,5 +3870,39 @@ mod tests {
         // Depth 100 hits the limit
         let typ = create_nested_array(TYPE_RECURSION_LIMIT as usize);
         let _ = typ.follow_bindings();
+    }
+
+    #[test]
+    fn ensure_value_fits_checks_type_and_range() {
+        use crate::hir::comptime::Integer;
+        let location = Location::dummy();
+
+        let u32_kind = Kind::u32();
+        assert_eq!(u32_kind.ensure_value_fits(Integer::u32(7), location).unwrap(), Integer::u32(7));
+        assert!(matches!(
+            u32_kind.ensure_value_fits(Integer::u8(7), location),
+            Err(TypeCheckError::OverflowingConstant { .. })
+        ));
+
+        let u8_kind =
+            Kind::Numeric(Box::new(Type::Integer(Signedness::Unsigned, IntegerBitSize::Eight)));
+        let field = |value: u32| {
+            let value =
+                FieldValue::try_from_biguint(value.into(), acvm::FieldId::linked()).unwrap();
+            Integer::Field(value)
+        };
+        assert_eq!(u8_kind.ensure_value_fits(field(255), location).unwrap(), Integer::u8(255));
+        assert!(matches!(
+            u8_kind.ensure_value_fits(field(256), location),
+            Err(TypeCheckError::OverflowingConstant { .. })
+        ));
+    }
+
+    #[test]
+    fn evaluate_to_u32_rejects_other_widths() {
+        use crate::hir::comptime::Integer;
+        let location = Location::dummy();
+        assert_eq!(Type::constant_u32(5).evaluate_to_u32(location).unwrap(), 5);
+        assert!(Type::Constant(Integer::u8(5)).evaluate_to_u32(location).is_err());
     }
 }

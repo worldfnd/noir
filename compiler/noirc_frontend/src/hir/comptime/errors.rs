@@ -123,10 +123,6 @@ pub enum InterpreterError {
         field_name: String,
         location: Location,
     },
-    TypeUnsupported {
-        typ: Type,
-        location: Location,
-    },
     InvalidValueForUnary {
         typ: Type,
         operator: &'static str,
@@ -147,7 +143,7 @@ pub enum InterpreterError {
     },
     CannotApplyMinusToType {
         location: Location,
-        typ: &'static str,
+        typ: Type,
     },
     CastToNonNumericType {
         typ: Type,
@@ -399,7 +395,6 @@ impl InterpreterError {
             | InterpreterError::NonNumericCasted { location, .. }
             | InterpreterError::IndexOutOfBounds { location, .. }
             | InterpreterError::ExpectedStructToHaveField { location, .. }
-            | InterpreterError::TypeUnsupported { location, .. }
             | InterpreterError::InvalidValueForUnary { location, .. }
             | InterpreterError::InvalidValuesForBinary { location, .. }
             | InterpreterError::BinaryOperationOverflow { location, .. }
@@ -627,11 +622,6 @@ impl<'a> From<&'a InterpreterError> for CustomDiagnostic {
             }
             InterpreterError::ExpectedStructToHaveField { typ, field_name, location } => {
                 let msg = format!("The type `{typ}` has no field named `{field_name}`");
-                CustomDiagnostic::simple_error(msg, String::new(), *location)
-            }
-            InterpreterError::TypeUnsupported { typ, location } => {
-                let msg =
-                    format!("The type `{typ}` is currently unsupported in comptime expressions");
                 CustomDiagnostic::simple_error(msg, String::new(), *location)
             }
             InterpreterError::InvalidValueForUnary { typ, operator, location } => {
