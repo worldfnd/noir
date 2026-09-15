@@ -254,6 +254,9 @@ fn compile_into_program(
     context.debug_instrumenter = DebugInstrumenter::default();
     context.package_build_path = workspace.package_build_path(package);
     noirc_driver::link_to_debug_crate(&mut context, crate_id);
+    noirc_driver::ensure_field_is_linked(options.field)
+        .map_err(|error| vec![CustomDiagnostic::from(error)])?;
+
     let (_, warnings) = noirc_driver::check_crate(&mut context, crate_id, options)?;
 
     let main_id = context.get_main_function(&crate_id).ok_or_else(|| {

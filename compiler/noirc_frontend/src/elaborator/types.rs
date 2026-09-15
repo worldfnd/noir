@@ -3,7 +3,7 @@ mod similarly_named_types;
 
 use std::{borrow::Cow, collections::BTreeSet, rc::Rc};
 
-use acvm::{AcirField, FieldElement, FieldId};
+use acvm::FieldValue;
 use im::HashSet;
 use iter_extended::vecmap;
 use itertools::Itertools;
@@ -21,7 +21,7 @@ use crate::{
     },
     elaborator::{Turbofish, UnstableFeature, path_resolution::PathResolution},
     hir::{
-        comptime::{Integer, Value, bigint_to_field, evaluate_cast_one_step},
+        comptime::{Integer, Value, evaluate_cast_one_step},
         def_collector::dc_crate::CompilationError,
         def_map::{ModuleDefId, ModuleId, Namespace, fully_qualified_module_path},
         resolution::{
@@ -1082,7 +1082,7 @@ impl Elaborator<'_> {
                 };
 
                 if global_value.get_type().unify(&typ).is_err() {
-                    let global_value = *global_value;
+                    let global_value = global_value.clone();
                     self.push_err(ResolverError::GlobalDoesNotFitItsType {
                         location,
                         global_value,
@@ -1091,7 +1091,7 @@ impl Elaborator<'_> {
                     return None;
                 }
 
-                Some(Type::Constant(*global_value))
+                Some(Type::Constant(global_value.clone()))
             }
             // Not a global: defer to the caller to report the original path-resolution error.
             _ => None,
@@ -1106,23 +1106,6 @@ impl Elaborator<'_> {
         location: Location,
         wildcard_allowed: WildcardAllowed,
     ) -> Type {
-        // Type expressions fold through Integer::Field without entering the comptime
-        // interpreter. Reject them before creating values in the linked field.
-        // TODO: Remove this guard once type-level Field values carry their field.
-        let uses_field = matches!(expected_kind.follow_bindings(), Kind::Numeric(typ) if typ.is_field())
-            || matches!(&expr, UnresolvedTypeExpression::Constant(_, Some(suffix), _) if suffix.as_type().is_field());
-        let field = self.interner.field().id();
-        let linked = FieldId::linked();
-        if uses_field && field != linked {
-            self.push_err(crate::hir::comptime::InterpreterError::Unimplemented {
-                item: format!(
-                    "Type-level Field evaluation for {field} in a compiler built for {linked}"
-                ),
-                location,
-            });
-            return Type::Error;
-        }
-
         match expr {
             UnresolvedTypeExpression::Variable(path) => {
                 let mut ab = GenericTypeArgs::default();
@@ -1153,13 +1136,20 @@ impl Elaborator<'_> {
                     return Type::Error;
                 }
 
-                let Some(int) = Integer::try_from_bigint_and_type_suffix(&int, suffix) else {
-                    let min = typ.integral_minimum_size().unwrap();
-                    let max = typ.integral_maximum_size().unwrap();
+                let field = self.interner.field().id();
+                let Some(int) = Integer::try_from_bigint_and_type_suffix(&int, suffix, field)
+                else {
+                    let range = if typ.is_field() {
+                        format!("0..{}", self.interner.field().modulus())
+                    } else {
+                        let min = typ.integral_minimum_size().unwrap();
+                        let max = typ.integral_maximum_size().unwrap();
+                        format!("{min}..={max}")
+                    };
                     self.push_err(TypeCheckError::IntegerLiteralDoesNotFitItsType {
                         expr: int,
                         ty: typ,
-                        range: format!("{min}..={max}"),
+                        range,
                         location,
                     });
                     return Type::Error;
@@ -1192,7 +1182,7 @@ impl Elaborator<'_> {
                             });
                             return Type::Error;
                         }
-                        match op.function(lhs, rhs, location) {
+                        match op.function(lhs.clone(), rhs.clone(), location) {
                             Ok(result) => Type::Constant(result),
                             Err(err) => {
                                 let err = Box::new(err);
@@ -1247,7 +1237,7 @@ impl Elaborator<'_> {
 
                 match rhs {
                     Type::Constant(rhs) => {
-                        if let Some(result) = -rhs {
+                        if let Some(result) = -rhs.clone() {
                             Type::Constant(result)
                         } else {
                             self.push_err(TypeCheckError::InvalidUnaryOp {
@@ -1260,8 +1250,9 @@ impl Elaborator<'_> {
                     }
                     rhs => {
                         let kind = rhs.kind().into_numeric_type_or_error();
-                        let int = Integer::try_from_bigint(&BigInt::ZERO, &kind)
-                            .unwrap_or_else(|| Integer::Field(FieldElement::zero()));
+                        let field = self.interner.field().id();
+                        let int = Integer::try_from_bigint(&BigInt::ZERO, &kind, field)
+                            .unwrap_or_else(|| Integer::Field(FieldValue::zero(field)));
                         let zero = Type::Constant(int);
                         let sub = BinaryTypeOperator::Subtraction;
                         let infix = Box::new(Type::infix_expr(Box::new(zero), sub, Box::new(rhs)));
@@ -2578,12 +2569,9 @@ impl Elaborator<'_> {
             && *value < BigInt::ZERO
             && to.is_integer()
             && (from_follow_bindings.is_field() || from_follow_bindings.is_bindable())
-            && let Ok(Value::Integer(result)) = evaluate_cast_one_step(
-                self.interner.field(),
-                &to,
-                location,
-                Value::field(bigint_to_field(value)),
-            )
+            && let Some(from) = FieldValue::try_from_bigint(value, self.interner.field().id())
+            && let Ok(Value::Integer(result)) =
+                evaluate_cast_one_step(self.interner.field(), &to, location, Value::field(from))
         {
             self.push_err(TypeCheckError::NegativeLiteralCastToInteger {
                 value: value.clone(),

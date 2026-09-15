@@ -81,9 +81,10 @@ impl Type {
 
                 // evaluate_to_field_element also calls canonicalize so if we just called
                 // `self.evaluate_to_field_element(..)` we'd get infinite recursion.
-                if let Ok(lhs_value) = lhs_evaluated
-                    && let Ok(rhs_value) = rhs_evaluated
-                    && let Ok(result) = op.function(lhs_value, rhs_value, dummy_location)
+                if let Ok(lhs_value) = &lhs_evaluated
+                    && let Ok(rhs_value) = &rhs_evaluated
+                    && let Ok(result) =
+                        op.function(lhs_value.clone(), rhs_value.clone(), dummy_location)
                 {
                     return Type::Constant(result);
                 }
@@ -93,7 +94,7 @@ impl Type {
 
                 // See if this is `X * 1` or `X / 1` in which case we can simplify it to `X`
                 if matches!(op, BinaryTypeOperator::Multiplication | BinaryTypeOperator::Division)
-                    && let Ok(rhs_value) = rhs_evaluated
+                    && let Ok(rhs_value) = &rhs_evaluated
                     && rhs_value.is_one()
                 {
                     return lhs;
@@ -101,7 +102,7 @@ impl Type {
 
                 // See if this is `X + 0` or `X - 0`, in which case we can simplify it to `X`
                 if matches!(op, BinaryTypeOperator::Addition | BinaryTypeOperator::Subtraction)
-                    && let Ok(rhs_value) = rhs_evaluated
+                    && let Ok(rhs_value) = &rhs_evaluated
                     && rhs_value.is_zero()
                 {
                     return lhs;
@@ -170,7 +171,7 @@ impl Type {
 
         // Maps each term to the number of times that term was used.
         let mut sorted = BTreeMap::new();
-        let mut constant = None;
+        let mut constant: Option<Integer> = None;
 
         // Push each non-constant term to `sorted` to sort them. Recur on InfixExprs with the same operator.
         while let Some(item) = queue.pop() {
@@ -181,14 +182,16 @@ impl Type {
                 }
                 Type::Constant(new_constant) => {
                     let dummy_location = Location::dummy();
-                    if let Some(existing_constant) = constant {
-                        if let Ok(result) =
-                            op.function(existing_constant, new_constant, dummy_location)
-                        {
+                    if let Some(existing_constant) = constant.take() {
+                        if let Ok(result) = op.function(
+                            existing_constant.clone(),
+                            new_constant.clone(),
+                            dummy_location,
+                        ) {
                             constant = Some(result);
                         } else {
-                            let constant = Type::Constant(new_constant);
-                            *sorted.entry(constant).or_default() += 1;
+                            constant = Some(existing_constant);
+                            *sorted.entry(Type::Constant(new_constant)).or_default() += 1;
                         }
                     } else {
                         constant = Some(new_constant);
@@ -353,7 +356,8 @@ impl Type {
                 // We ensure the result divides evenly to preserve integer division semantics
                 // TODO(https://github.com/noir-lang/noir/issues/11013): do the division simplification
                 // also in case of Field elements
-                let divides_evenly = (l_const % r_const).is_some_and(|rem| rem.is_zero());
+                let divides_evenly =
+                    (l_const.clone() % r_const.clone()).is_some_and(|rem| rem.is_zero());
 
                 // If op is a division we need to ensure it divides evenly
                 if op == Division && (r_const.is_zero() || !divides_evenly) {
@@ -372,7 +376,13 @@ impl Type {
 
 #[cfg(test)]
 mod tests {
-    use acvm::{AcirField, FieldElement};
+    use acvm::{FieldId, FieldValue};
+
+    /// A `Field` value of the field this build is linked against, the field these tests use.
+    pub(super) fn linked(value: impl Into<num_bigint::BigUint>) -> FieldValue {
+        FieldValue::try_from_biguint(value.into(), FieldId::linked())
+            .expect("the test values are below every modulus")
+    }
 
     use crate::{
         NamedGeneric,
@@ -447,7 +457,7 @@ mod tests {
         let x_var = TypeVariable::unbound(TypeVariableId(0), field_element_kind.clone());
         let x_type = Type::TypeVariable(x_var.clone());
 
-        let one = Type::constant_field(FieldElement::one());
+        let one = Type::constant_field(FieldValue::one(FieldId::linked()));
         let lhs = x_type.clone() + one.clone();
         let rhs = one + x_type;
 
@@ -456,7 +466,7 @@ mod tests {
         let rhs = rhs.canonicalize();
 
         // bind vars
-        let two = Type::constant_field(2u32.into());
+        let two = Type::constant_field(linked(2u32));
         x_var.bind(two);
 
         // canonicalize (expect constant)
@@ -529,12 +539,12 @@ mod tests {
         use noirc_errors::Location;
 
         let location = Location::dummy();
-        let field_zero = Integer::Field(FieldElement::zero());
+        let field_zero = Integer::Field(FieldValue::zero(FieldId::linked()));
 
         let failures = [
             BinaryTypeOperator::Division.function(Integer::U32(1), Integer::U32(0), location),
             BinaryTypeOperator::Modulo.function(Integer::U32(1), Integer::U32(0), location),
-            BinaryTypeOperator::Modulo.function(field_zero, field_zero, location),
+            BinaryTypeOperator::Modulo.function(field_zero.clone(), field_zero, location),
             BinaryTypeOperator::Subtraction.function(Integer::U32(0), Integer::U32(1), location),
             BinaryTypeOperator::Addition.function(
                 Integer::U32(u32::MAX),
@@ -562,8 +572,10 @@ mod tests {
 mod proptests {
     use std::{collections::HashMap, path::Path};
 
-    use acvm::{AcirField, FieldElement};
+    use acvm::{AcirField, FieldElement, FieldValue};
     use fm::FileManager;
+
+    use super::tests::linked;
     use proptest::{arbitrary::any, collection, prelude::*, result::maybe_ok};
 
     use crate::{
@@ -678,7 +690,8 @@ mod proptests {
         arbitrary_value: BoxedStrategy<FieldElement>,
     ) -> impl Strategy<Value = Type> {
         let leaf = prop_oneof![arbitrary_value.prop_map(move |value| {
-            let int = Integer::try_from_type(value, &typ).unwrap();
+            let int =
+                Integer::try_from_field(FieldValue::from_linked_element(value), &typ).unwrap();
             Type::Constant(int)
         }),];
 
@@ -708,7 +721,8 @@ mod proptests {
         let leaf = prop_oneof![
             arbitrary_variable(typ.clone(), num_variables),
             arbitrary_value.prop_map(move |value| {
-                let int = Integer::try_from_type(value, &typ).unwrap();
+                let int =
+                    Integer::try_from_field(FieldValue::from_linked_element(value), &typ).unwrap();
                 Type::Constant(int)
             }),
         ];
@@ -741,7 +755,7 @@ mod proptests {
             let (infix_expr, typ, _value_generator) = infix_type_gen;
             let bindings: Vec<_> = first_n_variables(typ.clone(), num_variables)
                 .zip(values.iter().map(|value| {
-                    let int = Integer::try_from_type(*value, &typ).unwrap();
+                    let int = Integer::try_from_field(FieldValue::from_linked_element(*value), &typ).unwrap();
                     Type::Constant(int)
                 }))
                 .collect();
@@ -784,10 +798,10 @@ mod proptests {
         Expression { kind, location }
     }
 
-    // Convert a numeric Value to a `Type::Constant` or panic if `Value::to_signed_field` fails
-    // (expected to happen when it's not numeric)
+    // Convert a numeric value to a type-level constant.
     fn numeric_value_to_type(value: Value) -> Type {
-        let value = *value.as_integer().expect("ICE: numeric_value_to_type: expected an integer");
+        let value =
+            value.as_integer().expect("ICE: numeric_value_to_type: expected an integer").clone();
         Type::Constant(value)
     }
 
@@ -959,8 +973,8 @@ mod proptests {
             0x00, 0x00, 0x00, 0x00,
         ]);
 
-        let mul_expr = n * Type::constant_field(large_field);
-        let div_expr = mul_expr / Type::constant_field(2u32.into());
+        let mul_expr = n * Type::constant_field(FieldValue::from_linked_element(large_field));
+        let div_expr = mul_expr / Type::constant_field(linked(2u32));
 
         // Canonicalize the expression
         let canonicalized = div_expr.canonicalize();

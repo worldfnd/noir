@@ -2,7 +2,6 @@
 
 use core::panic;
 
-use acvm::{AcirField, FieldElement};
 use test_case::test_case;
 
 use crate::hir::comptime::Integer;
@@ -173,8 +172,9 @@ fn arithmetic_generics_checked_cast_indirect_zeros() {
     {
         match err {
             TypeCheckError::ModuloOnFields { lhs, rhs, .. } => {
-                assert_eq!(lhs.clone(), FieldElement::zero());
-                assert_eq!(rhs.clone(), FieldElement::zero());
+                let zero = acvm::FieldValue::zero(acvm::FieldId::linked());
+                assert_eq!(lhs.clone(), zero);
+                assert_eq!(rhs.clone(), zero);
             }
             _ => panic!("expected ModuloOnFields, but found: {err:?}"),
         }

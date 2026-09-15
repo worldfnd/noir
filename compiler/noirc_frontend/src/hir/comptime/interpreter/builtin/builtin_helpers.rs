@@ -5,10 +5,11 @@
 use std::hash::Hash;
 use std::{hash::Hasher, rc::Rc};
 
-use acvm::FieldElement;
+use acvm::{FieldConfig, FieldId, FieldValue};
 use fm::FileMap;
 use iter_extended::{try_vecmap, vecmap};
 use noirc_errors::Location;
+use num_bigint::BigUint;
 use siphasher::sip::SipHasher13;
 
 use crate::Shared;
@@ -198,9 +199,6 @@ pub(crate) fn get_array(
 
 /// Get the fields if the value is a `Value::Struct`, otherwise report that a struct type
 /// with `name` is expected. Returns the `Type` but doesn't verify that it's called `name`.
-// Currently only reached from the bn254 embedded-curve intrinsics, which are unavailable
-// under Goldilocks.
-#[cfg_attr(feature = "goldilocks", allow(dead_code))]
 pub(crate) fn get_struct_fields(
     name: &str,
     (value, location): (Value, Location),
@@ -215,7 +213,6 @@ pub(crate) fn get_struct_fields(
 }
 
 /// Get a specific field of a struct and apply a decoder function on it.
-#[cfg_attr(feature = "goldilocks", allow(dead_code))]
 pub(crate) fn get_struct_field<T>(
     field_name: &str,
     struct_fields: &HashMap<Rc<String>, Shared<Value>>,
@@ -305,7 +302,7 @@ pub(crate) fn get_ctstring((value, location): (Value, Location)) -> IResult<Rc<V
     }
 }
 
-pub(crate) fn get_field((value, location): (Value, Location)) -> IResult<FieldElement> {
+pub(crate) fn get_field((value, location): (Value, Location)) -> IResult<FieldValue> {
     match value {
         Value::Integer(Integer::Field(value)) => Ok(value),
         value => type_mismatch(value, Type::FieldElement, location),
@@ -830,6 +827,7 @@ impl Hasher for DeterministicHasher {
 pub(super) fn hash_item<T: Hash>(
     arguments: Vec<(Value, Location)>,
     location: Location,
+    field: FieldId,
     get_item: impl FnOnce((Value, Location)) -> IResult<T>,
 ) -> IResult<Value> {
     let argument = check_one_argument(arguments, location)?;
@@ -837,8 +835,14 @@ pub(super) fn hash_item<T: Hash>(
 
     let mut hasher = DeterministicHasher::new();
     item.hash(&mut hasher);
-    let hash = hasher.finish();
-    Ok(Value::field(u128::from(hash).into()))
+    Ok(Value::field(hash_to_field(hasher.finish(), field)))
+}
+
+/// Reduce the hash into the configured field, including when a 64-bit hash exceeds Goldilocks.
+pub(super) fn hash_to_field(hash: u64, field: FieldId) -> FieldValue {
+    let modulus = FieldConfig::new(field).modulus();
+    FieldValue::try_from_biguint(BigUint::from(hash) % modulus, field)
+        .expect("a value reduced by the modulus is canonical")
 }
 
 pub(super) fn eq_item<T: Eq>(
@@ -867,7 +871,6 @@ pub(crate) fn to_byte_array(values: &[u8]) -> Value {
 }
 
 /// Create a `Value::Struct` from fields and the expected return type.
-#[cfg_attr(feature = "goldilocks", allow(dead_code))]
 pub(crate) fn to_struct(
     fields: impl IntoIterator<Item = (&'static str, Value)>,
     typ: Type,
@@ -877,7 +880,7 @@ pub(crate) fn to_struct(
     Value::Struct(fields, typ)
 }
 
-pub(crate) fn new_unary_op(operator: UnaryOp, typ: Type) -> Option<Value> {
+pub(crate) fn new_unary_op(operator: UnaryOp, typ: Type, field: FieldId) -> Option<Value> {
     // These values should match the values used in noir_stdlib/src/meta/op.nr
     let unary_op_value: u128 = match operator {
         UnaryOp::Minus => 0,
@@ -891,17 +894,21 @@ pub(crate) fn new_unary_op(operator: UnaryOp, typ: Type) -> Option<Value> {
     };
 
     let mut fields = HashMap::default();
-    fields.insert(Rc::new("op".to_string()), Shared::new(Value::field(unary_op_value.into())));
+    let op = FieldValue::try_from_biguint(BigUint::from(unary_op_value), field)
+        .expect("an operator index is below every modulus");
+    fields.insert(Rc::new("op".to_string()), Shared::new(Value::field(op)));
 
     Some(Value::Struct(fields, typ))
 }
 
-pub(crate) fn new_binary_op(operator: &BinaryOp, typ: Type) -> Value {
+pub(crate) fn new_binary_op(operator: &BinaryOp, typ: Type, field: FieldId) -> Value {
     // For the op value we use the enum member index, which should match noir_stdlib/src/meta/op.nr
     let binary_op_value = operator.contents as u128;
 
     let mut fields = HashMap::default();
-    fields.insert(Rc::new("op".to_string()), Shared::new(Value::field(binary_op_value.into())));
+    let op = FieldValue::try_from_biguint(BigUint::from(binary_op_value), field)
+        .expect("an operator index is below every modulus");
+    fields.insert(Rc::new("op".to_string()), Shared::new(Value::field(op)));
 
     Value::Struct(fields, typ)
 }

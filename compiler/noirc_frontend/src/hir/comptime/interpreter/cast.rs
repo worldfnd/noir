@@ -1,12 +1,8 @@
 use crate::{
     Type,
-    hir::comptime::{
-        Integer, InterpreterError, Value,
-        errors::IResult,
-        integer::{field_to_bigint, try_bigint_to_field},
-    },
+    hir::comptime::{Integer, InterpreterError, Value, errors::IResult},
 };
-use acvm::FieldConfig;
+use acvm::{FieldConfig, FieldValue};
 use noirc_errors::Location;
 use num_bigint::BigInt;
 
@@ -35,7 +31,7 @@ pub(crate) fn evaluate_cast_one_step(
 ) -> IResult<Value> {
     let lhs_type = evaluated_lhs.get_type().into_owned();
     let value = match evaluated_lhs {
-        Value::Integer(Integer::Field(field)) => field_to_bigint(&field),
+        Value::Integer(Integer::Field(value)) => value.to_bigint(),
         Value::Integer(integer) => integer.to_bigint(),
         Value::Bool(value) => BigInt::from(u8::from(value)),
         _ => return Err(InterpreterError::NonNumericCasted { typ: lhs_type, location }),
@@ -43,7 +39,7 @@ pub(crate) fn evaluate_cast_one_step(
     match output_type.follow_bindings() {
         Type::FieldElement => {
             let pattern = twos_complement_pattern(&value, bit_size(field, &lhs_type));
-            try_bigint_to_field(&pattern).map(Value::field).ok_or_else(|| {
+            FieldValue::try_from_bigint(&pattern, field.id()).map(Value::field).ok_or_else(|| {
                 InterpreterError::IntegerOutOfRangeForType {
                     value: pattern,
                     typ: Type::FieldElement,
@@ -57,7 +53,7 @@ pub(crate) fn evaluate_cast_one_step(
             if sign.is_signed() && value >= (BigInt::from(1) << (bits - 1)) {
                 value -= BigInt::from(1) << bits;
             }
-            Integer::try_from_bigint(&value, &typ)
+            Integer::try_from_bigint(&value, &typ, field.id())
                 .map(Value::Integer)
                 .ok_or(InterpreterError::TypeUnsupported { typ, location })
         }
@@ -70,7 +66,23 @@ pub(crate) fn evaluate_cast_one_step(
 
 #[cfg(test)]
 mod tests {
-    use acvm::{AcirField, FieldElement};
+    use acvm::{AcirField, FieldElement, FieldId, FieldValue};
+
+    /// A `Field` value of the field this build is linked against, which is the field the tests
+    /// below compile for.
+    fn field(value: impl Into<BigUint>) -> Value {
+        Value::field(linked(value))
+    }
+
+    fn linked(value: impl Into<BigUint>) -> FieldValue {
+        FieldValue::try_from_biguint(value.into(), FieldId::linked())
+            .expect("the test values are below every modulus")
+    }
+
+    /// The negation of `value` in the linked field.
+    fn negated(value: u32) -> FieldValue {
+        -linked(value)
+    }
     use noirc_errors::Location;
     use num_bigint::BigUint;
     use proptest::prelude::*;
@@ -85,7 +97,7 @@ mod tests {
         let typ = Type::FieldElement;
 
         let lhs_values = [
-            Value::field(FieldElement::one()),
+            field(1u32),
             Value::Bool(true),
             Value::u8(1),
             Value::u16(1),
@@ -101,7 +113,7 @@ mod tests {
         for lhs in lhs_values {
             assert_eq!(
                 evaluate_cast_one_step(FieldConfig::linked(), &typ, location, lhs),
-                Ok(Value::field(FieldElement::one()))
+                Ok(field(1u32))
             );
         }
     }
@@ -120,24 +132,20 @@ mod tests {
             (Value::u64(u64::MAX), unsigned(HundredTwentyEight), Value::u128(u128::from(u64::MAX))),
             // Reinterpret as negative
             (Value::u8(255), signed(Eight), Value::i8(-1)),
-            (Value::field(255u32.into()), signed(Eight), Value::i8(-1)),
+            (field(255u32), signed(Eight), Value::i8(-1)),
             // Truncate
             (Value::u16(300), unsigned(Eight), Value::u8(44)),
             (Value::u16(300), signed(Eight), Value::i8(44)),
             (Value::u16(255), signed(Eight), Value::i8(-1)),
-            (Value::field(300u32.into()), unsigned(Eight), Value::u8(44)),
-            (Value::field(300u32.into()), signed(Eight), Value::i8(44)),
-            (Value::field(10u32.into()), unsigned(Sixteen), Value::u16(10)),
-            (Value::field(256u32.into()), unsigned(Eight), Value::u8(0)),
-            (Value::field(255u32.into()), unsigned(Eight), Value::u8(255)),
+            (field(300u32), unsigned(Eight), Value::u8(44)),
+            (field(300u32), signed(Eight), Value::i8(44)),
+            (field(10u32), unsigned(Sixteen), Value::u16(10)),
+            (field(256u32), unsigned(Eight), Value::u8(0)),
+            (field(255u32), unsigned(Eight), Value::u8(255)),
             (Value::u128(u128::MAX), unsigned(SixtyFour), Value::u64(u64::MAX)),
             // Casting Field -> Field should be a no-op
-            (Value::field(4u32.into()), Type::FieldElement, Value::field(4u32.into())),
-            (
-                Value::field(-FieldElement::from(4u32)),
-                Type::FieldElement,
-                Value::field(-FieldElement::from(4u32)),
-            ),
+            (field(4u32), Type::FieldElement, field(4u32)),
+            (Value::field(negated(4)), Type::FieldElement, Value::field(negated(4))),
         ];
 
         for (lhs, typ, expected) in tests {
@@ -165,7 +173,7 @@ mod tests {
             (Value::i8(-1), unsigned(Sixteen), Value::u16(65535)),
             (Value::i8(-100), unsigned(Sixteen), Value::u16(65436)),
             // A `Field` target takes the source's own-width pattern, so a negative value becomes positive and is never sign-extended to the field width.
-            (Value::i8(-1), Type::FieldElement, Value::field(255u32.into())),
+            (Value::i8(-1), Type::FieldElement, field(255u32)),
             // Widen negative: sign extend
             (Value::i8(-1), signed(Sixteen), Value::i16(-1)),
             (Value::i8(-100), signed(Sixteen), Value::i16(-100)),
@@ -177,10 +185,10 @@ mod tests {
             (Value::i16(255), signed(Eight), Value::i8(-1)),
             (Value::i16(i16::MIN + 5), signed(Eight), Value::i8(5)),
             (Value::i16(i16::MIN + 5), unsigned(Eight), Value::u8(5)),
-            (Value::field(-FieldElement::from(1u32)), unsigned(Eight), Value::u8(0)),
-            (Value::field(-FieldElement::from(1u32)), signed(Eight), Value::i8(0)),
-            (Value::field(-FieldElement::from(2u32)), unsigned(Sixteen), Value::u16(65535)),
-            (Value::field(-FieldElement::from(2u32)), signed(Sixteen), Value::i16(-1)),
+            (Value::field(negated(1)), unsigned(Eight), Value::u8(0)),
+            (Value::field(negated(1)), signed(Eight), Value::i8(0)),
+            (Value::field(negated(2)), unsigned(Sixteen), Value::u16(65535)),
+            (Value::field(negated(2)), signed(Sixteen), Value::i16(-1)),
         ];
 
         for (lhs, typ, expected) in tests {
@@ -196,7 +204,7 @@ mod tests {
     #[test]
     fn bool_cast() {
         let location = Location::dummy();
-        let lhs = Value::field(0u32.into());
+        let lhs = field(0u32);
         let actual = evaluate_cast_one_step(FieldConfig::linked(), &Type::Bool, location, lhs);
         assert!(matches!(actual, Err(InterpreterError::CannotCastNumericToBool { .. })));
     }
@@ -237,12 +245,12 @@ mod tests {
         let location = Location::dummy();
         let modulus = FieldElement::modulus();
         let largest = BigUint::from(u128::MAX).min(&modulus - 1u8);
-        let expected = FieldElement::from_be_bytes_reduce(&largest.to_bytes_be());
+        let expected_value = largest.clone();
 
         let source = Value::u128(u128::try_from(largest).unwrap());
         let actual =
             evaluate_cast_one_step(FieldConfig::linked(), &Type::FieldElement, location, source);
-        assert_eq!(actual, Ok(Value::field(expected)));
+        assert_eq!(actual, Ok(Value::field(linked(expected_value))));
 
         let actual = evaluate_cast_one_step(
             FieldConfig::linked(),
@@ -251,7 +259,7 @@ mod tests {
             Value::u64(u64::MAX),
         );
         if BigUint::from(u64::MAX) < modulus {
-            assert_eq!(actual, Ok(Value::field(FieldElement::from(u128::from(u64::MAX)))));
+            assert_eq!(actual, Ok(field(u64::MAX)));
         } else {
             assert!(
                 matches!(
@@ -281,11 +289,7 @@ mod tests {
             any::<i64>().prop_map(|x| (Value::i64(x), BigInt::from(x), 64)),
             any::<u64>()
                 .prop_filter("below the modulus", |x| BigUint::from(*x) < FieldElement::modulus())
-                .prop_map(|x| (
-                    Value::field(x.into()),
-                    BigInt::from(x),
-                    FieldElement::max_num_bits()
-                )),
+                .prop_map(|x| (field(x), BigInt::from(x), FieldElement::max_num_bits())),
             any::<bool>().prop_map(|x| (Value::Bool(x), BigInt::from(u8::from(x)), 1)),
         ]
     }
@@ -324,13 +328,13 @@ mod tests {
                     } else {
                         low
                     };
-                    Some(Value::Integer(Integer::try_from_bigint(&value, &target).unwrap()))
+                    Some(Value::Integer(Integer::try_from_bigint(&value, &target, FieldId::linked()).unwrap()))
                 }
                 Type::FieldElement => {
                     let modulus = BigInt::from(1) << source_bits;
                     let low = ((&value % &modulus) + &modulus) % &modulus;
                     (low < BigInt::from(FieldElement::modulus())).then(|| {
-                        Value::field(FieldElement::from_be_bytes_reduce(&low.magnitude().to_bytes_be()))
+                        field(low.magnitude().clone())
                     })
                 }
                 _ => unreachable!("integer and field targets only"),

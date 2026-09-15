@@ -1,7 +1,8 @@
-//! Field rules across configurations, with comptime execution restricted to the linked field.
+//! Field rules across configurations, each compiled and evaluated in one binary.
 
 use acvm::{FieldConfig, FieldId};
 use noirc_errors::CustomDiagnostic;
+use num_bigint::BigUint;
 
 use crate::hir::def_collector::dc_crate::CompilationError;
 use crate::hir::type_check::TypeCheckError;
@@ -20,15 +21,23 @@ fn field_literals_must_be_canonical() {
         let errors = get_program_errors_for_field(&largest, field);
         assert!(errors.is_empty(), "{field}: {errors:?}");
 
-        let too_large = format!("fn main() {{ let _: Field = {modulus}; }}");
-        let errors = get_program_errors_for_field(&too_large, field);
-        assert!(
-            errors.iter().any(|error| matches!(
-                error,
-                CompilationError::TypeError(TypeCheckError::IntegerLiteralDoesNotFitItsType { .. })
-            )),
-            "{field}: expected the literal `{modulus}` to be rejected, got {errors:?}"
-        );
+        for too_large in [
+            format!("fn main() {{ let _: Field = {modulus}; }}"),
+            format!(
+                "fn value<let N: Field>() -> Field {{ N }}
+                 fn main() -> pub Field {{ value::<{modulus}_Field>() }}"
+            ),
+        ] {
+            let errors = get_program_errors_for_field(&too_large, field);
+            assert!(
+                errors.iter().any(|error| matches!(
+                    error,
+                    CompilationError::TypeError(TypeCheckError::IntegerLiteralDoesNotFitItsType { range, .. })
+                        if range == &format!("0..{modulus}")
+                )),
+                "{field}: expected the literal `{modulus}` to be rejected, got {errors:?}"
+            );
+        }
     }
 }
 
@@ -88,9 +97,6 @@ fn casts_to_field_are_refused_when_the_type_can_exceed_the_modulus() {
 fn comptime_casts_to_field_follow_the_same_rule() {
     for field in FieldId::ALL {
         let accepted = FieldConfig::new(field).fits_unsigned(64);
-        if accepted && field != FieldId::linked() {
-            continue;
-        }
         let src = format!(
             "fn main() {{
                 comptime {{
@@ -176,13 +182,13 @@ fn signed_casts_to_field_through_an_inferred_type_are_refused() {
 }
 
 #[test]
-fn comptime_modulus_builtins_describe_the_linked_field() {
-    let field = FieldId::linked();
-    let config = FieldConfig::new(field);
-    let le_bytes = config.modulus().to_bytes_le();
-    let last = le_bytes.len() - 1;
-    let src = format!(
-        "{}
+fn comptime_modulus_builtins_describe_the_configured_field() {
+    for field in FieldId::ALL {
+        let config = FieldConfig::new(field);
+        let le_bytes = config.modulus().to_bytes_le();
+        let last = le_bytes.len() - 1;
+        let src = format!(
+            "{}
         fn main() {{
             comptime {{
                 assert(modulus_num_bits() == {});
@@ -193,69 +199,67 @@ fn comptime_modulus_builtins_describe_the_linked_field() {
                 assert(be_bits[0]);
             }}
         }}",
-        stdlib_src::MODULUS,
-        config.num_bits(),
-        le_bytes[0],
-        le_bytes[last],
-    );
-    let options =
-        GetProgramOptions { root_and_stdlib: true, ..GetProgramOptions::for_field(field) };
-    let errors = get_program_with_options(&src, options).2;
-    assert!(errors.is_empty(), "{field}: {errors:?}");
+            stdlib_src::MODULUS,
+            config.num_bits(),
+            le_bytes[0],
+            le_bytes[last],
+        );
+        let options =
+            GetProgramOptions { root_and_stdlib: true, ..GetProgramOptions::for_field(field) };
+        let errors = get_program_with_options(&src, options).2;
+        assert!(errors.is_empty(), "{field}: {errors:?}");
+    }
 }
 
-// TODO: Remove this rejection test once comptime evaluation supports the configured field.
 #[test]
-fn comptime_evaluation_rejects_a_field_other_than_the_linked_field() {
-    let src = "fn main() -> pub u64 { comptime { let x: Field = 0; (x - 1) as u64 } }";
-    for field in FieldId::ALL.into_iter().filter(|field| *field != FieldId::linked()) {
-        let errors = get_program_errors_for_field(src, field);
-        assert!(
-            errors.iter().any(|error| matches!(
-                error,
-                CompilationError::InterpreterError(crate::hir::comptime::InterpreterError::Unimplemented { item, .. })
-                    if item == &format!("Comptime evaluation for {field} in a compiler built for {}", FieldId::linked())
-            )),
-            "{field}: {errors:?}"
+fn comptime_field_arithmetic_wraps_under_the_configured_field() {
+    for field in FieldId::ALL {
+        let largest = FieldConfig::new(field).modulus() - 1u8;
+        let src = format!(
+            "fn main() {{
+                comptime {{
+                    let largest: Field = {largest};
+                    assert(largest + 1 == 0);
+                    assert(0 - 1 == largest);
+                    assert(largest * largest == 1);
+                    assert(2 * (1 / 2) == 1);
+                    assert(-largest == 1);
+                }}
+            }}"
+        );
+        let errors = get_program_errors_for_field(&src, field);
+        assert!(errors.is_empty(), "{field}: {errors:?}");
+    }
+}
+
+#[test]
+fn a_comptime_field_value_reaches_the_program_in_the_configured_field() {
+    let largest = FieldConfig::new(FieldId::Goldilocks).modulus() - 1u8;
+    let src = format!("fn main() -> pub Field {{ comptime {{ {largest} + 1 }} }}");
+
+    for field in FieldId::ALL {
+        let result =
+            if field == FieldId::Goldilocks { BigUint::ZERO } else { largest.clone() + 1u8 };
+        let program = get_monomorphized_for_field(&src, field).unwrap().to_string();
+        assert_eq!(
+            program.trim(),
+            format!("fn main$f0() -> pub Field {{\n    {result}\n}}"),
+            "{field}"
         );
     }
 }
 
 #[test]
-fn type_level_field_evaluation_rejects_a_field_other_than_the_linked_field() {
-    for field in FieldId::ALL.into_iter().filter(|field| *field != FieldId::linked()) {
-        let modulus = FieldConfig::new(field).modulus();
-        for expression in [
-            format!("{}_Field + 1_Field", modulus - 1u8),
-            format!("{modulus}_Field"),
-            "-1_Field".to_owned(),
-        ] {
-            let src = format!(
-                "fn value<let N: Field>() -> Field {{ N }}
-                 fn main() -> pub Field {{ value::<{expression}>() }}"
-            );
-            let errors = get_program_errors_for_field(&src, field);
-            assert!(
-                errors.iter().any(|error| matches!(
-                    error,
-                    CompilationError::InterpreterError(crate::hir::comptime::InterpreterError::Unimplemented { item, .. })
-                        if item == &format!("Type-level Field evaluation for {field} in a compiler built for {}", FieldId::linked())
-                )),
-                "{field}, {expression}: {errors:?}"
-            );
-        }
+fn type_level_field_arithmetic_wraps_under_the_configured_field() {
+    for field in FieldId::ALL {
+        let largest = FieldConfig::new(field).modulus() - 1u8;
+        let src = format!(
+            "fn value<let N: Field>() -> Field {{ N }}
+             fn main() -> pub Field {{ value::<{largest}_Field + 1_Field>() }}"
+        );
+        let program = get_monomorphized_for_field(&src, field).unwrap().to_string();
+        assert!(program.contains("fn value$f1() -> Field {\n    0\n}"), "{field}: {program}");
     }
-}
-
-#[test]
-fn type_level_field_arithmetic_wraps_under_the_linked_field() {
-    let largest = FieldConfig::linked().modulus() - 1u8;
-    let src = format!(
-        "fn value<let N: Field>() -> Field {{ N }}
-         fn main() -> pub Field {{ value::<{largest}_Field + 1_Field>() }}"
-    );
-    let program = get_monomorphized(&src).unwrap().to_string();
-    assert!(program.contains("fn value$f1() -> Field {\n    0\n}"), "{program}");
 }
 
 #[test]
@@ -265,5 +269,42 @@ fn type_level_integer_arithmetic_works_under_every_field() {
     for field in FieldId::ALL {
         let program = get_monomorphized_for_field(src, field).unwrap().to_string();
         assert!(program.contains("18446744069414584321"), "{field}: {program}");
+    }
+}
+
+#[test]
+fn comptime_crypto_uses_the_configured_field() {
+    let programs = [
+        ("poseidon2_permutation", "
+            #[foreign(poseidon2_permutation)]
+            fn permute(input: [Field; 4]) -> [Field; 4] {}
+            fn main() { comptime { let result = permute([0, 1, 2, 3]);
+                assert(result[0] == 0x01bd538c2ee014ed5141b29e9ae240bf8db3fe5b9a38629a9647cf8d76c01737);
+            } }
+        "),
+        ("derive_pedersen_generators", "
+            struct Point { x: Field, y: Field }
+            #[builtin(derive_pedersen_generators)]
+            fn generators(domain: [u8; 1], start: u32) -> [Point; 1] {}
+            fn main() { comptime { let point = generators([0], 0)[0];
+                assert(point.x != 0);
+                assert(point.y * point.y == point.x * point.x * point.x - 17);
+            } }
+        "),
+    ];
+    for (builtin, source) in programs {
+        for field in FieldId::ALL {
+            let options =
+                GetProgramOptions { root_and_stdlib: true, ..GetProgramOptions::for_field(field) };
+            let errors = get_program_with_options(source, options).2;
+            if field == FieldId::Bn254 {
+                assert!(errors.is_empty(), "{builtin}: {errors:?}");
+            } else {
+                assert!(errors.iter().any(|error| matches!(error,
+                    CompilationError::InterpreterError(crate::hir::comptime::InterpreterError::Unimplemented { item, .. })
+                        if item.starts_with(builtin)
+                )), "{field}, {builtin}: {errors:?}");
+            }
+        }
     }
 }

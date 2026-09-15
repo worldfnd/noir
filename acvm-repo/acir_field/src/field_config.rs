@@ -7,7 +7,7 @@ use std::sync::LazyLock;
 use num_bigint::BigUint;
 
 /// A field identity with a stable wire code. Use `from_code` to reject unknown codes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u32)]
 pub enum FieldId {
     Bn254 = 0,
@@ -67,6 +67,12 @@ impl FromStr for FieldId {
             format!("unknown field '{name}'; expected one of {}", names.join(", "))
         })
     }
+}
+
+/// A curve whose base field is a supported field, so its group operations are available as builtins.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EmbeddedCurve {
+    Grumpkin,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -129,6 +135,27 @@ impl FieldConfig {
         u32::try_from(self.modulus().bits()).expect("a field modulus fits in u32 bits")
     }
 
+    /// Serialized element width in bytes, rounded to the backend's 64-bit limbs.
+    pub fn num_bytes(&self) -> u32 {
+        self.num_bits().div_ceil(64) * 8
+    }
+
+    /// The curve available to the embedded-curve builtins.
+    pub fn embedded_curve(&self) -> Option<EmbeddedCurve> {
+        match self.id {
+            FieldId::Bn254 => Some(EmbeddedCurve::Grumpkin),
+            FieldId::Goldilocks | FieldId::Bls12_381 => None,
+        }
+    }
+
+    /// Whether a native Poseidon2 builtin exists; Noir implementations are independent of this.
+    pub fn has_poseidon2_permutation(&self) -> bool {
+        match self.id {
+            FieldId::Bn254 => true,
+            FieldId::Goldilocks | FieldId::Bls12_381 => false,
+        }
+    }
+
     /// Whether every value of a `width`-bit unsigned type is below the modulus, so the type can be carried in one field element without loss. A `k`-bit modulus lies strictly between `2^(k-1)` and `2^k`, so this holds exactly for widths up to `k - 1`.
     pub fn fits_unsigned(&self, width: u32) -> bool {
         width < self.num_bits()
@@ -137,7 +164,7 @@ impl FieldConfig {
 
 #[cfg(test)]
 mod tests {
-    use crate::{AcirField, FieldConfig, FieldElement, FieldId};
+    use crate::{AcirField, EmbeddedCurve, FieldConfig, FieldElement, FieldId};
 
     const GOLDILOCKS_MODULUS: &str = "18446744069414584321";
 
@@ -164,12 +191,17 @@ mod tests {
 
     #[test]
     fn every_row_states_its_modulus_and_width() {
-        let widths = [(FieldId::Bn254, 254), (FieldId::Goldilocks, 64), (FieldId::Bls12_381, 255)];
-        for (id, bits) in widths {
+        let widths = [
+            (FieldId::Bn254, 254, 32),
+            (FieldId::Goldilocks, 64, 8),
+            (FieldId::Bls12_381, 255, 32),
+        ];
+        for (id, bits, bytes) in widths {
             let config = FieldConfig::new(id);
             assert_eq!(config.id(), id);
             assert_eq!(config.name(), id.name());
             assert_eq!(config.num_bits(), bits, "{id}");
+            assert_eq!(config.num_bytes(), bytes, "{id}");
             assert!(config.fits_unsigned(bits - 1), "{id}: u{} fits", bits - 1);
             assert!(!config.fits_unsigned(bits), "{id}: u{bits} can exceed the modulus");
         }
@@ -190,6 +222,19 @@ mod tests {
         assert!(bn254.matches_field_attribute("bn254"));
         assert!(bn254.matches_field_attribute(&bn254.modulus().to_string()));
         assert!(!bn254.matches_field_attribute(GOLDILOCKS_MODULUS));
+    }
+
+    #[test]
+    fn builtin_capabilities_are_field_specific() {
+        let bn254 = FieldConfig::new(FieldId::Bn254);
+        assert_eq!(bn254.embedded_curve(), Some(EmbeddedCurve::Grumpkin));
+        assert!(bn254.has_poseidon2_permutation());
+
+        for id in FieldId::ALL.into_iter().filter(|id| *id != FieldId::Bn254) {
+            let config = FieldConfig::new(id);
+            assert_eq!(config.embedded_curve(), None, "{id}");
+            assert!(!config.has_poseidon2_permutation(), "{id}");
+        }
     }
 
     /// Check the configured modulus against the arithmetic backend selected by this build.

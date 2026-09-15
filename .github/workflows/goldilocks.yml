@@ -48,11 +48,11 @@ jobs:
         env:
           RUSTFLAGS: "-Dwarnings"
 
-      # Exclude frontend tests that require bn254 values and driver tests that require the full stdlib.
+      # Exclude frontend tests that pin bn254 values and driver tests that need the full stdlib.
       - name: Run the goldilocks tests
         run: |
           cargo nextest run --locked --features goldilocks \
             -p acir_field -p noirc_abi -p noirc_frontend -p noirc_evaluator -p noirc_driver \
-            -E 'package(acir_field) | package(noirc_abi) | test(small_field_validation) | (package(noirc_driver) & (binary(stdlib_field_casts) | binary(field_selection))) | (package(noirc_frontend) & !(test(foreign::tests::test_blackbox_implemented) | test(try_simplify_partial_constants_does_not_simplify_large_field_elements) | test(meta_quote_roundtrip::roundtrip_field_values) | test(skip_interpreter_on_fail::comptime_for_loop_with_end_value_out_of_range) | test(skip_interpreter_on_fail::regression_10861_1) | test(wraps_aliased_builtin_functions)))'
+            -E 'package(acir_field) | package(noirc_abi) | test(small_field_validation) | (package(noirc_driver) & (binary(stdlib_field_casts) | binary(field_selection) | test(abi_tag_integers_preserve_sign_width_and_magnitude))) | (package(noirc_frontend) & !(test(try_simplify_partial_constants_does_not_simplify_large_field_elements) | test(meta_quote_roundtrip::roundtrip_field_values) | test(skip_interpreter_on_fail::comptime_for_loop_with_end_value_out_of_range) | test(skip_interpreter_on_fail::regression_10861_1) | test(wraps_aliased_builtin_functions)))'
         env:
           RUSTFLAGS: "-Dwarnings"
