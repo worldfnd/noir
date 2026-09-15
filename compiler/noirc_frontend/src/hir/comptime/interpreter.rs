@@ -43,7 +43,7 @@ use num_bigint::BigInt;
 use num_bigint::BigUint;
 use rustc_hash::FxHashMap as HashMap;
 
-use crate::ast::{BinaryOpKind, FunctionKind, IntegerBitSize, UnaryOp};
+use crate::ast::{BinaryOpKind, FunctionKind, UnaryOp};
 use crate::elaborator::{ElaborateReason, Elaborator, ElaboratorOptions};
 use crate::hir::Context;
 use crate::hir::comptime::Integer;
@@ -55,7 +55,7 @@ use crate::monomorphization::{
     undo_instantiation_bindings,
 };
 use crate::node_interner::GlobalValue;
-use crate::shared::{ForeignCall, Signedness};
+use crate::shared::ForeignCall;
 use crate::token::{FmtStrFragment, Tokens};
 use crate::{
     Shared, Type, TypeBindings,
@@ -1641,54 +1641,30 @@ impl<'local, 'interner> Interpreter<'local, 'interner> {
             });
         }
 
-        if start_type.is_signed() {
-            let get_index = match start_value {
-                Value::Integer(Integer::I8(_)) => |i| Value::Integer(Integer::I8(i as i8)),
-                Value::Integer(Integer::I16(_)) => |i| Value::Integer(Integer::I16(i as i16)),
-                Value::Integer(Integer::I32(_)) => |i| Value::Integer(Integer::I32(i as i32)),
-                Value::Integer(Integer::I64(_)) => |i| Value::Integer(Integer::I64(i as i64)),
-                _ => unreachable!("Checked above that value is signed type"),
-            };
-
-            // i128 can store all values from i8 - u64
-            let start = to_i128(&start_value).expect("Checked above that value is signed type");
-            let end = to_i128(&end_value).expect("Checked above that types match");
-
-            if for_.inclusive {
-                self.evaluate_for_loop(start..=end, get_index, for_.identifier.id, for_.block)
-            } else {
-                self.evaluate_for_loop(start..end, get_index, for_.identifier.id, for_.block)
-            }
-        } else if start_type.is_unsigned() {
-            let get_index = match start_value {
-                Value::Integer(Integer::U8(_)) => |i| Value::Integer(Integer::U8(i as u8)),
-                Value::Integer(Integer::U16(_)) => |i| Value::Integer(Integer::U16(i as u16)),
-                Value::Integer(Integer::U32(_)) => |i| Value::Integer(Integer::U32(i as u32)),
-                Value::Integer(Integer::U64(_)) => |i| Value::Integer(Integer::U64(i as u64)),
-                Value::Integer(Integer::U128(_)) => |i| Value::Integer(Integer::U128(i)),
-                _ => unreachable!("Checked above that value is unsigned type"),
-            };
-
-            // u128 can store all values from u8 - u128
-            let start = to_u128(&start_value).expect("Checked above that value is unsigned type");
-            let end = to_u128(&end_value).expect("Checked above that types match");
-
-            if for_.inclusive {
-                self.evaluate_for_loop(start..=end, get_index, for_.identifier.id, for_.block)
-            } else {
-                self.evaluate_for_loop(start..end, get_index, for_.identifier.id, for_.block)
-            }
-        } else {
+        let (
+            Value::Integer(Integer::Int { signed, bits, value: start }),
+            Value::Integer(Integer::Int { value: end, .. }),
+        ) = (&start_value, &end_value)
+        else {
             let location = self.elaborator.interner.expr_location(&for_.start_range);
             let typ = start_type.into_owned();
-            Err(InterpreterError::NonIntegerUsedInLoop { typ, location })
-        }
+            return Err(InterpreterError::NonIntegerUsedInLoop { typ, location });
+        };
+
+        let (signed, bits) = (*signed, *bits);
+        let end = if for_.inclusive { end + 1 } else { end.clone() };
+        let indices = std::iter::successors(Some(start.clone()), |index| Some(index + 1))
+            .take_while(move |index| *index < end)
+            .map(move |index| {
+                let index = Integer::int(signed, bits, index);
+                Value::Integer(index.expect("ICE: a loop index lies between canonical bounds"))
+            });
+        self.evaluate_for_loop(indices, for_.identifier.id, for_.block)
     }
 
-    fn evaluate_for_loop<T>(
+    fn evaluate_for_loop(
         &mut self,
-        range_iterator: impl Iterator<Item = T>,
-        get_index: fn(T) -> Value,
+        indices: impl Iterator<Item = Value>,
         index_id: DefinitionId,
         block: ExprId,
     ) -> IResult<Value> {
@@ -1696,9 +1672,9 @@ impl<'local, 'interner> Interpreter<'local, 'interner> {
 
         let mut result = Ok(Value::Unit);
 
-        for i in range_iterator {
+        for index in indices {
             self.push_scope();
-            self.current_scope_mut().insert(index_id, get_index(i));
+            self.current_scope_mut().insert(index_id, index);
 
             let must_break = self.evaluate_loop_body(block, &mut result);
 
@@ -1879,17 +1855,17 @@ fn bounds_check(array: Value, index: Value, location: Location) -> IResult<(Vect
         }
     };
 
-    let index = match index {
-        Value::Integer(Integer::U32(value)) => value as usize,
-        value => {
-            let typ = value.get_type().into_owned();
-            let expected_type = Type::Integer(Signedness::Unsigned, IntegerBitSize::ThirtyTwo);
-            return Err(InterpreterError::TypeMismatch {
-                expected: expected_type.to_string(),
-                actual: typ,
-                location,
-            });
-        }
+    let index = if let Value::Integer(integer) = &index
+        && let Some(index) = integer.as_u32()
+    {
+        index as usize
+    } else {
+        let typ = index.get_type().into_owned();
+        return Err(InterpreterError::TypeMismatch {
+            expected: Type::u32().to_string(),
+            actual: typ,
+            location,
+        });
     };
 
     if index >= collection.len() {
@@ -1904,36 +1880,12 @@ fn evaluate_prefix_with_value(rhs: Value, operator: UnaryOp, location: Location)
     match operator {
         UnaryOp::Minus => match rhs {
             Value::Integer(Integer::Field(value)) => Ok(Value::field(-value)),
-            Value::Integer(Integer::I8(value)) => value
-                .checked_neg()
-                .map(Value::i8)
-                .ok_or_else(|| InterpreterError::NegateWithOverflow { location }),
-            Value::Integer(Integer::I16(value)) => value
-                .checked_neg()
-                .map(Value::i16)
-                .ok_or_else(|| InterpreterError::NegateWithOverflow { location }),
-            Value::Integer(Integer::I32(value)) => value
-                .checked_neg()
-                .map(Value::i32)
-                .ok_or_else(|| InterpreterError::NegateWithOverflow { location }),
-            Value::Integer(Integer::I64(value)) => value
-                .checked_neg()
-                .map(Value::i64)
-                .ok_or_else(|| InterpreterError::NegateWithOverflow { location }),
-            Value::Integer(Integer::U8(_)) => {
-                Err(InterpreterError::CannotApplyMinusToType { location, typ: "u8" })
-            }
-            Value::Integer(Integer::U16(_)) => {
-                Err(InterpreterError::CannotApplyMinusToType { location, typ: "u16" })
-            }
-            Value::Integer(Integer::U32(_)) => {
-                Err(InterpreterError::CannotApplyMinusToType { location, typ: "u32" })
-            }
-            Value::Integer(Integer::U64(_)) => {
-                Err(InterpreterError::CannotApplyMinusToType { location, typ: "u64" })
-            }
-            Value::Integer(Integer::U128(_)) => {
-                Err(InterpreterError::CannotApplyMinusToType { location, typ: "u128" })
+            Value::Integer(integer @ Integer::Int { signed: true, .. }) => (-integer)
+                .map(Value::Integer)
+                .ok_or(InterpreterError::NegateWithOverflow { location }),
+            Value::Integer(integer) => {
+                let typ = integer.get_type();
+                Err(InterpreterError::CannotApplyMinusToType { location, typ })
             }
             value => {
                 let operator = "minus";
@@ -1943,15 +1895,10 @@ fn evaluate_prefix_with_value(rhs: Value, operator: UnaryOp, location: Location)
         },
         UnaryOp::Not => match rhs {
             Value::Bool(value) => Ok(Value::Bool(!value)),
-            Value::Integer(Integer::I8(value)) => Ok(Value::i8(!value)),
-            Value::Integer(Integer::I16(value)) => Ok(Value::i16(!value)),
-            Value::Integer(Integer::I32(value)) => Ok(Value::i32(!value)),
-            Value::Integer(Integer::I64(value)) => Ok(Value::i64(!value)),
-            Value::Integer(Integer::U8(value)) => Ok(Value::u8(!value)),
-            Value::Integer(Integer::U16(value)) => Ok(Value::u16(!value)),
-            Value::Integer(Integer::U32(value)) => Ok(Value::u32(!value)),
-            Value::Integer(Integer::U64(value)) => Ok(Value::u64(!value)),
-            Value::Integer(Integer::U128(value)) => Ok(Value::u128(!value)),
+            Value::Integer(integer) => integer.not().map(Value::Integer).ok_or_else(|| {
+                let typ = integer.get_type();
+                InterpreterError::InvalidValueForUnary { typ, location, operator: "not" }
+            }),
             value => {
                 let typ = value.get_type().into_owned();
                 Err(InterpreterError::InvalidValueForUnary { typ, location, operator: "not" })
@@ -1973,27 +1920,6 @@ fn evaluate_prefix_with_value(rhs: Value, operator: UnaryOp, location: Location)
                 Err(InterpreterError::NonPointerDereferenced { typ, location })
             }
         },
-    }
-}
-
-fn to_u128(value: &Value) -> Option<u128> {
-    match value {
-        Value::Integer(Integer::U8(value)) => Some(u128::from(*value)),
-        Value::Integer(Integer::U16(value)) => Some(u128::from(*value)),
-        Value::Integer(Integer::U32(value)) => Some(u128::from(*value)),
-        Value::Integer(Integer::U64(value)) => Some(u128::from(*value)),
-        Value::Integer(Integer::U128(value)) => Some(*value),
-        _ => None,
-    }
-}
-
-fn to_i128(value: &Value) -> Option<i128> {
-    match value {
-        Value::Integer(Integer::I8(value)) => Some(i128::from(*value)),
-        Value::Integer(Integer::I16(value)) => Some(i128::from(*value)),
-        Value::Integer(Integer::I32(value)) => Some(i128::from(*value)),
-        Value::Integer(Integer::I64(value)) => Some(i128::from(*value)),
-        _ => None,
     }
 }
 
@@ -2025,5 +1951,41 @@ impl Context<'_, '_> {
             let instantiation_bindings = TypeBindings::default();
             interpreter.call_function(main_id, args, instantiation_bindings, location)
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unsigned_negation_is_rejected() {
+        let err = evaluate_prefix_with_value(Value::u8(1), UnaryOp::Minus, Location::dummy())
+            .unwrap_err();
+        let InterpreterError::CannotApplyMinusToType { typ, .. } = err else {
+            panic!("expected the unsigned type to be refused, got {err:?}");
+        };
+        assert_eq!(typ.to_string(), "u8");
+    }
+
+    #[test]
+    fn signed_negation_overflow() {
+        let err = evaluate_prefix_with_value(Value::i8(-128), UnaryOp::Minus, Location::dummy())
+            .unwrap_err();
+        assert!(matches!(err, InterpreterError::NegateWithOverflow { .. }), "{err:?}");
+        let value = evaluate_prefix_with_value(Value::i8(-127), UnaryOp::Minus, Location::dummy());
+        assert_eq!(value, Ok(Value::i8(127)));
+    }
+
+    #[test]
+    fn bitwise_not() {
+        use acvm::{FieldId, FieldValue};
+
+        let not = |value| evaluate_prefix_with_value(value, UnaryOp::Not, Location::dummy());
+        assert_eq!(not(Value::u8(0)), Ok(Value::u8(255)));
+        assert_eq!(not(Value::i8(0)), Ok(Value::i8(-1)));
+        assert_eq!(not(Value::Bool(true)), Ok(Value::Bool(false)));
+        let field = Value::field(FieldValue::one(FieldId::linked()));
+        assert!(matches!(not(field), Err(InterpreterError::InvalidValueForUnary { .. })));
     }
 }

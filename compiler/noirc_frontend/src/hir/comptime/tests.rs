@@ -539,3 +539,27 @@ fn main() {
         assert_eq!(errors.len(), 1, "Expected exactly one error");
     });
 }
+
+#[test]
+fn for_loop_inclusive_max_value() {
+    let program = "comptime fn main() -> pub u32 {
+        let mut sum: u32 = 0;
+        for i in 254u8..=255 {
+            sum += i as u32;
+        }
+        sum
+    }";
+    assert_eq!(interpret(program), Value::u32(509));
+}
+
+#[test]
+fn for_loop_signed_range() {
+    let program = "comptime fn main() -> pub i64 {
+        let mut sum: i64 = 0;
+        for i in -3i8..2 {
+            sum += i as i64;
+        }
+        sum
+    }";
+    assert_eq!(interpret(program), Value::i64(-5));
+}
