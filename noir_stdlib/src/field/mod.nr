@@ -1,6 +1,6 @@
+#[field(bn254)]
 pub mod bn254;
 use crate::{runtime::is_unconstrained, static_assert};
-use bn254::lt as bn254_lt;
 
 impl Field {
     /// Asserts that `self` can be represented in `bit_size` bits.
@@ -194,12 +194,14 @@ impl Field {
         (self as u8) % 2 == 1
     }
 
+    #[field(bn254)]
     pub fn lt(self, another: Field) -> bool {
-        if crate::compat::is_bn254() {
-            bn254_lt(self, another)
-        } else {
-            lt_fallback(self, another)
-        }
+        bn254::lt(self, another)
+    }
+
+    #[field(not(bn254))]
+    pub fn lt(self, another: Field) -> bool {
+        lt_fallback(self, another)
     }
 
     /// Convert a little endian byte array to a field element.
@@ -358,6 +360,10 @@ pub(crate) unconstrained fn field_less_than(x: Field, y: Field) -> bool {
     __field_less_than(x, y)
 }
 
+#[field(not(bn254))]
+global MODULUS_BYTES: u32 = modulus_le_bytes().len();
+
+#[field(not(bn254))]
 fn lt_fallback(x: Field, y: Field) -> bool {
     if is_unconstrained() {
         // Safety: unconstrained context
@@ -365,14 +371,14 @@ fn lt_fallback(x: Field, y: Field) -> bool {
             field_less_than(x, y)
         }
     } else {
-        let x_bytes: [u8; 32] = x.to_le_bytes();
-        let y_bytes: [u8; 32] = y.to_le_bytes();
+        let x_bytes: [u8; MODULUS_BYTES] = x.to_le_bytes();
+        let y_bytes: [u8; MODULUS_BYTES] = y.to_le_bytes();
         let mut x_is_lt = false;
         let mut done = false;
-        for i in 0..32 {
+        for i in 0..MODULUS_BYTES {
             if (!done) {
-                let x_byte = x_bytes[32 - 1 - i] as u8;
-                let y_byte = y_bytes[32 - 1 - i] as u8;
+                let x_byte = x_bytes[MODULUS_BYTES - 1 - i];
+                let y_byte = y_bytes[MODULUS_BYTES - 1 - i];
                 let bytes_match = x_byte == y_byte;
                 if !bytes_match {
                     x_is_lt = x_byte < y_byte;
@@ -517,11 +523,13 @@ mod tests {
         }
     }
 
+    #[field(bn254)]
     #[test(should_fail_with = "Field failed to decompose into specified 16 limbs")]
     unconstrained fn not_enough_limbs_brillig() {
         let _: [u8; 16] = 0x100000000000000000000000000000000.to_le_bytes();
     }
 
+    #[field(bn254)]
     #[test(should_fail_with = "Field failed to decompose into specified 16 limbs")]
     fn not_enough_limbs() {
         let _: [u8; 16] = 0x100000000000000000000000000000000.to_le_bytes();
@@ -561,6 +569,31 @@ mod tests {
         let _: [bool; 0] = comptime { (0 as Field).to_be_bits() };
     }
 
+    fn assert_lt_agrees_with_the_canonical_order() {
+        assert(Field::lt(0, 1));
+        assert(!Field::lt(1, 0));
+        assert(!Field::lt(0, 0));
+        assert(!Field::lt(42, 42));
+        assert(Field::lt(1, 0x100));
+        assert(!Field::lt(0x100, 1));
+        assert(Field::lt(0, -1));
+        assert(Field::lt(0x100, -1));
+        assert(!Field::lt(-1, 0));
+        assert(Field::lt(-2, -1));
+        assert(!Field::lt(-1, -2));
+    }
+
+    #[test]
+    fn test_lt_agrees_with_the_canonical_order() {
+        assert_lt_agrees_with_the_canonical_order();
+    }
+
+    // `Field::lt` takes a different branch outside a constrained context.
+    #[test]
+    unconstrained fn test_lt_agrees_with_the_canonical_order_unconstrained() {
+        assert_lt_agrees_with_the_canonical_order();
+    }
+
     #[test]
     unconstrained fn test_field_less_than() {
         assert(field_less_than(0, 1));
@@ -569,6 +602,7 @@ mod tests {
         assert(!field_less_than(0 - 1, 0));
     }
 
+    #[field(bn254)]
     #[test]
     unconstrained fn test_large_field_values_unconstrained() {
         let large_field = 0xffffffffffffffff;
@@ -583,6 +617,7 @@ mod tests {
         assert_eq(Field::from_le_bytes::<8>(radix_bytes), large_field);
     }
 
+    #[field(bn254)]
     #[test]
     fn test_large_field_values() {
         let large_val = 0xffffffffffffffff;

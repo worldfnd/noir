@@ -106,15 +106,15 @@ impl From<u32> for Field {
         value as Field
     }
 }
-// TODO: gate by width once #[field] has a width predicate; u64 and u128 can exceed a 64-bit p.
-#[field(bn254)]
+// These conversions require every source value to fit in the field.
+#[field(not(goldilocks))]
 impl From<u64> for Field {
     fn from(value: u64) -> Field {
         value as Field
     }
 }
 
-#[field(bn254)]
+#[field(not(goldilocks))]
 impl From<u128> for Field {
     fn from(value: u128) -> Field {
         value as Field

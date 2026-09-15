@@ -4,6 +4,7 @@ pub mod array;
 pub mod vector;
 pub mod ecdsa_secp256k1;
 pub mod ecdsa_secp256r1;
+#[field(bn254)]
 pub mod embedded_curve_ops;
 pub mod field;
 pub mod collections;

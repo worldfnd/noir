@@ -476,14 +476,14 @@ mod test {
     use crate::default::Default;
     use crate::hash::BuildHasherDefault;
     use crate::hash::Hasher;
-    use crate::hash::poseidon2::Poseidon2Hasher;
+    use crate::hash::NonCryptographicHasher;
     use crate::option::Option;
     use super::UHashMap;
 
     #[test]
     unconstrained fn test_general_usage() {
-        let mut map = UHashMap::<Field, Field, BuildHasherDefault<Poseidon2Hasher>>::with_hasher_and_capacity(
-            BuildHasherDefault::<Poseidon2Hasher> {},
+        let mut map = UHashMap::<Field, Field, BuildHasherDefault<NonCryptographicHasher>>::with_hasher_and_capacity(
+            BuildHasherDefault::<NonCryptographicHasher> {},
             8,
         );
 
@@ -514,8 +514,8 @@ mod test {
         assert_eq(map.get(5), Option::some(40));
         assert_eq(map.get(8), Option::some(64));
 
-        let mut another_map = UHashMap::<Field, Field, BuildHasherDefault<Poseidon2Hasher>>::with_hasher_and_capacity(
-            BuildHasherDefault::<Poseidon2Hasher> {},
+        let mut another_map = UHashMap::<Field, Field, BuildHasherDefault<NonCryptographicHasher>>::with_hasher_and_capacity(
+            BuildHasherDefault::<NonCryptographicHasher> {},
             8,
         );
         assert(map != another_map);
@@ -546,24 +546,24 @@ mod test {
 
     #[test]
     unconstrained fn test_no_duplicate_keys_after_deletion_and_insertion() {
-        // The capacity and keys used here, with the Poseidon2Hasher, have the keys 5 and 8 end up in slot 0.
-        let mut map = UHashMap::<Field, Field, BuildHasherDefault<Poseidon2Hasher>>::with_hasher_and_capacity(
-            BuildHasherDefault::<Poseidon2Hasher> {},
+        // Keys 5 and 13 collide at slot 5; deletion must not allow a duplicate key in slot 6.
+        let mut map = UHashMap::<Field, Field, BuildHasherDefault<NonCryptographicHasher>>::with_hasher_and_capacity(
+            BuildHasherDefault::<NonCryptographicHasher> {},
             8,
         );
         assert(map.insert(5, 5));
-        assert(map.insert(8, 8));
+        assert(map.insert(13, 13));
         map.remove(5);
-        assert(!map.insert(8, 9));
+        assert(!map.insert(13, 9));
 
-        assert_eq(map.entries(), @[(8, 9)]);
-        assert_eq(map.keys(), @[8]);
+        assert_eq(map.entries(), @[(13, 9)]);
+        assert_eq(map.keys(), @[13]);
     }
 
     #[test]
     unconstrained fn test_with_hasher_and_capacity_zero() {
-        let mut m: UHashMap<Field, Field, BuildHasherDefault<Poseidon2Hasher>> =
-            UHashMap::with_hasher_and_capacity(BuildHasherDefault::<Poseidon2Hasher> {}, 0);
+        let mut m: UHashMap<Field, Field, BuildHasherDefault<NonCryptographicHasher>> =
+            UHashMap::with_hasher_and_capacity(BuildHasherDefault::<NonCryptographicHasher> {}, 0);
         let _ = m.insert(1, 1); // This used to produce an index out of bounds
     }
 
