@@ -102,6 +102,7 @@ compiler/noirc_frontend/src/tests/runtime.rs
 compiler/noirc_frontend/src/tests/type_mismatch.rs
 compiler/noirc_frontend/src/tests/width_contract.rs
 design/field-genericity.md
+noir_stdlib/docs/std/primitive.Type.html
 noir_stdlib/src/convert.nr
 noir_stdlib/src/hash/mod.nr
 noir_stdlib/src/meta/typ.nr
