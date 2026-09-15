@@ -16,10 +16,10 @@ pub(crate) use similarly_named_types::SimilarlyNamedType;
 use crate::{
     BinaryTypeOperator, Kind, ResolvedGeneric, Type, TypeBinding, TypeBindings, UnificationError,
     ast::{
-        AsTraitPath, BinaryOpKind, GenericTypeArgs, Ident, IntegerBitSize, PathKind, UnaryOp,
-        UnresolvedType, UnresolvedTypeData, UnresolvedTypeExpression, WILDCARD_TYPE,
+        AsTraitPath, BinaryOpKind, GenericTypeArgs, Ident, PathKind, UnaryOp, UnresolvedType,
+        UnresolvedTypeData, UnresolvedTypeExpression, WILDCARD_TYPE,
     },
-    elaborator::{Turbofish, UnstableFeature, path_resolution::PathResolution},
+    elaborator::{PrimitiveType, Turbofish, UnstableFeature, path_resolution::PathResolution},
     hir::{
         comptime::{Integer, Value, evaluate_cast_one_step},
         def_collector::dc_crate::CompilationError,
@@ -48,7 +48,7 @@ use crate::{
         DependencyId, ExprId, FuncId, GlobalValue, TraitId, TraitImplId, TraitImplKind,
         TraitItemId, TraitLookupMode,
     },
-    shared::Signedness,
+    shared::{Signedness, is_legal_integer_width, parse_integer_type_name},
 };
 
 use super::{
@@ -712,6 +712,37 @@ impl Elaborator<'_> {
                     && let Some(typ) = self.lookup_global_type(&path, mode)
                 {
                     return typ;
+                }
+
+                // Like the named primitive types, the integer families `u<N>` and `i<N>` and
+                // the integer names the language does not have are consulted only once no item
+                // of that name resolves, so an item named `u` keeps its meaning. The letter
+                // alone is an ordinary identifier: only a name followed by generic arguments
+                // is the parametric spelling of an integer type.
+                if path.segments.len() == 1 {
+                    let name = path.segments[0].ident.as_str();
+                    if !args.is_empty()
+                        && let Some(signedness) = PrimitiveType::integer_family(name)
+                    {
+                        return self.instantiate_integer_family(
+                            signedness,
+                            args,
+                            location,
+                            wildcard_allowed,
+                        );
+                    }
+                    // A name shaped like an integer type whose width the language does not
+                    // have, such as `u10`, is reported as that rather than as unresolved.
+                    if let Some((signedness, bits)) = parse_integer_type_name(name)
+                        && !is_legal_integer_width(bits)
+                    {
+                        self.push_err(ResolverError::UnsupportedIntegerWidth {
+                            location,
+                            signedness,
+                            bits,
+                        });
+                        return Type::Error;
+                    }
                 }
 
                 self.push_err(err);
@@ -2587,8 +2618,7 @@ impl Elaborator<'_> {
             (from_value_opt, to.integral_maximum_size())
             && from_is_polymorphic
             && from_value >= BigInt::ZERO
-            && from_value <= BigInt::from(u128::MAX)
-            && from_value > BigInt::from(to_maximum_size)
+            && from_value > to_maximum_size
         {
             let from = from.clone();
             let to = to.clone();
@@ -2604,10 +2634,13 @@ impl Elaborator<'_> {
             Type::FieldElement => {
                 if from_follow_bindings.is_signed() {
                     self.push_err(TypeCheckError::UnsupportedFieldCast { location });
-                } else if let Type::Integer(Signedness::Unsigned, bits) = from_follow_bindings
-                    && !self.interner.field().fits_unsigned(u32::from(bits.bit_size()))
+                } else if let Type::Integer(Signedness::Unsigned, width) = &from_follow_bindings
+                    && let Some(bits) = width.constant_width()
+                    && !self.interner.field().fits_unsigned(bits)
                 {
-                    // `Field` never reduces a cast, so only a type whose every value lies below the modulus may be cast to it. A source that is still a type variable here is checked again by the monomorphizer once bound.
+                    // `Field` never reduces a cast, so only a type whose every value lies below
+                    // the modulus may be cast to it. A source that is still a type variable, or
+                    // whose width still names a generic, is checked again by the monomorphizer.
                     let typ = from_follow_bindings;
                     self.push_err(TypeCheckError::IntegerTypeExceedsField { typ, location });
                 }
@@ -2639,18 +2672,24 @@ impl Elaborator<'_> {
 
     /// Checks that two integer operands of a binary operator agree in both
     /// signedness and bit width, reporting the first mismatch as an error.
+    /// Widths unify rather than compare, so `u<N>` and `u<N>` agree and a
+    /// generic width binds against a named one.
     fn check_integer_operands_match(
         sign_x: Signedness,
-        bit_width_x: IntegerBitSize,
+        bit_width_x: &Type,
         sign_y: Signedness,
-        bit_width_y: IntegerBitSize,
+        bit_width_y: &Type,
         location: Location,
     ) -> Result<(), TypeCheckError> {
         if sign_x != sign_y {
             return Err(TypeCheckError::IntegerSignedness { sign_x, sign_y, location });
         }
-        if bit_width_x != bit_width_y {
-            return Err(TypeCheckError::IntegerBitWidth { bit_width_x, bit_width_y, location });
+        if bit_width_x.unify(bit_width_y).is_err() {
+            return Err(TypeCheckError::IntegerBitWidth {
+                bit_width_x: bit_width_x.clone(),
+                bit_width_y: bit_width_y.clone(),
+                location,
+            });
         }
         Ok(())
     }
@@ -2690,9 +2729,9 @@ impl Elaborator<'_> {
             (Integer(sign_x, bit_width_x), Integer(sign_y, bit_width_y)) => {
                 Self::check_integer_operands_match(
                     *sign_x,
-                    *bit_width_x,
+                    bit_width_x,
                     *sign_y,
-                    *bit_width_y,
+                    bit_width_y,
                     location,
                 )?;
                 Ok((Bool, false))
@@ -2797,12 +2836,12 @@ impl Elaborator<'_> {
             (Integer(sign_x, bit_width_x), Integer(sign_y, bit_width_y)) => {
                 Self::check_integer_operands_match(
                     *sign_x,
-                    *bit_width_x,
+                    bit_width_x,
                     *sign_y,
-                    *bit_width_y,
+                    bit_width_y,
                     location,
                 )?;
-                Ok((Integer(*sign_x, *bit_width_x), false))
+                Ok((Integer(*sign_x, bit_width_x.clone()), false))
             }
             // The result of two Fields is always a witness
             (FieldElement, FieldElement) => {
@@ -2899,7 +2938,7 @@ impl Elaborator<'_> {
                                 location,
                             });
                         }
-                        Ok((Integer(*sign_x, *bit_width_x), false))
+                        Ok((Integer(*sign_x, bit_width_x.clone()), false))
                     }
                     // The result of a Field is always a witness
                     FieldElement => {

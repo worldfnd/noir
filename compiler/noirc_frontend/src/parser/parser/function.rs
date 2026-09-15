@@ -17,6 +17,7 @@ use noirc_errors::{Location, Span};
 
 use super::parse_many::separated_by_comma_until_right_paren;
 use super::pattern::SelfPattern;
+use super::types::TypeGenerics;
 use super::{Parser, pattern::PatternOrSelf};
 
 pub(crate) struct FunctionDefinitionWithOptionalBody {
@@ -232,7 +233,7 @@ impl Parser<'_> {
 
     fn pattern_param(&mut self, pattern: Pattern, start_location: Location) -> Param {
         let (visibility, visibility_location, typ) = if !self.eat_colon() {
-            if let Some(typ) = self.parse_type_allowing_generics(true) {
+            if let Some(typ) = self.parse_type_allowing_generics(TypeGenerics::Allowed) {
                 self.push_error(
                     ParserErrorReason::MissingColonInFunctionParameter,
                     pattern.location().merge(typ.location),

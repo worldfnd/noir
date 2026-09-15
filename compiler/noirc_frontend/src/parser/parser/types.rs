@@ -6,21 +6,27 @@ use crate::{
 
 use super::{Parser, parse_many::separated_by_comma_until_right_paren};
 
+/// Whether a named type may take generic arguments where it is parsed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TypeGenerics {
+    /// `Foo<T>` and `Foo::<T>` both parse.
+    Allowed,
+    /// Only `Foo::<T>` parses; a bare `<` is left for the caller, so that `x as u8 < 3` stays
+    /// a comparison while `x as u::<34>` names a type.
+    TurbofishOnly,
+}
+
 impl Parser<'_> {
     pub(crate) fn parse_type_or_error(&mut self) -> UnresolvedType {
-        self.parse_type_or_error_impl(
-            true, // allow generics
-        )
+        self.parse_type_or_error_impl(TypeGenerics::Allowed)
     }
 
-    pub(crate) fn parse_type_or_error_without_generics(&mut self) -> UnresolvedType {
-        self.parse_type_or_error_impl(
-            false, // allow generics
-        )
+    pub(crate) fn parse_type_or_error_with_turbofish_generics(&mut self) -> UnresolvedType {
+        self.parse_type_or_error_impl(TypeGenerics::TurbofishOnly)
     }
 
-    pub(crate) fn parse_type_or_error_impl(&mut self, allow_generics: bool) -> UnresolvedType {
-        if let Some(typ) = self.parse_type_allowing_generics(allow_generics) {
+    pub(crate) fn parse_type_or_error_impl(&mut self, generics: TypeGenerics) -> UnresolvedType {
+        if let Some(typ) = self.parse_type_allowing_generics(generics) {
             typ
         } else {
             self.expected_label(ParsingRuleLabel::Type);
@@ -61,24 +67,22 @@ impl Parser<'_> {
     }
 
     pub(crate) fn parse_type(&mut self) -> Option<UnresolvedType> {
-        self.parse_type_allowing_generics(
-            true, // allow generics
-        )
+        self.parse_type_allowing_generics(TypeGenerics::Allowed)
     }
 
     pub(crate) fn parse_type_allowing_generics(
         &mut self,
-        allow_generics: bool,
+        generics: TypeGenerics,
     ) -> Option<UnresolvedType> {
         self.with_max_recursion_depth_guard(|this| {
             let start_location = this.current_token_location;
-            let typ = this.parse_unresolved_type_data(allow_generics)?;
+            let typ = this.parse_unresolved_type_data(generics)?;
             let location = this.location_since(start_location);
             Some(UnresolvedType { typ, location })
         })
     }
 
-    fn parse_unresolved_type_data(&mut self, allow_generics: bool) -> Option<UnresolvedTypeData> {
+    fn parse_unresolved_type_data(&mut self, generics: TypeGenerics) -> Option<UnresolvedTypeData> {
         if let Some(typ) = self.parse_primitive_type() {
             return Some(typ);
         }
@@ -108,10 +112,14 @@ impl Parser<'_> {
         }
 
         if let Some(path) = self.parse_path_for_named_type() {
-            let generics = if allow_generics {
-                self.parse_generic_type_args()
-            } else {
-                GenericTypeArgs::default()
+            let generics = match generics {
+                TypeGenerics::Allowed => self.parse_generic_type_args(),
+                TypeGenerics::TurbofishOnly
+                    if self.at(&Token::DoubleColon) && self.next_is(&Token::Less) =>
+                {
+                    self.parse_generic_type_args()
+                }
+                TypeGenerics::TurbofishOnly => GenericTypeArgs::default(),
             };
             return Some(UnresolvedTypeData::Named(path, generics, false));
         }
