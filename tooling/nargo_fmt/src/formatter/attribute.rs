@@ -269,12 +269,17 @@ impl Formatter<'_> {
         self.skip_comments_and_whitespace();
         self.write_current_token_and_bump(); // name
         self.write_left_paren(); // (
-        loop {
+        // The argument can nest parentheses of its own, as `#[field(not(bn254))]` does.
+        let mut depth = 1;
+        while depth > 0 && self.token != Token::EOF {
             self.skip_comments_and_whitespace();
             if self.is_at(Token::RightParen) {
+                depth -= 1;
                 self.write_right_paren();
-                break;
             } else {
+                if self.is_at(Token::LeftParen) {
+                    depth += 1;
+                }
                 self.write_current_token_and_bump();
             }
         }
@@ -359,8 +364,15 @@ mod tests {
 
     #[test]
     fn format_field_attribute() {
-        let src = "  #[ field ( bn256 ) ] ";
-        let expected = "#[field(bn256)]";
+        let src = "  #[ field ( bn254 ) ] ";
+        let expected = "#[field(bn254)]";
+        assert_format_attribute(src, expected);
+    }
+
+    #[test]
+    fn format_negated_field_attribute() {
+        let src = "  #[ field ( not ( bn254 ) ) ] ";
+        let expected = "#[field(not(bn254))]";
         assert_format_attribute(src, expected);
     }
 

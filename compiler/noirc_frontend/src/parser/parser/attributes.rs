@@ -1,3 +1,4 @@
+use acvm::FieldConfig;
 use noirc_errors::Location;
 
 use crate::ast::{Expression, ExpressionKind, Ident, Literal, Path};
@@ -6,8 +7,8 @@ use crate::lint::Lint;
 use crate::parser::ParserErrorReason;
 use crate::parser::labels::ParsingRuleLabel;
 use crate::token::{
-    Attribute, FunctionAttribute, FunctionAttributeKind, FuzzingScope, MetaAttribute,
-    MetaAttributeName, SecondaryAttribute, SecondaryAttributeKind, TestScope, Token,
+    Attribute, FieldPredicate, FunctionAttribute, FunctionAttributeKind, FuzzingScope,
+    MetaAttribute, MetaAttributeName, SecondaryAttribute, SecondaryAttributeKind, TestScope, Token,
 };
 
 use super::Parser;
@@ -249,11 +250,12 @@ impl Parser<'_> {
                 let attr = Attribute::Secondary(attr);
                 self.parse_no_args_attribute(ident, &arguments, attr)
             }
-            "field" => self.parse_single_name_attribute(ident, arguments, start_location, |name| {
-                let kind = SecondaryAttributeKind::Field(name);
+            "field" => {
+                let predicate = self.parse_field_predicate(ident, arguments, start_location);
+                let kind = SecondaryAttributeKind::Field(predicate);
                 let attr = SecondaryAttribute { kind, location };
                 Attribute::Secondary(attr)
-            }),
+            }
             "fold" => {
                 let kind = FunctionAttributeKind::Fold;
                 let attr = FunctionAttribute { kind, location };
@@ -505,16 +507,43 @@ impl Parser<'_> {
         Attribute::Secondary(SecondaryAttribute { kind, location })
     }
 
-    fn parse_single_name_attribute<F>(
+    fn parse_field_predicate(
         &mut self,
         ident: &Ident,
         mut arguments: Vec<Expression>,
         start_location: Location,
-        f: F,
-    ) -> Attribute
-    where
-        F: FnOnce(String) -> Attribute,
-    {
+    ) -> FieldPredicate {
+        let mut negated = false;
+        if arguments.len() == 1
+            && let ExpressionKind::Call(call) = &arguments[0].kind
+            && call.func.to_string() == "not"
+            && call.arguments.len() == 1
+        {
+            negated = true;
+            arguments = call.arguments.clone();
+        }
+
+        let name = self.parse_single_name_argument(ident, arguments, start_location);
+        if name.is_empty() {
+            // The argument was rejected and reported; gate the item out rather than guess a field.
+            return FieldPredicate::new(name, false);
+        }
+
+        if !FieldConfig::names_a_field(&name.to_lowercase()) {
+            let location = self.location_since(start_location);
+            self.push_error(ParserErrorReason::UnknownField { name: name.clone() }, location);
+        }
+        FieldPredicate::new(name, negated)
+    }
+
+    /// The name or integer literal a single-argument attribute takes, or the empty string once
+    /// the argument has been rejected.
+    fn parse_single_name_argument(
+        &mut self,
+        ident: &Ident,
+        mut arguments: Vec<Expression>,
+        start_location: Location,
+    ) -> String {
         if arguments.len() != 1 {
             self.push_error(
                 ParserErrorReason::WrongNumberOfAttributeArguments {
@@ -525,13 +554,13 @@ impl Parser<'_> {
                 },
                 self.current_token_location,
             );
-            return f(String::new());
+            return String::new();
         }
 
         let argument = arguments.remove(0);
         match argument.kind {
             ExpressionKind::Variable(..) | ExpressionKind::Literal(Literal::Integer(..)) => {
-                f(argument.to_string())
+                argument.to_string()
             }
             _ => {
                 let location = self.location_since(start_location);
@@ -542,9 +571,22 @@ impl Parser<'_> {
                     }
                     .into(),
                 );
-                f(String::new())
+                String::new()
             }
         }
+    }
+
+    fn parse_single_name_attribute<F>(
+        &mut self,
+        ident: &Ident,
+        arguments: Vec<Expression>,
+        start_location: Location,
+        f: F,
+    ) -> Attribute
+    where
+        F: FnOnce(String) -> Attribute,
+    {
+        f(self.parse_single_name_argument(ident, arguments, start_location))
     }
 
     fn parse_no_args_attribute(
@@ -595,7 +637,9 @@ impl Parser<'_> {
 mod tests {
     use crate::{
         parser::{Parser, parser::tests::expect_no_errors},
-        token::{Attribute, FunctionAttributeKind, SecondaryAttributeKind, TestScope},
+        token::{
+            Attribute, FieldPredicate, FunctionAttributeKind, SecondaryAttributeKind, TestScope,
+        },
     };
 
     fn parse_inner_secondary_attribute_no_errors(src: &str, expected: SecondaryAttributeKind) {
@@ -773,15 +817,35 @@ mod tests {
     #[test]
     fn parses_attribute_field() {
         let src = "#[field(bn254)]";
-        let expected = SecondaryAttributeKind::Field("bn254".to_string());
+        let expected =
+            SecondaryAttributeKind::Field(FieldPredicate::new("bn254".to_string(), false));
         parse_secondary_attribute_no_errors(src, expected);
     }
 
     #[test]
     fn parses_attribute_field_with_integer() {
         let src = "#[field(23)]";
-        let expected = SecondaryAttributeKind::Field("23".to_string());
+        let expected = SecondaryAttributeKind::Field(FieldPredicate::new("23".to_string(), false));
         parse_secondary_attribute_no_errors(src, expected);
+    }
+
+    #[test]
+    fn parses_negated_attribute_field() {
+        let src = "#[field(not(bn254))]";
+        let expected =
+            SecondaryAttributeKind::Field(FieldPredicate::new("bn254".to_string(), true));
+        parse_secondary_attribute_no_errors(src, expected);
+    }
+
+    #[test]
+    fn rejects_malformed_field_negation() {
+        for src in
+            ["#[field(not(not(bn254)))]", "#[field(not(bn254, goldilocks))]", "#[field(not())]"]
+        {
+            let mut parser = Parser::for_str_with_dummy_file(src);
+            let _ = parser.parse_attribute();
+            assert!(!parser.errors.is_empty(), "{src}");
+        }
     }
 
     #[test]

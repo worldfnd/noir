@@ -105,6 +105,8 @@ pub enum ParserErrorReason {
     WrongNumberOfAttributeArguments { name: String, min: usize, max: usize, found: usize },
     #[error("Unknown lint `{name}` in `allow` attribute")]
     UnknownLint { name: String },
+    #[error("Unknown field `{name}` in `field` attribute")]
+    UnknownField { name: String },
     #[error(
         "The `deprecated` attribute expects two optional arguments: `deny` and/or a string literal message"
     )]
@@ -313,6 +315,11 @@ impl<'a> From<&'a ParserError> for Diagnostic {
                 ParserErrorReason::UnknownLint { name } => Diagnostic::simple_warning(
                     format!("Unknown lint `{name}` in `allow` attribute"),
                     "This lint is not recognised, so the `allow` has no effect".into(),
+                    error.location(),
+                ),
+                ParserErrorReason::UnknownField { name } => Diagnostic::simple_warning(
+                    format!("Unknown field `{name}` in `field` attribute"),
+                    "Expected a supported field name or a modulus".into(),
                     error.location(),
                 ),
                 ParserErrorReason::MissingSafetyComment => Diagnostic::simple_warning(
