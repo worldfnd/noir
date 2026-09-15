@@ -137,8 +137,8 @@ fn arithmetic_generics_checked_cast_zeros() {
         let TypeCheckError::ModuloByZero { lhs, rhs, .. } = err else {
             panic!("Expected ModuloByZero, but found: {err:?}");
         };
-        assert_eq!(*lhs, Integer::U32(0));
-        assert_eq!(*rhs, Integer::U32(0));
+        assert_eq!(*lhs, Integer::u32(0));
+        assert_eq!(*rhs, Integer::u32(0));
     } else {
         panic!("unexpected error: {monomorphization_error:?}");
     }
@@ -560,6 +560,6 @@ fn arithmetic_generics_modulo_by_zero_in_array_length() {
     let TypeCheckError::ModuloByZero { lhs, rhs, .. } = err else {
         panic!("Expected ModuloByZero, but found: {err:?}");
     };
-    assert_eq!(*lhs, Integer::U32(0));
-    assert_eq!(*rhs, Integer::U32(0));
+    assert_eq!(*lhs, Integer::u32(0));
+    assert_eq!(*rhs, Integer::u32(0));
 }

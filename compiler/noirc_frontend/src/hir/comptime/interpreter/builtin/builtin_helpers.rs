@@ -310,33 +310,32 @@ pub(crate) fn get_field((value, location): (Value, Location)) -> IResult<FieldVa
 }
 
 pub(crate) fn get_u8((value, location): (Value, Location)) -> IResult<u8> {
-    match value {
-        Value::Integer(Integer::U8(value)) => Ok(value),
-        value => {
-            let expected = Type::Integer(Signedness::Unsigned, IntegerBitSize::Eight);
-            type_mismatch(value, expected, location)
-        }
+    if let Value::Integer(integer) = &value
+        && let Some(value) = integer.as_u8()
+    {
+        return Ok(value);
     }
+    let expected = Type::Integer(Signedness::Unsigned, IntegerBitSize::Eight);
+    type_mismatch(value, expected, location)
 }
 
 pub(crate) fn get_u32((value, location): (Value, Location)) -> IResult<u32> {
-    match value {
-        Value::Integer(Integer::U32(value)) => Ok(value),
-        value => {
-            let expected = Type::u32();
-            type_mismatch(value, expected, location)
-        }
+    if let Value::Integer(integer) = &value
+        && let Some(value) = integer.as_u32()
+    {
+        return Ok(value);
     }
+    type_mismatch(value, Type::u32(), location)
 }
 
 pub(crate) fn get_u64((value, location): (Value, Location)) -> IResult<u64> {
-    match value {
-        Value::Integer(Integer::U64(value)) => Ok(value),
-        value => {
-            let expected = Type::Integer(Signedness::Unsigned, IntegerBitSize::SixtyFour);
-            type_mismatch(value, expected, location)
-        }
+    if let Value::Integer(integer) = &value
+        && let Some(value) = integer.as_u64()
+    {
+        return Ok(value);
     }
+    let expected = Type::Integer(Signedness::Unsigned, IntegerBitSize::SixtyFour);
+    type_mismatch(value, expected, location)
 }
 
 pub(crate) fn get_expr(
@@ -1006,7 +1005,6 @@ mod tests {
     use crate::Shared;
     use crate::Type;
     use crate::ast::IntegerBitSize;
-    use crate::hir::comptime::Integer;
     use crate::hir::comptime::value::Value;
     use crate::shared::Signedness;
 
@@ -1043,7 +1041,7 @@ mod tests {
         );
 
         let u32 = Type::Integer(Signedness::Unsigned, IntegerBitSize::ThirtyTwo);
-        let u8_value = Value::Integer(Integer::U8(0));
+        let u8_value = Value::u8(0);
         assert!(check_return_type_shape(&u8_value, type_shape(&u32), loc).is_err());
 
         let pair =
