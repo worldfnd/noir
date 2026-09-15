@@ -37,48 +37,14 @@ impl Eq for Field {
     }
 }
 
-impl Eq for u128 {
-    fn eq(self, other: u128) -> bool {
+impl<let N: u32> Eq for u<N> {
+    fn eq(self, other: Self) -> bool {
         self == other
     }
 }
-impl Eq for u64 {
-    fn eq(self, other: u64) -> bool {
-        self == other
-    }
-}
-impl Eq for u32 {
-    fn eq(self, other: u32) -> bool {
-        self == other
-    }
-}
-impl Eq for u16 {
-    fn eq(self, other: u16) -> bool {
-        self == other
-    }
-}
-impl Eq for u8 {
-    fn eq(self, other: u8) -> bool {
-        self == other
-    }
-}
-impl Eq for i8 {
-    fn eq(self, other: i8) -> bool {
-        self == other
-    }
-}
-impl Eq for i16 {
-    fn eq(self, other: i16) -> bool {
-        self == other
-    }
-}
-impl Eq for i32 {
-    fn eq(self, other: i32) -> bool {
-        self == other
-    }
-}
-impl Eq for i64 {
-    fn eq(self, other: i64) -> bool {
+
+impl<let N: u32> Eq for i<N> {
+    fn eq(self, other: Self) -> bool {
         self == other
     }
 }
@@ -270,19 +236,8 @@ comptime fn derive_ord(s: TypeDefinition) -> Quoted {
 
 // Note: Field deliberately does not implement Ord
 
-impl Ord for u128 {
-    fn cmp(self, other: u128) -> Ordering {
-        if self < other {
-            Ordering::less()
-        } else if self > other {
-            Ordering::greater()
-        } else {
-            Ordering::equal()
-        }
-    }
-}
-impl Ord for u64 {
-    fn cmp(self, other: u64) -> Ordering {
+impl<let N: u32> Ord for u<N> {
+    fn cmp(self, other: Self) -> Ordering {
         if self < other {
             Ordering::less()
         } else if self > other {
@@ -293,80 +248,8 @@ impl Ord for u64 {
     }
 }
 
-impl Ord for u32 {
-    fn cmp(self, other: u32) -> Ordering {
-        if self < other {
-            Ordering::less()
-        } else if self > other {
-            Ordering::greater()
-        } else {
-            Ordering::equal()
-        }
-    }
-}
-
-impl Ord for u16 {
-    fn cmp(self, other: u16) -> Ordering {
-        if self < other {
-            Ordering::less()
-        } else if self > other {
-            Ordering::greater()
-        } else {
-            Ordering::equal()
-        }
-    }
-}
-
-impl Ord for u8 {
-    fn cmp(self, other: u8) -> Ordering {
-        if self < other {
-            Ordering::less()
-        } else if self > other {
-            Ordering::greater()
-        } else {
-            Ordering::equal()
-        }
-    }
-}
-
-impl Ord for i8 {
-    fn cmp(self, other: i8) -> Ordering {
-        if self < other {
-            Ordering::less()
-        } else if self > other {
-            Ordering::greater()
-        } else {
-            Ordering::equal()
-        }
-    }
-}
-
-impl Ord for i16 {
-    fn cmp(self, other: i16) -> Ordering {
-        if self < other {
-            Ordering::less()
-        } else if self > other {
-            Ordering::greater()
-        } else {
-            Ordering::equal()
-        }
-    }
-}
-
-impl Ord for i32 {
-    fn cmp(self, other: i32) -> Ordering {
-        if self < other {
-            Ordering::less()
-        } else if self > other {
-            Ordering::greater()
-        } else {
-            Ordering::equal()
-        }
-    }
-}
-
-impl Ord for i64 {
-    fn cmp(self, other: i64) -> Ordering {
+impl<let N: u32> Ord for i<N> {
+    fn cmp(self, other: Self) -> Ordering {
         if self < other {
             Ordering::less()
         } else if self > other {
