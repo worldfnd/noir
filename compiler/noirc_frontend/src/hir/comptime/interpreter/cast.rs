@@ -10,7 +10,10 @@ use num_bigint::BigInt;
 fn bit_size(field: FieldConfig, typ: &Type) -> u32 {
     match typ {
         Type::FieldElement => field.num_bits(),
-        Type::Integer(_, bit_size) => u32::from(bit_size.bit_size()),
+        // The type of an evaluated value names its width outright.
+        Type::Integer(_, width) => {
+            width.constant_width().expect("ICE: a value's integer type has a concrete width")
+        }
         Type::Bool => 1,
         _ => field.num_bits(),
     }
@@ -47,8 +50,10 @@ pub(crate) fn evaluate_cast_one_step(
                 }
             })
         }
-        Type::Integer(sign, size) => {
-            let bits = u32::from(size.bit_size());
+        Type::Integer(sign, width) => {
+            let bits = width.evaluate_to_u32(location).map_err(|err| {
+                InterpreterError::InvalidNumericGeneric { err: Box::new(err), location }
+            })?;
             Ok(Value::Integer(Integer::wrapping_int(sign.is_signed(), bits, value)))
         }
         Type::Bool if lhs_type == Type::Bool => Ok(Value::Bool(value != BigInt::ZERO)),
@@ -82,7 +87,6 @@ mod tests {
     use proptest::prelude::*;
 
     use super::*;
-    use crate::ast::IntegerBitSize;
     use crate::shared::Signedness;
 
     #[test]
@@ -115,28 +119,27 @@ mod tests {
     #[test]
     fn unsigned_casts() {
         let location = Location::dummy();
-        let signed = |size| Type::Integer(Signedness::Signed, size);
-        let unsigned = |size| Type::Integer(Signedness::Unsigned, size);
+        let signed = Type::sint;
+        let unsigned = Type::uint;
 
-        use IntegerBitSize::*;
         let tests = [
             // Widen
-            (Value::u8(255), unsigned(SixtyFour), Value::u64(255)),
-            (Value::u8(255), signed(SixtyFour), Value::i64(255)),
-            (Value::u64(u64::MAX), unsigned(HundredTwentyEight), Value::u128(u128::from(u64::MAX))),
+            (Value::u8(255), unsigned(64), Value::u64(255)),
+            (Value::u8(255), signed(64), Value::i64(255)),
+            (Value::u64(u64::MAX), unsigned(128), Value::u128(u128::from(u64::MAX))),
             // Reinterpret as negative
-            (Value::u8(255), signed(Eight), Value::i8(-1)),
-            (field(255u32), signed(Eight), Value::i8(-1)),
+            (Value::u8(255), signed(8), Value::i8(-1)),
+            (field(255u32), signed(8), Value::i8(-1)),
             // Truncate
-            (Value::u16(300), unsigned(Eight), Value::u8(44)),
-            (Value::u16(300), signed(Eight), Value::i8(44)),
-            (Value::u16(255), signed(Eight), Value::i8(-1)),
-            (field(300u32), unsigned(Eight), Value::u8(44)),
-            (field(300u32), signed(Eight), Value::i8(44)),
-            (field(10u32), unsigned(Sixteen), Value::u16(10)),
-            (field(256u32), unsigned(Eight), Value::u8(0)),
-            (field(255u32), unsigned(Eight), Value::u8(255)),
-            (Value::u128(u128::MAX), unsigned(SixtyFour), Value::u64(u64::MAX)),
+            (Value::u16(300), unsigned(8), Value::u8(44)),
+            (Value::u16(300), signed(8), Value::i8(44)),
+            (Value::u16(255), signed(8), Value::i8(-1)),
+            (field(300u32), unsigned(8), Value::u8(44)),
+            (field(300u32), signed(8), Value::i8(44)),
+            (field(10u32), unsigned(16), Value::u16(10)),
+            (field(256u32), unsigned(8), Value::u8(0)),
+            (field(255u32), unsigned(8), Value::u8(255)),
+            (Value::u128(u128::MAX), unsigned(64), Value::u64(u64::MAX)),
             // Casting Field -> Field should be a no-op
             (field(4u32), Type::FieldElement, field(4u32)),
             (Value::field(negated(4)), Type::FieldElement, Value::field(negated(4))),
@@ -155,34 +158,33 @@ mod tests {
     #[test]
     fn signed_casts() {
         let location = Location::dummy();
-        let signed = |size| Type::Integer(Signedness::Signed, size);
-        let unsigned = |size| Type::Integer(Signedness::Unsigned, size);
+        let signed = Type::sint;
+        let unsigned = Type::uint;
 
-        use IntegerBitSize::*;
         let tests = [
             // Widen
-            (Value::i8(127), unsigned(SixtyFour), Value::u64(127)),
-            (Value::i8(127), signed(SixtyFour), Value::i64(127)),
+            (Value::i8(127), unsigned(64), Value::u64(127)),
+            (Value::i8(127), signed(64), Value::i64(127)),
             // Widen signed->unsigned: sign extend
-            (Value::i8(-1), unsigned(Sixteen), Value::u16(65535)),
-            (Value::i8(-100), unsigned(Sixteen), Value::u16(65436)),
+            (Value::i8(-1), unsigned(16), Value::u16(65535)),
+            (Value::i8(-100), unsigned(16), Value::u16(65436)),
             // A `Field` target takes the source's own-width pattern, so a negative value becomes positive and is never sign-extended to the field width.
             (Value::i8(-1), Type::FieldElement, field(255u32)),
             // Widen negative: sign extend
-            (Value::i8(-1), signed(Sixteen), Value::i16(-1)),
-            (Value::i8(-100), signed(Sixteen), Value::i16(-100)),
+            (Value::i8(-1), signed(16), Value::i16(-1)),
+            (Value::i8(-100), signed(16), Value::i16(-100)),
             // Reinterpret as positive
-            (Value::i8(-100), unsigned(Eight), Value::u8(156)),
+            (Value::i8(-100), unsigned(8), Value::u8(156)),
             // Truncate
-            (Value::i16(300), unsigned(Eight), Value::u8(44)),
-            (Value::i16(300), signed(Eight), Value::i8(44)),
-            (Value::i16(255), signed(Eight), Value::i8(-1)),
-            (Value::i16(i16::MIN + 5), signed(Eight), Value::i8(5)),
-            (Value::i16(i16::MIN + 5), unsigned(Eight), Value::u8(5)),
-            (Value::field(negated(1)), unsigned(Eight), Value::u8(0)),
-            (Value::field(negated(1)), signed(Eight), Value::i8(0)),
-            (Value::field(negated(2)), unsigned(Sixteen), Value::u16(65535)),
-            (Value::field(negated(2)), signed(Sixteen), Value::i16(-1)),
+            (Value::i16(300), unsigned(8), Value::u8(44)),
+            (Value::i16(300), signed(8), Value::i8(44)),
+            (Value::i16(255), signed(8), Value::i8(-1)),
+            (Value::i16(i16::MIN + 5), signed(8), Value::i8(5)),
+            (Value::i16(i16::MIN + 5), unsigned(8), Value::u8(5)),
+            (Value::field(negated(1)), unsigned(8), Value::u8(0)),
+            (Value::field(negated(1)), signed(8), Value::i8(0)),
+            (Value::field(negated(2)), unsigned(16), Value::u16(65535)),
+            (Value::field(negated(2)), signed(16), Value::i16(-1)),
         ];
 
         for (lhs, typ, expected) in tests {
@@ -207,20 +209,15 @@ mod tests {
     #[test]
     fn integer_casts_do_not_reduce_modulo_the_field() {
         let location = Location::dummy();
-        let unsigned = |size| Type::Integer(Signedness::Unsigned, size);
-        let signed = |size| Type::Integer(Signedness::Signed, size);
+        let unsigned = Type::uint;
+        let signed = Type::sint;
 
-        use IntegerBitSize::*;
         let tests = [
-            (
-                Value::u64(0xFFFF_FFFF_0000_0001),
-                unsigned(HundredTwentyEight),
-                Value::u128(0xFFFF_FFFF_0000_0001),
-            ),
-            (Value::u64(u64::MAX), unsigned(SixtyFour), Value::u64(u64::MAX)),
-            (Value::u64(u64::MAX), signed(SixtyFour), Value::i64(-1)),
-            (Value::u64(u64::MAX), unsigned(Eight), Value::u8(0xFF)),
-            (Value::i64(-1), unsigned(HundredTwentyEight), Value::u128(u128::MAX)),
+            (Value::u64(0xFFFF_FFFF_0000_0001), unsigned(128), Value::u128(0xFFFF_FFFF_0000_0001)),
+            (Value::u64(u64::MAX), unsigned(64), Value::u64(u64::MAX)),
+            (Value::u64(u64::MAX), signed(64), Value::i64(-1)),
+            (Value::u64(u64::MAX), unsigned(8), Value::u8(0xFF)),
+            (Value::i64(-1), unsigned(128), Value::u128(u128::MAX)),
         ];
 
         for (lhs, typ, expected) in tests {
@@ -289,18 +286,16 @@ mod tests {
     }
 
     fn target_types() -> impl Strategy<Value = Type> {
-        use IntegerBitSize::*;
-        use Signedness::*;
         prop::sample::select(vec![
-            Type::Integer(Unsigned, Eight),
-            Type::Integer(Unsigned, Sixteen),
-            Type::Integer(Unsigned, ThirtyTwo),
-            Type::Integer(Unsigned, SixtyFour),
-            Type::Integer(Unsigned, HundredTwentyEight),
-            Type::Integer(Signed, Eight),
-            Type::Integer(Signed, Sixteen),
-            Type::Integer(Signed, ThirtyTwo),
-            Type::Integer(Signed, SixtyFour),
+            Type::uint(8),
+            Type::uint(16),
+            Type::uint(32),
+            Type::uint(64),
+            Type::uint(128),
+            Type::sint(8),
+            Type::sint(16),
+            Type::sint(32),
+            Type::sint(64),
             Type::FieldElement,
         ])
     }
@@ -314,7 +309,7 @@ mod tests {
         ) {
             let expected = match &target {
                 Type::Integer(sign, bits) => {
-                    let width = u32::from(bits.bit_size());
+                    let width = bits.constant_width().unwrap();
                     let modulus = BigInt::from(1) << width;
                     let low = ((&value % &modulus) + &modulus) % &modulus;
                     let value = if *sign == Signedness::Signed && low >= (BigInt::from(1) << (width - 1)) {

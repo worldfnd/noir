@@ -178,7 +178,14 @@ impl Elaborator<'_> {
             } else {
                 self.resolve_type(unresolved_typ.clone(), wildcard_allowed)
             };
-            if !matches!(typ, Type::FieldElement | Type::Integer(_, _)) {
+            // The kind of a numeric generic must name a concrete type: `u<N>` would make the
+            // generic's range depend on another generic.
+            let is_concrete_numeric_type = match &typ {
+                Type::FieldElement => true,
+                Type::Integer(_, width) => width.constant_width().is_some(),
+                _ => false,
+            };
+            if !is_concrete_numeric_type {
                 let unsupported_typ_err =
                     ResolverError::UnsupportedNumericGenericType(UnsupportedNumericGenericType {
                         name: ident.ident().map(|name| name.to_string()),

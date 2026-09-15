@@ -269,6 +269,8 @@ pub enum ResolverError {
     ComptimeGlobalInNonComptimeCode { location: Location, name: String },
     #[error("The `{typ}` type has been removed")]
     RemovedType { location: Location, typ: String, replacement: String },
+    #[error("`{}{bits}` is not a supported integer type", signedness.type_name_prefix())]
+    UnsupportedIntegerWidth { location: Location, signedness: crate::shared::Signedness, bits: u32 },
     #[error("Recursion limit reached during elaboration")]
     MaximumRecursionDepthExceeded { location: Location },
 }
@@ -367,6 +369,7 @@ impl ResolverError {
             | ResolverError::DataBusOnNonEntryPoint { location, .. }
             | ResolverError::DataBusOnWrongPosition { location, .. }
             | ResolverError::RemovedType { location, .. }
+            | ResolverError::UnsupportedIntegerWidth { location, .. }
             | ResolverError::MaximumRecursionDepthExceeded { location, .. } => *location,
             ResolverError::UnusedVariable { ident }
             | ResolverError::VariableDoesNotNeedToBeMutable { ident }
@@ -1181,6 +1184,16 @@ impl<'a> From<&'a ResolverError> for Diagnostic {
                 Diagnostic::simple_error(
                     format!("`{typ}` has been removed, use `{replacement}` instead"),
                     String::new(),
+                    *location,
+                )
+            },
+            ResolverError::UnsupportedIntegerWidth { location, signedness, bits } => {
+                Diagnostic::simple_error(
+                    format!(
+                        "`{}{bits}` is not a supported integer type",
+                        signedness.type_name_prefix()
+                    ),
+                    format!("integer widths are {}", crate::shared::LEGAL_INTEGER_WIDTHS),
                     *location,
                 )
             },

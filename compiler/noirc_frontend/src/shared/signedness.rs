@@ -11,4 +11,12 @@ impl Signedness {
             Signedness::Signed => true,
         }
     }
+
+    /// The letter that starts the name of an integer type of this signedness: `u` or `i`.
+    pub fn type_name_prefix(&self) -> &'static str {
+        match self {
+            Signedness::Unsigned => "u",
+            Signedness::Signed => "i",
+        }
+    }
 }

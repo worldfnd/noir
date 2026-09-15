@@ -1,7 +1,7 @@
 use crate::{
     ast::{
-        GenericTypeArg, GenericTypeArgs, IdentOrQuotedType, IntegerBitSize, Path,
-        UnresolvedGeneric, UnresolvedGenerics, UnresolvedType, UnresolvedTypeData,
+        GenericTypeArg, GenericTypeArgs, IdentOrQuotedType, Path, UnresolvedGeneric,
+        UnresolvedGenerics, UnresolvedType, UnresolvedTypeData,
     },
     parser::{ParserErrorReason, labels::ParsingRuleLabel},
     shared::Signedness,
@@ -104,11 +104,7 @@ impl Parser<'_> {
             );
             let location = self.location_at_previous_token_end();
             let typ = UnresolvedType {
-                typ: UnresolvedTypeData::integer(
-                    Signedness::Unsigned,
-                    IntegerBitSize::ThirtyTwo,
-                    location,
-                ),
+                typ: UnresolvedTypeData::integer(Signedness::Unsigned, 32, location),
                 location,
             };
             return Some(UnresolvedGeneric::Numeric { ident, typ });

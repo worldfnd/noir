@@ -61,13 +61,13 @@ impl NodeFinder<'_> {
     }
 
     pub(super) fn builtin_types_completion(&mut self, prefix: &str) {
-        for primitive_type in PrimitiveType::iter() {
+        for primitive_type in PrimitiveType::NAMED {
             let name = primitive_type.name();
-            if name_matches(name, prefix) {
+            if name_matches(&name, prefix) {
                 self.completion_items.push(simple_completion_item(
-                    name,
+                    name.clone(),
                     CompletionItemKind::STRUCT,
-                    Some(name.to_string()),
+                    Some(name),
                 ));
             }
         }

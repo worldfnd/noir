@@ -127,11 +127,17 @@ impl Type {
             match this {
                 // Type::Error is allowed as usual since it indicates an error was already issued and
                 // we don't need to issue further errors about this likely unresolved type
-                Type::FieldElement
-                | Type::Integer(_, _)
-                | Type::Bool
-                | Type::Constant(_)
-                | Type::Error => None,
+                Type::FieldElement | Type::Bool | Type::Constant(_) | Type::Error => None,
+
+                // An entry point needs a concrete width, like a concrete array length: a width
+                // that still names a generic has no size at the boundary.
+                Type::Integer(_, width) => {
+                    if width.evaluate_to_u32(Location::dummy()).is_err() {
+                        Some(InvalidType::Primitive(this.clone()))
+                    } else {
+                        None
+                    }
+                }
 
                 Type::Unit
                 | Type::FmtString(_, _)

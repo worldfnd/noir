@@ -1,3 +1,4 @@
+use crate::shared::MAX_INTEGER_WIDTH;
 use crate::token::DocStyle;
 
 use super::{
@@ -11,6 +12,15 @@ use noirc_errors::{Location, Position, Span};
 use num_bigint::BigInt;
 use num_traits::{Num, One};
 use std::str::{CharIndices, FromStr};
+use std::sync::LazyLock;
+
+/// A coarse ceiling on integer literals, applied before any type is known; the precise per-type
+/// bound (`uN` below 2^N, `Field` below p) belongs to `check_integer_literal_fits_its_type`. It
+/// must not depend on the build's field, because a build targeting a small field still has to lex
+/// the large constants inside `#[field(bn254)]`-gated code that def-collection later discards. The
+/// widest integer type sets it, which also covers every field modulus Noir supports.
+static MAX_INTEGER_LITERAL: LazyLock<BigInt> =
+    LazyLock::new(|| (BigInt::one() << MAX_INTEGER_WIDTH) - BigInt::one());
 
 /// The job of the lexer is to transform an iterator of characters (`char_iter`)
 /// into an iterator of `SpannedToken`. Each `Token` corresponds roughly to 1 word or operator.
@@ -22,7 +32,6 @@ pub struct Lexer<'a> {
     done: bool,
     skip_comments: bool,
     skip_whitespaces: bool,
-    max_integer: BigInt,
 }
 
 pub type SpannedTokenResult = Result<SpannedToken, LexerErrorKind>;
@@ -53,15 +62,6 @@ impl<'a> Lexer<'a> {
             done: false,
             skip_comments: true,
             skip_whitespaces: true,
-            // The literal's type is unknown at lex time, so this is only a coarse,
-            // field-INDEPENDENT sanity ceiling against absurd literals. The precise per-type
-            // bound (uN < 2^N, Field < selected p) is enforced at type-check (see
-            // `check_integer_literal_fits_its_type`). It must not depend on the build's field:
-            // a build targeting a small field (e.g. Goldilocks) still has to lex the large
-            // constants inside `#[field(bn254)]`-gated code, which def-collection then discards
-            // for the wrong field. 2^256 - 1 covers every integer type and every field modulus
-            // Noir supports.
-            max_integer: (BigInt::one() << 256) - BigInt::one(),
         }
     }
 
@@ -457,10 +457,10 @@ impl<'a> Lexer<'a> {
 
         let mut integer = match bigint_result {
             Ok(bigint) => {
-                if bigint > self.max_integer {
+                if bigint > *MAX_INTEGER_LITERAL {
                     return Err(LexerErrorKind::IntegerLiteralTooLarge {
                         location: self.location(Span::inclusive(start, end)),
-                        limit: self.max_integer.to_string(),
+                        limit: format!("2^{MAX_INTEGER_WIDTH} - 1"),
                     });
                 }
                 bigint
@@ -1171,15 +1171,22 @@ mod tests {
 
     #[test]
     fn test_int_too_large() {
-        // The coarse lex ceiling is field-independent (2^256 - 1); 2^256 is the smallest
-        // literal that exceeds it. Per-type/field bounds are checked later, at type-check.
-        let input = BigInt::from(2u32).pow(256).to_string();
+        // The ceiling is the largest value of the widest integer type, so one past it is the
+        // smallest literal that exceeds it.
+        let largest = (BigInt::one() << MAX_INTEGER_WIDTH) - BigInt::one();
+        let largest_source = largest.to_string();
+        let mut lexer = Lexer::new_with_dummy_file(&largest_source);
+        assert!(
+            matches!(lexer.next_token(), Ok(token) if *token.token() == Token::Int(largest.clone(), None)),
+            "expected the largest value of the widest integer type to lex"
+        );
 
+        let input = (largest + BigInt::one()).to_string();
         let mut lexer = Lexer::new_with_dummy_file(&input);
         let token = lexer.next_token();
         assert!(
             matches!(token, Err(LexerErrorKind::IntegerLiteralTooLarge { .. })),
-            "expected {input} to throw error"
+            "expected 2^{MAX_INTEGER_WIDTH} to throw error"
         );
     }
 

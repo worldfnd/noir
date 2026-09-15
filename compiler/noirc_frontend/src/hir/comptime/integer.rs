@@ -9,7 +9,7 @@ use num_traits::{One, Signed, Zero};
 
 use crate::{
     Kind, Type,
-    ast::{ExpressionKind, IntegerBitSize, Literal},
+    ast::{ExpressionKind, Literal},
     hir_def::expr::{HirExpression, HirLiteral},
     shared::Signedness,
     token::{IntegerTypeSuffix, Token},
@@ -152,10 +152,7 @@ impl Integer {
             Integer::Field(_) => Type::FieldElement,
             Integer::Int { signed, bits, .. } => {
                 let sign = if *signed { Signedness::Signed } else { Signedness::Unsigned };
-                let bits = IntegerBitSize::try_from(*bits).unwrap_or_else(|_| {
-                    panic!("ICE: the type checker names no {bits}-bit integer")
-                });
-                Type::Integer(sign, bits)
+                Type::integer(sign, *bits)
             }
         }
     }
@@ -208,14 +205,14 @@ impl Integer {
     pub fn try_from_field(value: FieldValue, typ: &Type) -> Option<Integer> {
         match typ.follow_bindings_shallow().as_ref() {
             Type::FieldElement => Some(Integer::Field(value)),
-            Type::Integer(Signedness::Unsigned, size) => {
-                Integer::int(false, u32::from(*size), value.to_bigint())
+            Type::Integer(Signedness::Unsigned, width) => {
+                Integer::int(false, width.constant_width()?, value.to_bigint())
             }
-            Type::Integer(Signedness::Signed, size) => {
+            Type::Integer(Signedness::Signed, width) => {
                 let positive = value.to_bigint();
                 let negated = (-value).to_bigint();
                 let reading = if negated.bits() < positive.bits() { -negated } else { positive };
-                Integer::int(true, u32::from(*size), reading)
+                Integer::int(true, width.constant_width()?, reading)
             }
             _ => None,
         }
@@ -229,8 +226,8 @@ impl Integer {
     pub(crate) fn try_from_bigint(value: &BigInt, typ: &Type, field: FieldId) -> Option<Integer> {
         match typ.follow_bindings_shallow().as_ref() {
             Type::FieldElement => FieldValue::try_from_bigint(value, field).map(Integer::Field),
-            Type::Integer(sign, size) => {
-                Integer::int(sign.is_signed(), u32::from(*size), value.clone())
+            Type::Integer(sign, width) => {
+                Integer::int(sign.is_signed(), width.constant_width()?, value.clone())
             }
             _ => None,
         }
@@ -493,8 +490,6 @@ mod tests {
         Integer, bigint_to_field, field_to_bigint, field_to_signed_bigint, try_bigint_to_field,
     };
     use crate::Type;
-    use crate::ast::IntegerBitSize;
-    use crate::shared::Signedness;
 
     /// A value of the field this build is linked against, the only field the tests below can
     /// compare with a `FieldElement`.
@@ -552,35 +547,35 @@ mod tests {
         #[test]
         fn i8_try_from_field_roundtrips(a: i8) {
             let integer = Integer::i8(a);
-            let typ = Type::Integer(Signedness::Signed, IntegerBitSize::Eight);
+            let typ = Type::sint(8);
             assert_eq!(Integer::try_from_field(encoded(&integer), &typ), Some(integer));
         }
 
         #[test]
         fn i16_try_from_field_roundtrips(a: i16) {
             let integer = Integer::i16(a);
-            let typ = Type::Integer(Signedness::Signed, IntegerBitSize::Sixteen);
+            let typ = Type::sint(16);
             assert_eq!(Integer::try_from_field(encoded(&integer), &typ), Some(integer));
         }
 
         #[test]
         fn i32_try_from_field_roundtrips(a: i32) {
             let integer = Integer::i32(a);
-            let typ = Type::Integer(Signedness::Signed, IntegerBitSize::ThirtyTwo);
+            let typ = Type::sint(32);
             assert_eq!(Integer::try_from_field(encoded(&integer), &typ), Some(integer));
         }
 
         #[test]
         fn i64_try_from_field_roundtrips(a: i64) {
             let integer = Integer::i64(a);
-            let typ = Type::Integer(Signedness::Signed, IntegerBitSize::SixtyFour);
+            let typ = Type::sint(64);
             assert_eq!(Integer::try_from_field(encoded(&integer), &typ), Some(integer));
         }
 
         #[test]
         fn u8_try_from_field_roundtrips(a: u8) {
             let integer = Integer::u8(a);
-            let typ = Type::Integer(Signedness::Unsigned, IntegerBitSize::Eight);
+            let typ = Type::uint(8);
             assert_eq!(Integer::try_from_field(encoded(&integer), &typ), Some(integer));
         }
 
@@ -666,7 +661,7 @@ mod tests {
         #[test]
         fn try_from_bigint_matches_rust_conversion_for_i8(a: i128) {
             let value = BigInt::from(a);
-            let typ = Type::Integer(Signedness::Signed, IntegerBitSize::Eight);
+            let typ = Type::sint(8);
             let expected = i8::try_from(a).ok().map(Integer::i8);
             assert_eq!(Integer::try_from_bigint(&value, &typ, FieldId::linked()), expected);
         }
@@ -674,7 +669,7 @@ mod tests {
         #[test]
         fn try_from_bigint_matches_rust_conversion_for_u8(a: i128) {
             let value = BigInt::from(a);
-            let typ = Type::Integer(Signedness::Unsigned, IntegerBitSize::Eight);
+            let typ = Type::uint(8);
             let expected = u8::try_from(a).ok().map(Integer::u8);
             assert_eq!(Integer::try_from_bigint(&value, &typ, FieldId::linked()), expected);
         }
@@ -683,7 +678,7 @@ mod tests {
         #[test]
         fn to_bigint_roundtrips_for_i64(a: i64) {
             let integer = Integer::i64(a);
-            let typ = Type::Integer(Signedness::Signed, IntegerBitSize::SixtyFour);
+            let typ = Type::sint(64);
             let value = Integer::try_from_bigint(&integer.to_bigint(), &typ, FieldId::linked());
             assert_eq!(value, Some(integer));
         }
@@ -691,29 +686,26 @@ mod tests {
 
     #[test]
     fn try_from_bigint_respects_boundaries() {
-        use IntegerBitSize::*;
-        use Signedness::*;
-
-        let i8_type = Type::Integer(Signed, Eight);
         let field = FieldId::linked();
         let from = |value: BigInt, typ: &Type| Integer::try_from_bigint(&value, typ, field);
 
+        let i8_type = Type::sint(8);
         assert_eq!(from(BigInt::from(-128), &i8_type), Some(Integer::i8(-128)));
         assert_eq!(from(BigInt::from(127), &i8_type), Some(Integer::i8(127)));
         assert_eq!(from(BigInt::from(-129), &i8_type), None);
         assert_eq!(from(BigInt::from(128), &i8_type), None);
 
-        let u8_type = Type::Integer(Unsigned, Eight);
+        let u8_type = Type::uint(8);
         assert_eq!(from(BigInt::from(0), &u8_type), Some(Integer::u8(0)));
         assert_eq!(from(BigInt::from(255), &u8_type), Some(Integer::u8(255)));
         assert_eq!(from(BigInt::from(256), &u8_type), None);
         assert_eq!(from(BigInt::from(-1), &u8_type), None);
 
-        let i64_type = Type::Integer(Signed, SixtyFour);
+        let i64_type = Type::sint(64);
         assert_eq!(from(BigInt::from(i64::MIN), &i64_type), Some(Integer::i64(i64::MIN)));
         assert_eq!(from(BigInt::from(i64::MIN) - 1, &i64_type), None);
 
-        let u128_type = Type::Integer(Unsigned, HundredTwentyEight);
+        let u128_type = Type::uint(128);
         assert_eq!(from(BigInt::from(u128::MAX), &u128_type), Some(Integer::u128(u128::MAX)));
         assert_eq!(from(BigInt::from(u128::MAX) + 1, &u128_type), None);
         assert_eq!(from(BigInt::from(-1), &u128_type), None);
@@ -742,9 +734,6 @@ mod tests {
     /// conversions, which the back half and the ABI still use.
     #[test]
     fn try_from_field_agrees_with_the_linked_element() {
-        use IntegerBitSize::*;
-        use Signedness::*;
-
         let mut values = vec![BigUint::ZERO, BigUint::from(1u8), FieldElement::modulus() - 1u8];
         for power in [7u32, 8, 15, 16, 31, 32, 63, 64, 127, 128] {
             let value = BigUint::from(1u8) << power;
@@ -758,18 +747,15 @@ mod tests {
             let element = FieldElement::from_be_bytes_reduce(&value.to_bytes_be());
             let field = linked(value);
             let cases = [
-                (Type::Integer(Unsigned, Eight), u8::try_from(element).ok().map(Integer::u8)),
-                (Type::Integer(Unsigned, Sixteen), u16::try_from(element).ok().map(Integer::u16)),
-                (Type::Integer(Unsigned, ThirtyTwo), u32::try_from(element).ok().map(Integer::u32)),
-                (Type::Integer(Unsigned, SixtyFour), u64::try_from(element).ok().map(Integer::u64)),
-                (
-                    Type::Integer(Unsigned, HundredTwentyEight),
-                    u128::try_from(element).ok().map(Integer::u128),
-                ),
-                (Type::Integer(Signed, Eight), i8::try_from(element).ok().map(Integer::i8)),
-                (Type::Integer(Signed, Sixteen), i16::try_from(element).ok().map(Integer::i16)),
-                (Type::Integer(Signed, ThirtyTwo), i32::try_from(element).ok().map(Integer::i32)),
-                (Type::Integer(Signed, SixtyFour), i64::try_from(element).ok().map(Integer::i64)),
+                (Type::uint(8), u8::try_from(element).ok().map(Integer::u8)),
+                (Type::uint(16), u16::try_from(element).ok().map(Integer::u16)),
+                (Type::uint(32), u32::try_from(element).ok().map(Integer::u32)),
+                (Type::uint(64), u64::try_from(element).ok().map(Integer::u64)),
+                (Type::uint(128), u128::try_from(element).ok().map(Integer::u128)),
+                (Type::sint(8), i8::try_from(element).ok().map(Integer::i8)),
+                (Type::sint(16), i16::try_from(element).ok().map(Integer::i16)),
+                (Type::sint(32), i32::try_from(element).ok().map(Integer::i32)),
+                (Type::sint(64), i64::try_from(element).ok().map(Integer::i64)),
             ];
             for (typ, expected) in cases {
                 assert_eq!(
@@ -788,14 +774,14 @@ mod tests {
         let field = FieldId::Goldilocks;
         let two_to_the_63 = BigUint::from(1u8) << 63;
         let value = FieldValue::try_from_biguint(two_to_the_63, field).unwrap();
-        let i64_type = Type::Integer(Signedness::Signed, IntegerBitSize::SixtyFour);
+        let i64_type = Type::sint(64);
 
         // p - 2^63 == 2^63 - 2^32 + 1
         assert_eq!(
             Integer::try_from_field(value.clone(), &i64_type),
             Some(Integer::i64(-9223372032559808513))
         );
-        let u64_type = Type::Integer(Signedness::Unsigned, IntegerBitSize::SixtyFour);
+        let u64_type = Type::uint(64);
         assert_eq!(
             Integer::try_from_field(value, &u64_type),
             Some(Integer::u64(1 << 63)),

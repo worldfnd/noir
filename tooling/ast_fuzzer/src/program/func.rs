@@ -10,7 +10,7 @@ use strum::IntoEnumIterator;
 
 use arbitrary::{Arbitrary, Unstructured};
 use noirc_frontend::{
-    ast::{IntegerBitSize, UnaryOp},
+    ast::UnaryOp,
     hir_def::expr::Constructor,
     monomorphization::{
         append_printable_type_info_for_type,
@@ -707,14 +707,11 @@ impl<'a> FunctionContext<'a> {
         // See how we can produce tgt from src.
         match (src_type, tgt_type) {
             // Simple numeric conversions.
-            (
-                Type::Field,
-                Type::Integer(Signedness::Unsigned, IntegerBitSize::HundredTwentyEight),
-            ) => src_as_tgt(),
+            (Type::Field, Type::Integer(Signedness::Unsigned, 128)) => src_as_tgt(),
             (Type::Bool, Type::Field) => src_as_tgt(),
             (Type::Integer(Signedness::Unsigned, _), Type::Field) => src_as_tgt(),
             (Type::Integer(sign_from, ibs_from), Type::Integer(sign_to, ibs_to))
-                if sign_from == sign_to && ibs_from.bit_size() < ibs_to.bit_size() =>
+                if sign_from == sign_to && ibs_from < ibs_to =>
             {
                 src_as_tgt()
             }
@@ -1242,8 +1239,7 @@ impl<'a> FunctionContext<'a> {
     fn gen_let(&mut self, u: &mut Unstructured) -> arbitrary::Result<Expression> {
         // Generate a type or choose an existing one.
         let max_depth = self.max_depth();
-        let comptime_friendly = self.config().comptime_friendly;
-        let mut typ = self.ctx.gen_type(u, max_depth, false, false, comptime_friendly, true)?;
+        let mut typ = self.ctx.gen_type(u, max_depth, false, false, true)?;
 
         // If we picked the target type to be a vector, we can consider popping from it.
         if let Type::Vector(ref item_type) = typ
@@ -1618,13 +1614,13 @@ impl<'a> FunctionContext<'a> {
         // but currently the frontend expects it to be u32 unless it's declared as a separate variable.
         let idx_type = {
             let bit_size = if self.config().avoid_large_int_literals {
-                IntegerBitSize::ThirtyTwo
+                32
             } else {
-                u.choose(&[8, 16, 32, 64, 128]).map(|s| IntegerBitSize::try_from(*s).unwrap())?
+                *u.choose(&types::ACIR_INTEGER_WIDTHS)?
             };
 
             Type::Integer(
-                if bit_size == IntegerBitSize::HundredTwentyEight
+                if bit_size == 128
                     || self.config().avoid_negative_int_literals
                     || bool::arbitrary(u)?
                 {

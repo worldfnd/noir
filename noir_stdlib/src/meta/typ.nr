@@ -88,7 +88,7 @@ impl Type {
     /// if the type is signed, as well as the number of bits of this integer type.
     #[builtin(type_as_integer)]
     // docs:start:as_integer
-    pub comptime fn as_integer(self) -> Option<(bool, u8)> {}
+    pub comptime fn as_integer(self) -> Option<(bool, u32)> {}
     // docs:end:as_integer
 
     /// If this is a mutable reference type `&mut T`, returns the mutable type `T`.

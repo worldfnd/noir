@@ -9,7 +9,6 @@ use strum::IntoEnumIterator;
 
 use arbitrary::{Arbitrary, Unstructured};
 use noirc_frontend::{
-    ast::IntegerBitSize,
     monomorphization::{
         ast::{Expression, FuncId, Function, GlobalId, InlineType, LocalId, Program, Type},
         printer::{AstPrinter, FunctionPrintOptions},
@@ -186,14 +185,7 @@ impl Context {
         u: &mut Unstructured,
         i: usize,
     ) -> arbitrary::Result<(Name, Type, Expression)> {
-        let typ = self.gen_type(
-            u,
-            self.config.max_depth,
-            true,
-            false,
-            self.config.comptime_friendly,
-            true,
-        )?;
+        let typ = self.gen_type(u, self.config.max_depth, true, false, true)?;
         // By the time we get to the monomorphized AST the compiler will have already turned
         // complex global expressions into literals.
         let val = expr::gen_literal(u, &typ, &self.config)?;
@@ -238,14 +230,7 @@ impl Context {
         let return_type = if !(is_main || is_abi) && u.ratio(1, 5)? {
             Type::Unit
         } else {
-            self.gen_type(
-                u,
-                self.config.max_depth,
-                false,
-                is_main || is_abi,
-                self.config.comptime_friendly,
-                true,
-            )?
+            self.gen_type(u, self.config.max_depth, false, is_main || is_abi, true)?
         };
 
         // Which existing functions we could receive as parameters.
@@ -277,14 +262,7 @@ impl Context {
 
             let typ = if func_param_candidates.is_empty() || u.ratio(7, 10)? {
                 // Take some kind of data type.
-                self.gen_type(
-                    u,
-                    self.config.max_depth,
-                    false,
-                    is_main || is_abi,
-                    self.config.comptime_friendly,
-                    true,
-                )?
+                self.gen_type(u, self.config.max_depth, false, is_main || is_abi, true)?
             } else {
                 // Take a function type.
                 let callee_id = u.choose_iter(&func_param_candidates)?;
@@ -434,14 +412,12 @@ impl Context {
     /// functions.
     ///
     /// With a `max_depth` of 0 only leaf types are created.
-    #[allow(clippy::too_many_arguments)]
     fn gen_type(
         &mut self,
         u: &mut Unstructured,
         max_depth: usize,
         is_global: bool,
         is_main: bool,
-        is_comptime_friendly: bool,
         is_vector_allowed: bool,
     ) -> arbitrary::Result<Type> {
         // See if we can reuse an existing type without going over the maximum depth.
@@ -465,14 +441,7 @@ impl Context {
 
         // Generate the inner type for composite types with reduced maximum depth.
         let gen_inner_type = |this: &mut Self, u: &mut Unstructured, is_vector_allowed: bool| {
-            this.gen_type(
-                u,
-                max_depth - 1,
-                is_global,
-                is_main,
-                is_comptime_friendly,
-                is_vector_allowed,
-            )
+            this.gen_type(u, max_depth - 1, is_global, is_main, is_vector_allowed)
         };
 
         let mut typ: Type;
@@ -482,15 +451,11 @@ impl Context {
                 0 => Type::Bool,
                 1 => Type::Field,
                 2 => {
-                    // i1 is deprecated, and i128 does not exist yet
                     let sign = *u.choose(&[Signedness::Signed, Signedness::Unsigned])?;
-                    let sizes = IntegerBitSize::iter()
-                        .filter(|bs| {
-                            // i1 and i128 are rejected by the frontend
-                            (!sign.is_signed() || (bs.bit_size() != 1 && bs.bit_size() != 128)) &&
-                            // Comptime doesn't allow for u1 either
-                            (!is_comptime_friendly || bs.bit_size() != 1)
-                        })
+                    // The frontend rejects `i128`.
+                    let sizes = types::ACIR_INTEGER_WIDTHS
+                        .into_iter()
+                        .filter(|bits| !sign.is_signed() || *bits != 128)
                         .collect::<Vec<_>>();
                     Type::Integer(sign, u.choose_iter(sizes)?)
                 }

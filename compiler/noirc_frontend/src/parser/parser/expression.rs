@@ -319,11 +319,10 @@ impl Parser<'_> {
             return (atom, false);
         }
 
-        // Here we don't allow generics on a type so that `x as u8 < 3` parses without error.
-        // In Rust the above is a syntax error as `u8<` would denote a generic type.
-        // In Noir it's unlikely we'd want generic types in casts and, to avoid a breaking change,
-        // we disallow generics in that position.
-        let typ = self.parse_type_or_error_without_generics();
+        // A cast takes generic arguments only in the turbofish spelling, so that `x as u8 < 3`
+        // stays a comparison (in Rust it is a syntax error, as `u8<` would start a generic type)
+        // while `x as u::<34>` and `x as u::<2 * N>` name an integer type of a generic width.
+        let typ = self.parse_type_or_error_with_turbofish_generics();
         let kind = ExpressionKind::Cast(Box::new(CastExpression { lhs: atom, r#type: typ }));
         let location = self.location_since(start_location);
         let atom = Expression { kind, location };
@@ -1170,6 +1169,7 @@ impl Parser<'_> {
 mod tests {
     use strum::IntoEnumIterator;
 
+    use crate::shared::MAX_INTEGER_WIDTH;
     use crate::{
         ast::{
             ArrayLiteral, BinaryOpKind, ConstrainKind, Expression, ExpressionKind, Literal,
@@ -1181,7 +1181,9 @@ mod tests {
             parser::tests::{check_errors, expect_no_errors},
         },
     };
+    use noirc_errors::CustomDiagnostic;
     use num_bigint::BigInt;
+    use num_traits::One;
 
     fn parse_expression_no_errors(src: &str) -> Expression {
         let mut parser = Parser::for_str_with_dummy_file(src);
@@ -2061,6 +2063,33 @@ mod tests {
     }
 
     #[test]
+    fn parses_cast_with_turbofish_generics() {
+        for (src, expected_type) in [("x as u::<34>", "u<34>"), ("x as u::<2 * N>", "u<(2 * N)>")] {
+            let expr = parse_expression_no_errors(src);
+            let ExpressionKind::Cast(cast_expr) = expr.kind else {
+                panic!("Expected cast");
+            };
+            assert_eq!(cast_expr.lhs.to_string(), "x");
+            assert_eq!(cast_expr.r#type.to_string(), expected_type);
+        }
+    }
+
+    #[test]
+    fn cast_without_turbofish_leaves_the_angle_bracket_to_the_comparison() {
+        // `u<34>` is fine as a type annotation, but in cast position the `<` is a comparison.
+        let src = "x as u < 34";
+        let expr = parse_expression_no_errors(src);
+        let ExpressionKind::Infix(infix_expr) = expr.kind else {
+            panic!("Expected infix");
+        };
+        let ExpressionKind::Cast(cast_expr) = infix_expr.lhs.kind else {
+            panic!("Expected cast");
+        };
+        assert_eq!(cast_expr.r#type.to_string(), "u");
+        assert_eq!(infix_expr.rhs.to_string(), "34");
+    }
+
+    #[test]
     fn parses_index() {
         let src = "1[2]";
         let expr = parse_expression_no_errors(src);
@@ -2377,13 +2406,17 @@ mod tests {
     /// The parser in this case recovers by filling in extra integers in place of these errors.
     #[test]
     fn only_one_error_on_array_with_too_large_integers() {
-        // The fifth integer here exceeds the coarse, field-independent lexer ceiling (2^256 - 1)
-        let src = "
-            @[0, 1, 23, 3444, 218882428718392752222464057452572750885483644004160343436982041865758084956179, 43, 2, 32, 4]
-                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Integer literal is too large
-        ";
-        let expression = check_errors(src, |parser| parser.parse_expression_or_error());
+        // The fifth integer here exceeds the coarse, field-independent lexer ceiling, the
+        // largest value of the widest integer type.
+        let too_large = BigInt::one() << MAX_INTEGER_WIDTH;
+        let src = format!("@[0, 1, 23, 3444, {too_large}, 43, 2, 32, 4]");
+        let mut parser = Parser::for_str_with_dummy_file(&src);
+        let expression = parser.parse_expression_or_error();
         assert!(matches!(expression.kind, ExpressionKind::Literal(Literal::Vector(_))));
+
+        let messages: Vec<String> =
+            parser.errors.iter().map(|error| CustomDiagnostic::from(error).message).collect();
+        assert_eq!(messages, vec!["Integer literal is too large".to_string()]);
     }
 
     #[test]

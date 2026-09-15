@@ -11,7 +11,7 @@ use thiserror::Error;
 
 use crate::Kind;
 use crate::ast::BinaryOpKind;
-use crate::ast::{ConstrainKind, FunctionReturnType, Ident, IntegerBitSize};
+use crate::ast::{ConstrainKind, FunctionReturnType, Ident};
 use crate::elaborator::types::SimilarlyNamedType;
 use crate::hir::comptime::Integer;
 use crate::hir::resolution::errors::ResolverError;
@@ -52,8 +52,8 @@ pub enum TypeCheckError {
     OverflowingConstant {
         value: Integer,
         kind: Kind,
-        minimum_size: i128,
-        maximum_size: u128,
+        minimum_size: BigInt,
+        maximum_size: BigInt,
         location: Location,
     },
     #[error("`{lhs} {op} {rhs}` in the arithmetic generics here would overflow the bounds of a(n) `{}`", lhs.get_type())]
@@ -142,7 +142,7 @@ pub enum TypeCheckError {
     #[error("Integers must have the same signedness LHS is {sign_x:?}, RHS is {sign_y:?}")]
     IntegerSignedness { sign_x: Signedness, sign_y: Signedness, location: Location },
     #[error("Integers must have the same bit width LHS is {bit_width_x}, RHS is {bit_width_y}")]
-    IntegerBitWidth { bit_width_x: IntegerBitSize, bit_width_y: IntegerBitSize, location: Location },
+    IntegerBitWidth { bit_width_x: Type, bit_width_y: Type, location: Location },
     #[error("Cannot apply unary operator `{operator}` to type `{typ}`")]
     InvalidUnaryOp { operator: &'static str, typ: String, location: Location },
     #[error(

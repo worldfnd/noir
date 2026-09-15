@@ -8,7 +8,7 @@ use rustc_hash::FxHashMap as HashMap;
 use proptest_derive::Arbitrary;
 
 use crate::{
-    ast::{BinaryOpKind, IntegerBitSize, ItemVisibility, UnresolvedTypeExpression},
+    ast::{BinaryOpKind, ItemVisibility, UnresolvedTypeExpression},
     elaborator::types::SELF_TYPE_NAME,
     hir::{
         comptime::Integer,
@@ -22,6 +22,8 @@ use crate::{
 use iter_extended::vecmap;
 use noirc_errors::Location;
 use noirc_printable_type::PrintableType;
+use num_bigint::BigInt;
+use num_traits::One;
 
 use crate::shared::Signedness;
 use crate::{ast::Ident, node_interner::TypeId};
@@ -51,9 +53,11 @@ pub enum Type {
     /// Vector(E) is a vector of elements of type E.
     Vector(Box<Type>),
 
-    /// A primitive integer type with the given sign and bit count.
-    /// E.g. `u32` would be `Integer(Unsigned, ThirtyTwo)`
-    Integer(Signedness, IntegerBitSize),
+    /// A primitive integer type with the given sign and width in bits. The width is a type of
+    /// kind `u32`, like an array length: a `Constant` for a named type such as `u32`, or a
+    /// generic, or an arithmetic expression over one, for `u<N>` and `u<2 * N>` until
+    /// monomorphization binds it.
+    Integer(Signedness, Box<Type>),
 
     /// The primitive `bool` type.
     Bool,
@@ -284,14 +288,14 @@ impl Kind {
         matches!(self, Kind::Normal | Kind::Any)
     }
 
-    fn integral_maximum_size(&self) -> Option<u128> {
+    fn integral_maximum_size(&self) -> Option<BigInt> {
         match self.follow_bindings() {
             Kind::Any | Kind::IntegerOrField | Kind::Integer | Kind::Normal => None,
             Self::Numeric(typ) => typ.integral_maximum_size(),
         }
     }
 
-    fn integral_minimum_size(&self) -> Option<i128> {
+    fn integral_minimum_size(&self) -> Option<BigInt> {
         match self.follow_bindings() {
             Kind::Any | Kind::IntegerOrField | Kind::Integer | Kind::Normal => None,
             Self::Numeric(typ) => typ.integral_minimum_size(),
@@ -316,8 +320,8 @@ impl Kind {
 
         match (typ.as_ref(), &value) {
             (Type::FieldElement, Integer::Field(_)) => Ok(value),
-            (Type::Integer(sign, size), Integer::Int { signed, bits, .. })
-                if sign.is_signed() == *signed && u32::from(*size) == *bits =>
+            (Type::Integer(sign, width), Integer::Int { signed, bits, .. })
+                if sign.is_signed() == *signed && width.constant_width() == Some(*bits) =>
             {
                 Ok(value)
             }
@@ -1200,10 +1204,7 @@ impl std::fmt::Display for Type {
             Type::Vector(typ) => {
                 write!(f, "[{typ}]")
             }
-            Type::Integer(sign, num_bits) => match sign {
-                Signedness::Signed => write!(f, "i{num_bits}"),
-                Signedness::Unsigned => write!(f, "u{num_bits}"),
-            },
+            Type::Integer(sign, width) => fmt_integer_type(f, *sign, width, false),
             Type::TypeVariable(var) => {
                 let binding = &var.1;
                 match &*binding.borrow() {
@@ -1365,7 +1366,22 @@ impl Type {
     }
 
     pub fn u32() -> Type {
-        Type::Integer(Signedness::Unsigned, IntegerBitSize::ThirtyTwo)
+        Type::uint(32)
+    }
+
+    /// The unsigned integer type of `bits` bits.
+    pub fn uint(bits: u32) -> Type {
+        Type::integer(Signedness::Unsigned, bits)
+    }
+
+    /// The signed integer type of `bits` bits.
+    pub fn sint(bits: u32) -> Type {
+        Type::integer(Signedness::Signed, bits)
+    }
+
+    /// The integer type of `bits` bits with the given signedness.
+    pub fn integer(sign: Signedness, bits: u32) -> Type {
+        Type::Integer(sign, Box::new(Type::constant_u32(bits)))
     }
 
     pub fn type_variable_with_kind(interner: &NodeInterner, type_var_kind: Kind) -> Type {
@@ -2326,14 +2342,14 @@ impl Type {
     fn contains_type_variable_helper(&self, unbound_named_generic_counts: bool) -> bool {
         let contains = |typ: &Type| typ.contains_type_variable_helper(unbound_named_generic_counts);
         match self {
-            Type::Integer(..)
-            | Type::Bool
+            Type::Bool
             | Type::Unit
             | Type::FieldElement
             | Type::Constant(..)
             | Type::Quoted(..)
             | Type::Error => false,
             Type::Forall(..) => true,
+            Type::Integer(_, width) => contains(width),
             Type::Array(typ, length) => contains(length) || contains(typ),
             Type::Vector(typ) => contains(typ),
             Type::String(length) => contains(length),
@@ -2883,9 +2899,12 @@ impl Type {
                 let rhs = rhs.substitute_helper(type_bindings, substitute_bound_typevars);
                 Type::InfixExpr(Box::new(lhs), *op, Box::new(rhs), *inversion)
             }
+            Type::Integer(sign, width) => {
+                let width = width.substitute_helper(type_bindings, substitute_bound_typevars);
+                Type::Integer(*sign, Box::new(width))
+            }
 
             Type::FieldElement
-            | Type::Integer(_, _)
             | Type::Bool
             | Type::Constant(_)
             | Type::Error
@@ -2932,9 +2951,9 @@ impl Type {
             }
             Type::Reference(element, _) => element.occurs(target_id),
             Type::InfixExpr(lhs, _op, rhs, _) => lhs.occurs(target_id) || rhs.occurs(target_id),
+            Type::Integer(_, width) => width.occurs(target_id),
 
             Type::FieldElement
-            | Type::Integer(_, _)
             | Type::Bool
             | Type::Constant(_)
             | Type::Error
@@ -3011,11 +3030,11 @@ impl Type {
                     InfixExpr(Box::new(lhs), *op, Box::new(rhs), *inversion)
                 }
 
+                Integer(sign, width) => Integer(*sign, Box::new(recur(width))),
+
                 // Expect that this function should only be called on instantiated types
                 Forall(..) => unreachable!(),
-                FieldElement | Integer(_, _) | Bool | Constant(_) | Unit | Quoted(_) | Error => {
-                    this.clone()
-                }
+                FieldElement | Bool | Constant(_) | Unit | Quoted(_) | Error => this.clone(),
             }
         }
         helper(self, 0)
@@ -3066,12 +3085,12 @@ impl Type {
         match self {
             Type::FieldElement
             | Type::Constant(_)
-            | Type::Integer(_, _)
             | Type::Bool
             | Type::Unit
             | Type::Error
             | Type::Quoted(_) => (),
 
+            Type::Integer(_, width) => width.replace_named_generics_with_type_variables(),
             Type::Array(elem, len) => {
                 len.replace_named_generics_with_type_variables();
                 elem.replace_named_generics_with_type_variables();
@@ -3160,12 +3179,12 @@ impl Type {
             match typ {
                 Type::FieldElement
                 | Type::Constant(_)
-                | Type::Integer(_, _)
                 | Type::Bool
                 | Type::Unit
                 | Type::Error
                 | Type::Quoted(_) => (),
 
+                Type::Integer(_, width) => go(width, f, limit),
                 Type::Array(elem, len) => {
                     go(len, f, limit);
                     go(elem, f, limit);
@@ -3238,18 +3257,17 @@ impl Type {
         }
     }
 
-    pub(crate) fn integral_maximum_size(&self) -> Option<u128> {
+    /// The largest value of this integer or boolean type: `None` for a field, for an integer
+    /// type whose width is still generic, and for every non-numeric type.
+    pub(crate) fn integral_maximum_size(&self) -> Option<BigInt> {
         match self {
             Type::FieldElement => None,
-            Type::Integer(sign, num_bits) => {
-                let mut max_bit_size = num_bits.bit_size();
-                if sign == &Signedness::Signed {
-                    max_bit_size -= 1;
-                }
-                let max = if max_bit_size == 128 { u128::MAX } else { (1u128 << max_bit_size) - 1 };
-                Some(max)
+            Type::Integer(sign, width) => {
+                let bits = width.constant_width()?;
+                let magnitude_bits = if sign.is_signed() { bits.checked_sub(1)? } else { bits };
+                Some((BigInt::one() << magnitude_bits) - 1)
             }
-            Type::Bool => Some(1),
+            Type::Bool => Some(BigInt::one()),
             Type::TypeVariable(var) => {
                 let binding = &var.1;
                 match &*binding.borrow() {
@@ -3287,20 +3305,20 @@ impl Type {
 
     /// Returns the minimum value of this type.
     ///
-    /// This function returns a `i128` instead of a `FieldElement` to avoid confusion with negative
+    /// This function returns a `BigInt` instead of a `FieldElement` to avoid confusion with negative
     /// field values being equal to large field values.
-    pub(crate) fn integral_minimum_size(&self) -> Option<i128> {
+    pub(crate) fn integral_minimum_size(&self) -> Option<BigInt> {
         match self.follow_bindings_shallow().as_ref() {
             Type::FieldElement => None,
-            Type::Integer(sign, num_bits) => {
+            Type::Integer(sign, width) => {
                 if *sign == Signedness::Unsigned {
-                    return Some(0);
+                    return Some(BigInt::ZERO);
                 }
 
-                let max_bit_size = num_bits.bit_size() - 1;
-                Some(-(1i128 << max_bit_size))
+                let magnitude_bits = width.constant_width()?.checked_sub(1)?;
+                Some(-(BigInt::one() << magnitude_bits))
             }
-            Type::Bool => Some(0),
+            Type::Bool => Some(BigInt::ZERO),
             Type::TypeVariable(var) => {
                 let binding = &var.1;
                 match &*binding.borrow() {
@@ -3315,21 +3333,49 @@ impl Type {
         }
     }
 
+    /// The width in bits of this integer type: `None` if it is not an integer type, or if its
+    /// width still names a generic.
     pub fn integer_bit_size(&self) -> Option<u32> {
-        use {IntegerBitSize::*, Signedness::*};
         match self.follow_bindings_shallow().as_ref() {
-            Type::Integer(Signed, Eight) => Some(8),
-            Type::Integer(Signed, Sixteen) => Some(16),
-            Type::Integer(Signed, ThirtyTwo) => Some(32),
-            Type::Integer(Signed, SixtyFour) => Some(64),
-            Type::Integer(Signed, HundredTwentyEight) => Some(128),
-            Type::Integer(Unsigned, Eight) => Some(8),
-            Type::Integer(Unsigned, Sixteen) => Some(16),
-            Type::Integer(Unsigned, ThirtyTwo) => Some(32),
-            Type::Integer(Unsigned, SixtyFour) => Some(64),
-            Type::Integer(Unsigned, HundredTwentyEight) => Some(128),
+            Type::Integer(_, width) => width.constant_width(),
             _ => None,
         }
+    }
+
+    /// The value of this type when it is the width of an integer type and every generic in it
+    /// is bound: a plain `Constant`, or an arithmetic expression that folds to one. `None`
+    /// while it still names a generic. Reads the constant directly rather than evaluating it
+    /// under a kind: the kind `u32` is itself an integer type whose width is a constant, so
+    /// evaluating a width under it would ask for the width of `u32` without end.
+    pub(crate) fn constant_width(&self) -> Option<u32> {
+        fn constant(typ: &Type) -> Option<u32> {
+            match typ {
+                Type::Constant(Integer::Int { value, .. }) => u32::try_from(value).ok(),
+                _ => None,
+            }
+        }
+        match self.follow_bindings_shallow().as_ref() {
+            typ @ Type::Constant(_) => constant(typ),
+            Type::InfixExpr(..) | Type::CheckedCast { .. } => {
+                constant(&self.canonicalize_checked())
+            }
+            _ => None,
+        }
+    }
+}
+
+/// Writes an integer type as `u34` when its width is known and as `u<N>` while it is generic.
+fn fmt_integer_type(
+    f: &mut std::fmt::Formatter<'_>,
+    sign: Signedness,
+    width: &Type,
+    debug: bool,
+) -> std::fmt::Result {
+    let prefix = sign.type_name_prefix();
+    match width.constant_width() {
+        Some(bits) => write!(f, "{prefix}{bits}"),
+        None if debug => write!(f, "{prefix}<{width:?}>"),
+        None => write!(f, "{prefix}<{width}>"),
     }
 }
 
@@ -3418,12 +3464,15 @@ impl From<&Type> for PrintableType {
                 let typ = typ.as_ref();
                 PrintableType::Vector { typ: Box::new(typ.into()) }
             }
-            Type::Integer(sign, bit_width) => match sign {
-                Signedness::Unsigned => {
-                    PrintableType::UnsignedInteger { width: (*bit_width).into() }
+            Type::Integer(sign, width) => {
+                let width = width
+                    .evaluate_to_u32(Location::dummy())
+                    .expect("Cannot print integers of a generic width");
+                match sign {
+                    Signedness::Unsigned => PrintableType::UnsignedInteger { width },
+                    Signedness::Signed => PrintableType::SignedInteger { width },
                 }
-                Signedness::Signed => PrintableType::SignedInteger { width: (*bit_width).into() },
-            },
+            }
             Type::TypeVariable(binding) => match &*binding.borrow() {
                 TypeBinding::Bound(typ) => typ.into(),
                 TypeBinding::Unbound(_, Kind::Integer) => Type::default_int_type().into(),
@@ -3503,10 +3552,7 @@ impl std::fmt::Debug for Type {
             Type::Vector(typ) => {
                 write!(f, "[{typ:?}]")
             }
-            Type::Integer(sign, num_bits) => match sign {
-                Signedness::Signed => write!(f, "i{num_bits}"),
-                Signedness::Unsigned => write!(f, "u{num_bits}"),
-            },
+            Type::Integer(sign, width) => fmt_integer_type(f, *sign, width, true),
             Type::TypeVariable(var) => {
                 let binding = &var.1;
                 let binding = &*binding.borrow();
@@ -3884,8 +3930,7 @@ mod tests {
             Err(TypeCheckError::OverflowingConstant { .. })
         ));
 
-        let u8_kind =
-            Kind::Numeric(Box::new(Type::Integer(Signedness::Unsigned, IntegerBitSize::Eight)));
+        let u8_kind = Kind::Numeric(Box::new(Type::uint(8)));
         let field = |value: u32| {
             let value =
                 FieldValue::try_from_biguint(value.into(), acvm::FieldId::linked()).unwrap();

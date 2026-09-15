@@ -485,15 +485,11 @@ pub struct Reexport {
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum PrimitiveTypeKind {
     Bool,
-    U8,
-    U16,
-    U32,
-    U64,
-    U128,
-    I8,
-    I16,
-    I32,
-    I64,
+    /// An integer type of a known width, such as `u8` or `i64`.
+    Integer {
+        signed: bool,
+        bits: u32,
+    },
     Field,
     Str,
     Fmtstr,
@@ -518,15 +514,9 @@ impl std::fmt::Display for PrimitiveTypeKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let name = match self {
             PrimitiveTypeKind::Bool => "bool",
-            PrimitiveTypeKind::U8 => "u8",
-            PrimitiveTypeKind::U16 => "u16",
-            PrimitiveTypeKind::U32 => "u32",
-            PrimitiveTypeKind::U64 => "u64",
-            PrimitiveTypeKind::U128 => "u128",
-            PrimitiveTypeKind::I8 => "i8",
-            PrimitiveTypeKind::I16 => "i16",
-            PrimitiveTypeKind::I32 => "i32",
-            PrimitiveTypeKind::I64 => "i64",
+            PrimitiveTypeKind::Integer { signed, bits } => {
+                return write!(f, "{}{bits}", if *signed { "i" } else { "u" });
+            }
             PrimitiveTypeKind::Field => "Field",
             PrimitiveTypeKind::Str => "str",
             PrimitiveTypeKind::Fmtstr => "fmtstr",

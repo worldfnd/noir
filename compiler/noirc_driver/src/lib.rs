@@ -38,10 +38,14 @@ use noirc_frontend::elaborator::{FrontendOptions, UnstableFeature};
 use noirc_frontend::error_reporting::function_locations_in_parsed_module;
 use noirc_frontend::hir::def_map::{CrateDefMap, ModuleDefId, ModuleId};
 use noirc_frontend::hir::{Context, ParsedFiles};
+use noirc_frontend::monomorphization::ast::{
+    Program as MonomorphizedProgram, Type as MonomorphizedType,
+};
 use noirc_frontend::monomorphization::{
     errors::MonomorphizationError, monomorphize, monomorphize_debug,
 };
 use noirc_frontend::node_interner::{FuncId, GlobalId, GlobalValue, TypeId};
+use noirc_frontend::shared::Signedness;
 use noirc_frontend::token::SecondaryAttributeKind;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
@@ -419,6 +423,11 @@ pub enum CompileError {
         requested: FieldId,
         linked: FieldId,
     },
+    /// A compilation reached an integer type the circuit backend has no lowering for.
+    UnsupportedIntegerWidth {
+        function: String,
+        typ: String,
+    },
 }
 
 impl From<MonomorphizationError> for CompileError {
@@ -444,6 +453,13 @@ impl From<CompileError> for CustomDiagnostic {
                 );
                 CustomDiagnostic::from_message(&message, FileId::default())
             }
+            CompileError::UnsupportedIntegerWidth { function, typ } => {
+                let message = format!(
+                    "function `{function}` uses `{typ}`, which the circuit backend cannot lower: \
+                     only {LOWERABLE_INTEGER_TYPES} reach ACIR and Brillig"
+                );
+                CustomDiagnostic::from_message(&message, FileId::default())
+            }
         }
     }
 }
@@ -455,6 +471,99 @@ pub fn ensure_field_is_linked(field: FieldId) -> Result<(), CompileError> {
     } else {
         Err(CompileError::UnsupportedField { requested: field, linked: FieldId::linked() })
     }
+}
+
+/// The integer types the circuit backend lowers, in words, for the diagnostic.
+const LOWERABLE_INTEGER_TYPES: &str = "u8, u16, u32, u64, u128, i8, i16, i32 and i64";
+
+/// Whether ACIR and Brillig have a lowering for an integer type. Only the circuit path is bounded
+/// by this; the front half and every other consumer of the monomorphized output admit each width
+/// the language has. The signed set stops at 64 bits because the ACIR lowering of signed
+/// comparison, and of the truncation after signed arithmetic, carries one bit more than the
+/// operand.
+fn backend_lowers_integer(sign: Signedness, bits: u32) -> bool {
+    match sign {
+        Signedness::Unsigned => matches!(bits, 8 | 16 | 32 | 64 | 128),
+        Signedness::Signed => matches!(bits, 8 | 16 | 32 | 64),
+    }
+}
+
+/// The first integer type in `typ`, or nested in it, that the backend cannot lower.
+fn first_unlowerable_integer(typ: &MonomorphizedType) -> Option<&MonomorphizedType> {
+    use MonomorphizedType as Type;
+    match typ {
+        Type::Integer(sign, bits) if !backend_lowers_integer(*sign, *bits) => Some(typ),
+        Type::Array(_, element) | Type::Vector(element) | Type::Reference(element, _) => {
+            first_unlowerable_integer(element)
+        }
+        Type::FmtString(_, captures) => first_unlowerable_integer(captures),
+        Type::Tuple(elements) => elements.iter().find_map(first_unlowerable_integer),
+        Type::Function(parameters, return_type, environment, _) => parameters
+            .iter()
+            .find_map(first_unlowerable_integer)
+            .or_else(|| first_unlowerable_integer(return_type))
+            .or_else(|| first_unlowerable_integer(environment)),
+        Type::Integer(..) | Type::Field | Type::Bool | Type::String(_) | Type::Unit => None,
+    }
+}
+
+/// Reject a monomorphized program that mentions an integer type the circuit backend cannot
+/// lower. Call between monomorphization and circuit generation; `check_crate` and consumers of
+/// the monomorphized output accept every width the language has.
+pub fn ensure_integer_widths_are_lowerable(
+    program: &MonomorphizedProgram,
+) -> Result<(), CompileError> {
+    use noirc_frontend::monomorphization::ast::Expression;
+    use noirc_frontend::monomorphization::visitor::visit_expr;
+
+    let refuse = |function: &str, typ: &MonomorphizedType| CompileError::UnsupportedIntegerWidth {
+        function: function.to_string(),
+        typ: typ.to_string(),
+    };
+
+    for function in &program.functions {
+        let signature_types = function
+            .parameters
+            .iter()
+            .map(|(_, _, _, typ, _)| typ.as_ref())
+            .chain(std::iter::once(&function.return_type));
+        for typ in signature_types {
+            if let Some(typ) = first_unlowerable_integer(typ) {
+                return Err(refuse(&function.name, typ));
+            }
+        }
+
+        let mut found = None;
+        visit_expr(&function.body, &mut |expr| {
+            if found.is_some() {
+                return false;
+            }
+            // Every typed node reports its own type; the loop index is the one type an
+            // expression's own type does not cover.
+            let index_type = match expr {
+                Expression::For(for_loop) => Some(&for_loop.index_type),
+                _ => None,
+            };
+            for typ in index_type.into_iter().chain(expr.return_type().as_deref()) {
+                if let Some(typ) = first_unlowerable_integer(typ) {
+                    found = Some(typ.clone());
+                    return false;
+                }
+            }
+            true
+        });
+        if let Some(typ) = found {
+            return Err(refuse(&function.name, &typ));
+        }
+    }
+
+    for (name, typ, _) in program.globals.values() {
+        if let Some(typ) = first_unlowerable_integer(typ) {
+            return Err(refuse(name, typ));
+        }
+    }
+
+    Ok(())
 }
 
 /// Helper type used to signify where only warnings are expected in file diagnostics
@@ -921,6 +1030,8 @@ pub fn compile_no_check(
     if options.show_monomorphized {
         println!("{program}");
     }
+
+    ensure_integer_widths_are_lowerable(&program)?;
 
     // If user has specified that they want to see intermediate steps printed then we should
     // force compilation even if the program hasn't changed.

@@ -166,7 +166,9 @@ fn input_value_to_comptime_value(input: &InputValue, typ: &Type, location: Locat
 
             // Here we reuse the logic of converting an input into an SSA numeric value,
             // which is not ideal but avoids duplicating the conversion logic.
-            let bit_size = u32::from(bit_size.bit_size());
+            let bit_size = bit_size
+                .evaluate_to_u32(location)
+                .expect("an entry point parameter has a concrete width");
             let numeric_type = match signedness {
                 Signedness::Unsigned => NumericType::Unsigned { bit_size },
                 Signedness::Signed => NumericType::Signed { bit_size },

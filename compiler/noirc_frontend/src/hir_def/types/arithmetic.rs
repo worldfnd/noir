@@ -578,7 +578,7 @@ mod proptests {
     use proptest::{arbitrary::any, collection, prelude::*, result::maybe_ok};
 
     use crate::{
-        ast::{Expression, ExpressionKind, InfixExpression, IntegerBitSize, Literal},
+        ast::{Expression, ExpressionKind, InfixExpression, Literal},
         elaborator::{Elaborator, ElaboratorOptions},
         graph::CrateId,
         hir::{
@@ -586,7 +586,6 @@ mod proptests {
             comptime::{Integer, Interpreter, Value},
         },
         hir_def::types::{BinaryTypeOperator, Kind, Type, TypeVariable, TypeVariableId},
-        shared::Signedness,
     };
 
     use noirc_errors::{Located, Location};
@@ -630,19 +629,15 @@ mod proptests {
     {
         prop_oneof![
             Just((Type::FieldElement, arbitrary_field_element().boxed())),
-            any::<IntegerBitSize>().prop_map(|bit_size| {
-                let typ = Type::Integer(Signedness::Unsigned, bit_size);
-                let maximum_size = typ.integral_maximum_size().unwrap();
+            prop::sample::select(vec![8u32, 16, 32, 64, 128]).prop_map(|bits| {
+                let typ = Type::uint(bits);
+                let maximum_size: u128 = typ.integral_maximum_size().unwrap().try_into().unwrap();
                 (typ, arbitrary_u128_field_element(maximum_size).boxed())
             }),
-            any::<IntegerBitSize>().prop_map(|bit_size| {
-                let bit_size = match bit_size {
-                    // I128 is rejected
-                    IntegerBitSize::HundredTwentyEight => IntegerBitSize::SixtyFour,
-                    bit_size => bit_size,
-                };
-                let typ = Type::Integer(Signedness::Signed, bit_size);
-                let minimum_size: i128 = typ.integral_minimum_size().unwrap();
+            // Values are drawn through the linked field element, so widths stay within `i128`.
+            prop::sample::select(vec![8u32, 16, 32, 64]).prop_map(|bits| {
+                let typ = Type::sint(bits);
+                let minimum_size: i128 = typ.integral_minimum_size().unwrap().try_into().unwrap();
                 let maximum_size: i128 = typ.integral_maximum_size().unwrap().try_into().unwrap();
                 (typ, arbitrary_i128_field_element(minimum_size, maximum_size).boxed())
             }),

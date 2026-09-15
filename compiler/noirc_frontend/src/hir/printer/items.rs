@@ -8,12 +8,11 @@ mod types;
 
 use crate::{
     Kind, NamedGeneric, QuotedType, ResolvedGenerics, Type,
-    ast::{DocComment, IntegerBitSize, ItemVisibility},
+    ast::{DocComment, ItemVisibility},
     hir::def_map::ModuleId,
     hir_def::traits::TraitConstraint,
     modules::module_def_id_to_reference_id,
     node_interner::{FuncId, GlobalId, ImplId, Methods, TraitId, TraitImplId, TypeAliasId, TypeId},
-    shared::Signedness,
 };
 use noirc_errors::Location;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -571,33 +570,15 @@ impl<'context> ItemBuilder<'context> {
 
     pub(super) fn add_primitive_types(&self, items: &mut Vec<(ItemVisibility, Item)>) {
         self.add_primitive_type(Type::Bool, items);
-        self.add_primitive_type(Type::Integer(Signedness::Unsigned, IntegerBitSize::Eight), items);
-        self.add_primitive_type(
-            Type::Integer(Signedness::Unsigned, IntegerBitSize::Sixteen),
-            items,
-        );
-        self.add_primitive_type(
-            Type::Integer(Signedness::Unsigned, IntegerBitSize::ThirtyTwo),
-            items,
-        );
-        self.add_primitive_type(
-            Type::Integer(Signedness::Unsigned, IntegerBitSize::SixtyFour),
-            items,
-        );
-        self.add_primitive_type(
-            Type::Integer(Signedness::Unsigned, IntegerBitSize::HundredTwentyEight),
-            items,
-        );
-        self.add_primitive_type(Type::Integer(Signedness::Signed, IntegerBitSize::Eight), items);
-        self.add_primitive_type(Type::Integer(Signedness::Signed, IntegerBitSize::Sixteen), items);
-        self.add_primitive_type(
-            Type::Integer(Signedness::Signed, IntegerBitSize::ThirtyTwo),
-            items,
-        );
-        self.add_primitive_type(
-            Type::Integer(Signedness::Signed, IntegerBitSize::SixtyFour),
-            items,
-        );
+        self.add_primitive_type(Type::uint(8), items);
+        self.add_primitive_type(Type::uint(16), items);
+        self.add_primitive_type(Type::uint(32), items);
+        self.add_primitive_type(Type::uint(64), items);
+        self.add_primitive_type(Type::uint(128), items);
+        self.add_primitive_type(Type::sint(8), items);
+        self.add_primitive_type(Type::sint(16), items);
+        self.add_primitive_type(Type::sint(32), items);
+        self.add_primitive_type(Type::sint(64), items);
         self.add_primitive_type(Type::FieldElement, items);
         self.add_primitive_type(Type::String(Box::new(Type::Error)), items);
         self.add_primitive_type(

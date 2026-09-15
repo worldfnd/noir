@@ -6,7 +6,6 @@ use num_bigint::BigInt;
 
 use crate::{
     Type,
-    ast::IntegerBitSize,
     monomorphization::{
         CanonicalBindings, Monomorphizer,
         ast::{self, Definition, FuncId, Function, InlineType},
@@ -151,16 +150,15 @@ impl Monomorphizer<'_> {
     fn modulus_vector_literal(
         &self,
         bytes: Vec<u8>,
-        arr_elem_bits: IntegerBitSize,
+        arr_elem_bits: u32,
         location: Location,
     ) -> ast::Expression {
         use ast::*;
 
         let int_type = Type::Integer(Signedness::Unsigned, arr_elem_bits);
         assert!(
-            arr_elem_bits.bit_size() >= 8,
-            "modulus_vector_literal: arr_elem_bits ({}) is too small to hold a u8 byte",
-            arr_elem_bits.bit_size()
+            arr_elem_bits >= 8,
+            "modulus_vector_literal: arr_elem_bits ({arr_elem_bits}) is too small to hold a u8 byte",
         );
 
         let bytes_as_expr = vecmap(bytes, |byte| {
@@ -374,7 +372,7 @@ impl Monomorphizer<'_> {
 
     fn modulus_be_bytes(&self, location: Location) -> ast::Expression {
         let bytes = self.interner.field().modulus().to_bytes_be();
-        self.modulus_vector_literal(bytes, IntegerBitSize::Eight, location)
+        self.modulus_vector_literal(bytes, 8, location)
     }
 
     fn modulus_le_bits(&self, location: Location) -> ast::Expression {
@@ -384,18 +382,18 @@ impl Monomorphizer<'_> {
 
     fn modulus_le_bytes(&self, location: Location) -> ast::Expression {
         let bytes = self.interner.field().modulus().to_bytes_le();
-        self.modulus_vector_literal(bytes, IntegerBitSize::Eight, location)
+        self.modulus_vector_literal(bytes, 8, location)
     }
 
     fn modulus_num_bits(&self, location: Location) -> ast::Expression {
         let bits = self.interner.field().num_bits();
-        let typ = ast::Type::Integer(Signedness::Unsigned, IntegerBitSize::SixtyFour);
+        let typ = ast::Type::Integer(Signedness::Unsigned, 64);
         ast::Expression::Literal(ast::Literal::Integer(bits.into(), typ, location))
     }
 
     fn poseidon2_config_state_size(location: Location) -> ast::Expression {
         let size = bn254_blackbox_solver::poseidon2_config_state_size();
-        let typ = ast::Type::Integer(Signedness::Unsigned, IntegerBitSize::ThirtyTwo);
+        let typ = ast::Type::Integer(Signedness::Unsigned, 32);
         ast::Expression::Literal(ast::Literal::Integer(size.into(), typ, location))
     }
 }

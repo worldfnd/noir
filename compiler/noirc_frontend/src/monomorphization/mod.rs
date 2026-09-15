@@ -49,12 +49,12 @@
 //! when a normal lambda is compiled in an unconstrained context and uses types, such as references,
 //! which shouldn't leave the current context.
 use crate::ast::{FunctionKind, ItemVisibility, UnaryOp};
-use crate::hir::comptime::InterpreterError;
-use crate::hir::type_check::NoMatchingImplFoundError;
+use crate::hir::comptime::{Integer, InterpreterError};
+use crate::hir::type_check::{NoMatchingImplFoundError, TypeCheckError};
 use crate::lint::Lint;
 use crate::node_interner::{ExprId, GlobalValue, ImplSearchErrorKind, TraitItemId};
 use crate::recursion::TypeRecursionContext;
-use crate::shared::{ForeignCall, Visibility};
+use crate::shared::{ForeignCall, Signedness, Visibility};
 use crate::token::FunctionAttributeKind;
 use crate::{
     Kind, Type, TypeBinding, TypeBindings,
@@ -76,6 +76,7 @@ use itertools::Itertools;
 use noirc_errors::Location;
 use noirc_printable_type::PrintableType;
 use num_bigint::BigInt;
+use num_traits::One;
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 use std::rc::Rc;
 use std::{
@@ -873,22 +874,51 @@ impl<'interner> Monomorphizer<'interner> {
         location: Location,
     ) -> Result<(), MonomorphizationError> {
         use crate::hir::type_check::TypeCheckError;
-        use crate::shared::Signedness;
-
         if !matches!(to.follow_bindings(), HirType::FieldElement) {
             return Ok(());
         }
         let from = self.interner.id_type(lhs).follow_bindings();
         let err = if from.is_signed() {
             TypeCheckError::UnsupportedFieldCast { location }
-        } else if let HirType::Integer(Signedness::Unsigned, bits) = from
-            && !self.interner.field().fits_unsigned(u32::from(bits.bit_size()))
+        } else if let HirType::Integer(Signedness::Unsigned, width) = &from
+            && let Some(bits) = width.constant_width()
+            && !self.interner.field().fits_unsigned(bits)
         {
             TypeCheckError::IntegerTypeExceedsField { typ: from, location }
         } else {
             return Ok(());
         };
         Err(MonomorphizationError::InvalidFieldCast { err, location })
+    }
+
+    /// The type checker bounds a literal where it is written, which is too early when the width
+    /// of its type still names a generic; the bound is applied again once the width is a number.
+    fn check_integer_literal_fits(
+        value: &BigInt,
+        hir_type: &HirType,
+        typ: &ast::Type,
+        location: Location,
+    ) -> Result<(), MonomorphizationError> {
+        let ast::Type::Integer(sign, bits) = typ else {
+            return Ok(());
+        };
+        if Integer::int(sign.is_signed(), *bits, value.clone()).is_some() {
+            return Ok(());
+        }
+        let (min, max) = match sign {
+            Signedness::Unsigned => (BigInt::ZERO, (BigInt::one() << *bits) - 1),
+            Signedness::Signed => {
+                let half = BigInt::one() << (*bits - 1);
+                (-half.clone(), half - 1)
+            }
+        };
+        let err = TypeCheckError::IntegerLiteralDoesNotFitItsType {
+            expr: value.clone(),
+            ty: hir_type.follow_bindings(),
+            range: format!("{min}..={max}"),
+            location,
+        };
+        Err(MonomorphizationError::IntegerLiteralDoesNotFitItsType { err, location })
     }
 
     /// Monomorphize an expression.
@@ -912,7 +942,9 @@ impl<'interner> Monomorphizer<'interner> {
             HirExpression::Literal(HirLiteral::Bool(value)) => Literal(Bool(value)),
             HirExpression::Literal(HirLiteral::Integer(value)) => {
                 let location = self.interner.id_location(expr);
-                let typ = Self::convert_type(&self.interner.id_type(expr), location)?;
+                let hir_type = self.interner.id_type(expr);
+                let typ = Self::convert_type(&hir_type, location)?;
+                Self::check_integer_literal_fits(&value, &hir_type, &typ, location)?;
                 Literal(Integer(value, typ, location))
             }
             HirExpression::Literal(HirLiteral::Array(array)) => match array {
@@ -1966,7 +1998,24 @@ impl<'interner> Monomorphizer<'interner> {
     ) -> Result<ast::Type, MonomorphizationError> {
         Ok(match typ {
             HirType::FieldElement => ast::Type::Field,
-            HirType::Integer(sign, bits) => ast::Type::Integer(*sign, *bits),
+            HirType::Integer(sign, width) => {
+                let bits = match width.evaluate_to_u32(location) {
+                    Ok(bits) => bits,
+                    Err(err) => {
+                        return Err(MonomorphizationError::UnknownIntegerWidth { location, err });
+                    }
+                };
+                // A named width was checked where it was written; a width that came from a
+                // generic is only known here.
+                if !crate::shared::is_legal_integer_width(bits) {
+                    return Err(MonomorphizationError::UnsupportedIntegerWidth {
+                        signedness: *sign,
+                        bits,
+                        location,
+                    });
+                }
+                ast::Type::Integer(*sign, bits)
+            }
             HirType::Bool => ast::Type::Bool,
             HirType::String(size) => {
                 let size = match size.evaluate_to_u32(location) {

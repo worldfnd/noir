@@ -9,6 +9,9 @@ use crate::{
 #[derive(Debug)]
 pub enum MonomorphizationError {
     UnknownArrayLength { err: TypeCheckError, location: Location },
+    UnknownIntegerWidth { err: TypeCheckError, location: Location },
+    IntegerLiteralDoesNotFitItsType { err: TypeCheckError, location: Location },
+    UnsupportedIntegerWidth { signedness: crate::shared::Signedness, bits: u32, location: Location },
     UnknownConstant { location: Location },
     NoDefaultType { location: Location },
     InternalError { message: &'static str, location: Location },
@@ -47,6 +50,9 @@ impl MonomorphizationError {
     fn location(&self) -> Location {
         match self {
             MonomorphizationError::UnknownArrayLength { location, .. }
+            | MonomorphizationError::UnknownIntegerWidth { location, .. }
+            | MonomorphizationError::IntegerLiteralDoesNotFitItsType { location, .. }
+            | MonomorphizationError::UnsupportedIntegerWidth { location, .. }
             | MonomorphizationError::UnknownConstant { location }
             | MonomorphizationError::InternalError { location, .. }
             | MonomorphizationError::ComptimeFnInRuntimeCode { location, .. }
@@ -95,6 +101,25 @@ impl From<MonomorphizationError> for CustomDiagnostic {
             MonomorphizationError::UnknownArrayLength { err, location } => {
                 let message = "Invalid array length".into();
                 let secondary = err.to_string();
+                return CustomDiagnostic::simple_error(message, secondary, *location);
+            }
+            MonomorphizationError::UnknownIntegerWidth { err, location } => {
+                let message = "Invalid integer width".into();
+                let secondary = err.to_string();
+                return CustomDiagnostic::simple_error(message, secondary, *location);
+            }
+            MonomorphizationError::IntegerLiteralDoesNotFitItsType { err, location } => {
+                let message = "Integer literal does not fit its type".into();
+                let secondary = err.to_string();
+                return CustomDiagnostic::simple_error(message, secondary, *location);
+            }
+            MonomorphizationError::UnsupportedIntegerWidth { signedness, bits, location } => {
+                let message = format!(
+                    "`{}{bits}` is not a supported integer type",
+                    signedness.type_name_prefix()
+                );
+                let secondary =
+                    format!("integer widths are {}", crate::shared::LEGAL_INTEGER_WIDTHS);
                 return CustomDiagnostic::simple_error(message, secondary, *location);
             }
             MonomorphizationError::UnknownConstant { .. } => {
