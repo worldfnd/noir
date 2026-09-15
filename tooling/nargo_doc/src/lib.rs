@@ -6,7 +6,7 @@ use noirc_driver::CrateId;
 use noirc_errors::call_stack::CallStack;
 use noirc_errors::reporter::CustomLabel;
 use noirc_errors::{CustomDiagnostic, DiagnosticKind, Location, Span};
-use noirc_frontend::ast::{DocComment, IntegerBitSize, ItemVisibility};
+use noirc_frontend::ast::{DocComment, ItemVisibility};
 use noirc_frontend::graph::CrateGraph;
 use noirc_frontend::hir::def_map::{LocalModuleId, ModuleDefId, ModuleId};
 use noirc_frontend::hir::printer::items as expand_items;
@@ -14,7 +14,6 @@ use noirc_frontend::hir_def::stmt::{HirLetStatement, HirPattern};
 use noirc_frontend::hir_def::traits::ResolvedTraitBound;
 use noirc_frontend::node_interner::{FuncId, ReferenceId};
 use noirc_frontend::parser::block_comment_has_all_leading_stars;
-use noirc_frontend::shared::Signedness;
 use noirc_frontend::{Kind, NamedGeneric, ResolvedGeneric, TypeBinding};
 use noirc_frontend::{hir::def_map::DefMaps, node_interner::NodeInterner};
 
@@ -477,24 +476,15 @@ impl DocItemBuilder<'_> {
             noirc_frontend::Type::Unit => Type::Unit,
             noirc_frontend::Type::FieldElement => Type::Primitive(PrimitiveTypeKind::Field),
             noirc_frontend::Type::Bool => Type::Primitive(PrimitiveTypeKind::Bool),
-            noirc_frontend::Type::Integer(signedness, bit_size) => match signedness {
-                Signedness::Unsigned => match bit_size {
-                    IntegerBitSize::Eight => Type::Primitive(PrimitiveTypeKind::U8),
-                    IntegerBitSize::Sixteen => Type::Primitive(PrimitiveTypeKind::U16),
-                    IntegerBitSize::ThirtyTwo => Type::Primitive(PrimitiveTypeKind::U32),
-                    IntegerBitSize::SixtyFour => Type::Primitive(PrimitiveTypeKind::U64),
-                    IntegerBitSize::HundredTwentyEight => Type::Primitive(PrimitiveTypeKind::U128),
-                },
-                Signedness::Signed => match bit_size {
-                    IntegerBitSize::Eight => Type::Primitive(PrimitiveTypeKind::I8),
-                    IntegerBitSize::Sixteen => Type::Primitive(PrimitiveTypeKind::I16),
-                    IntegerBitSize::ThirtyTwo => Type::Primitive(PrimitiveTypeKind::I32),
-                    IntegerBitSize::SixtyFour => Type::Primitive(PrimitiveTypeKind::I64),
-                    IntegerBitSize::HundredTwentyEight => {
-                        panic!("There is no signed 128-bit integer")
-                    }
-                },
-            },
+            noirc_frontend::Type::Integer(signedness, _) => {
+                let signed = signedness.is_signed();
+                match typ.integer_bit_size() {
+                    Some(bits) => Type::Primitive(PrimitiveTypeKind::Integer { signed, bits }),
+                    // `u<N>`: a width that still names a generic has no primitive page, so the
+                    // type is shown as written.
+                    None => Type::Generic(typ.to_string()),
+                }
+            }
             noirc_frontend::Type::Quoted(quoted) => match quoted {
                 noirc_frontend::QuotedType::Expr => Type::Primitive(PrimitiveTypeKind::Expr),
                 noirc_frontend::QuotedType::Quoted => Type::Primitive(PrimitiveTypeKind::Quoted),
@@ -908,15 +898,9 @@ pub(crate) fn convert_primitive_type(
     match primitive_type {
         noirc_frontend::elaborator::PrimitiveType::Field => PrimitiveTypeKind::Field,
         noirc_frontend::elaborator::PrimitiveType::Bool => PrimitiveTypeKind::Bool,
-        noirc_frontend::elaborator::PrimitiveType::U8 => PrimitiveTypeKind::U8,
-        noirc_frontend::elaborator::PrimitiveType::U16 => PrimitiveTypeKind::U16,
-        noirc_frontend::elaborator::PrimitiveType::U32 => PrimitiveTypeKind::U32,
-        noirc_frontend::elaborator::PrimitiveType::U64 => PrimitiveTypeKind::U64,
-        noirc_frontend::elaborator::PrimitiveType::U128 => PrimitiveTypeKind::U128,
-        noirc_frontend::elaborator::PrimitiveType::I8 => PrimitiveTypeKind::I8,
-        noirc_frontend::elaborator::PrimitiveType::I16 => PrimitiveTypeKind::I16,
-        noirc_frontend::elaborator::PrimitiveType::I32 => PrimitiveTypeKind::I32,
-        noirc_frontend::elaborator::PrimitiveType::I64 => PrimitiveTypeKind::I64,
+        noirc_frontend::elaborator::PrimitiveType::Integer(signedness, bits) => {
+            PrimitiveTypeKind::Integer { signed: signedness.is_signed(), bits }
+        }
         noirc_frontend::elaborator::PrimitiveType::Str => PrimitiveTypeKind::Str,
         noirc_frontend::elaborator::PrimitiveType::Fmtstr => PrimitiveTypeKind::Fmtstr,
         noirc_frontend::elaborator::PrimitiveType::Expr => PrimitiveTypeKind::Expr,

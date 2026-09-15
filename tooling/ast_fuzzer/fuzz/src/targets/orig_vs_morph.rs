@@ -439,7 +439,7 @@ mod rules {
                 let Type::Integer(sign, bits) = typ else {
                     return Ok(());
                 };
-                let hir_type = HirType::Integer(*sign, *bits);
+                let hir_type = HirType::integer(*sign, *bits);
 
                 // Materialize the exact literals to field elements to reuse the field's modular
                 // arithmetic; convert back to an exact literal when storing the result.
@@ -651,7 +651,7 @@ mod helpers {
     use arbitrary::Unstructured;
     use noir_ast_fuzzer::{Config, expr, types};
     use noirc_frontend::{
-        ast::{IntegerBitSize, UnaryOp},
+        ast::UnaryOp,
         monomorphization::{
             ast::{BinaryOp, Definition, Expression, LocalId, Type},
             visitor::visit_expr_be_mut,
@@ -745,29 +745,6 @@ mod helpers {
         // Choose a random operation.
         let op = u.choose_iter(ops)?;
 
-        // let type_options = TYPES.get_or_init(|| {
-        //     let mut types = vec![Type::Bool, Type::Field];
-
-        //     for sign in [Signedness::Signed, Signedness::Unsigned] {
-        //         for size in IntegerBitSize::iter() {
-        //             if sign.is_signed() && size.bit_size() == 1 {
-        //                 continue;
-        //             }
-        //             // Avoid negative literals; the frontend makes them difficult to work with in expressions
-        //             // where no type inference information is available.
-        //             if sign.is_signed() {
-        //                 continue;
-        //             }
-        //             // Avoid large integers; frontend doesn't like them.
-        //             if size.bit_size() > 32 {
-        //                 continue;
-        //             }
-        //             types.push(Type::Integer(sign, size));
-        //         }
-        //     }
-        //     types
-        // });
-
         TYPES.with(|types| {
             // Select input types that can produce the output we want.
             let type_options = types
@@ -798,17 +775,14 @@ mod helpers {
             let mut types = vec![Type::Bool, Type::Field];
 
             for sign in [Signedness::Signed, Signedness::Unsigned] {
-                for size in IntegerBitSize::iter() {
-                    if sign.is_signed() && size.bit_size() == 1 {
-                        continue;
-                    }
+                for size in types::ACIR_INTEGER_WIDTHS {
                     // Avoid negative literals; the frontend makes them difficult to work with in expressions
                     // where no type inference information is available.
                     if sign.is_signed() {
                         continue;
                     }
                     // Avoid large integers; frontend doesn't like them.
-                    if size.bit_size() > 32 {
+                    if size > 32 {
                         continue;
                     }
                     types.push(Type::Integer(sign, size));

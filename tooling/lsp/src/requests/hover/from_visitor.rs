@@ -145,7 +145,7 @@ fn primitive_type_markup_content(name: &str, interner: &NodeInterner) -> Option<
 
 #[cfg(test)]
 mod tests {
-    use noirc_frontend::{Type, ast::IntegerBitSize, shared::Signedness};
+    use noirc_frontend::Type;
     use num_bigint::BigInt;
 
     use super::format_integer;
@@ -160,7 +160,7 @@ mod tests {
 
     #[test]
     fn format_positive_integer() {
-        let typ = Type::Integer(Signedness::Unsigned, IntegerBitSize::ThirtyTwo);
+        let typ = Type::uint(32);
         let value = BigInt::from(123456);
         let expected = "    u32\n---\nvalue of literal: `123456 (0x1e240)`";
         assert_eq!(format_integer(&typ, &value), expected);
@@ -168,7 +168,7 @@ mod tests {
 
     #[test]
     fn format_negative_integer() {
-        let typ = Type::Integer(Signedness::Signed, IntegerBitSize::SixtyFour);
+        let typ = Type::sint(64);
         let value = BigInt::from(-987654);
         let expected = "    i64\n---\nvalue of literal: `-987654 (-0xf1206)`";
         assert_eq!(format_integer(&typ, &value), expected);
