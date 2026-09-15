@@ -12,48 +12,14 @@ impl Add for Field {
     }
 }
 
-impl Add for u128 {
-    fn add(self, other: u128) -> u128 {
+impl<let N: u32> Add for u<N> {
+    fn add(self, other: Self) -> Self {
         self + other
     }
 }
-impl Add for u64 {
-    fn add(self, other: u64) -> u64 {
-        self + other
-    }
-}
-impl Add for u32 {
-    fn add(self, other: u32) -> u32 {
-        self + other
-    }
-}
-impl Add for u16 {
-    fn add(self, other: u16) -> u16 {
-        self + other
-    }
-}
-impl Add for u8 {
-    fn add(self, other: u8) -> u8 {
-        self + other
-    }
-}
-impl Add for i8 {
-    fn add(self, other: i8) -> i8 {
-        self + other
-    }
-}
-impl Add for i16 {
-    fn add(self, other: i16) -> i16 {
-        self + other
-    }
-}
-impl Add for i32 {
-    fn add(self, other: i32) -> i32 {
-        self + other
-    }
-}
-impl Add for i64 {
-    fn add(self, other: i64) -> i64 {
+
+impl<let N: u32> Add for i<N> {
+    fn add(self, other: Self) -> Self {
         self + other
     }
 }
@@ -70,48 +36,14 @@ impl Sub for Field {
     }
 }
 
-impl Sub for u128 {
-    fn sub(self, other: u128) -> u128 {
+impl<let N: u32> Sub for u<N> {
+    fn sub(self, other: Self) -> Self {
         self - other
     }
 }
-impl Sub for u64 {
-    fn sub(self, other: u64) -> u64 {
-        self - other
-    }
-}
-impl Sub for u32 {
-    fn sub(self, other: u32) -> u32 {
-        self - other
-    }
-}
-impl Sub for u16 {
-    fn sub(self, other: u16) -> u16 {
-        self - other
-    }
-}
-impl Sub for u8 {
-    fn sub(self, other: u8) -> u8 {
-        self - other
-    }
-}
-impl Sub for i8 {
-    fn sub(self, other: i8) -> i8 {
-        self - other
-    }
-}
-impl Sub for i16 {
-    fn sub(self, other: i16) -> i16 {
-        self - other
-    }
-}
-impl Sub for i32 {
-    fn sub(self, other: i32) -> i32 {
-        self - other
-    }
-}
-impl Sub for i64 {
-    fn sub(self, other: i64) -> i64 {
+
+impl<let N: u32> Sub for i<N> {
+    fn sub(self, other: Self) -> Self {
         self - other
     }
 }
@@ -128,48 +60,14 @@ impl Mul for Field {
     }
 }
 
-impl Mul for u128 {
-    fn mul(self, other: u128) -> u128 {
+impl<let N: u32> Mul for u<N> {
+    fn mul(self, other: Self) -> Self {
         self * other
     }
 }
-impl Mul for u64 {
-    fn mul(self, other: u64) -> u64 {
-        self * other
-    }
-}
-impl Mul for u32 {
-    fn mul(self, other: u32) -> u32 {
-        self * other
-    }
-}
-impl Mul for u16 {
-    fn mul(self, other: u16) -> u16 {
-        self * other
-    }
-}
-impl Mul for u8 {
-    fn mul(self, other: u8) -> u8 {
-        self * other
-    }
-}
-impl Mul for i8 {
-    fn mul(self, other: i8) -> i8 {
-        self * other
-    }
-}
-impl Mul for i16 {
-    fn mul(self, other: i16) -> i16 {
-        self * other
-    }
-}
-impl Mul for i32 {
-    fn mul(self, other: i32) -> i32 {
-        self * other
-    }
-}
-impl Mul for i64 {
-    fn mul(self, other: i64) -> i64 {
+
+impl<let N: u32> Mul for i<N> {
+    fn mul(self, other: Self) -> Self {
         self * other
     }
 }
@@ -186,48 +84,14 @@ impl Div for Field {
     }
 }
 
-impl Div for u128 {
-    fn div(self, other: u128) -> u128 {
+impl<let N: u32> Div for u<N> {
+    fn div(self, other: Self) -> Self {
         self / other
     }
 }
-impl Div for u64 {
-    fn div(self, other: u64) -> u64 {
-        self / other
-    }
-}
-impl Div for u32 {
-    fn div(self, other: u32) -> u32 {
-        self / other
-    }
-}
-impl Div for u16 {
-    fn div(self, other: u16) -> u16 {
-        self / other
-    }
-}
-impl Div for u8 {
-    fn div(self, other: u8) -> u8 {
-        self / other
-    }
-}
-impl Div for i8 {
-    fn div(self, other: i8) -> i8 {
-        self / other
-    }
-}
-impl Div for i16 {
-    fn div(self, other: i16) -> i16 {
-        self / other
-    }
-}
-impl Div for i32 {
-    fn div(self, other: i32) -> i32 {
-        self / other
-    }
-}
-impl Div for i64 {
-    fn div(self, other: i64) -> i64 {
+
+impl<let N: u32> Div for i<N> {
+    fn div(self, other: Self) -> Self {
         self / other
     }
 }
@@ -238,48 +102,14 @@ pub trait Rem {
 }
 // docs:end:rem-trait
 
-impl Rem for u128 {
-    fn rem(self, other: u128) -> u128 {
+impl<let N: u32> Rem for u<N> {
+    fn rem(self, other: Self) -> Self {
         self % other
     }
 }
-impl Rem for u64 {
-    fn rem(self, other: u64) -> u64 {
-        self % other
-    }
-}
-impl Rem for u32 {
-    fn rem(self, other: u32) -> u32 {
-        self % other
-    }
-}
-impl Rem for u16 {
-    fn rem(self, other: u16) -> u16 {
-        self % other
-    }
-}
-impl Rem for u8 {
-    fn rem(self, other: u8) -> u8 {
-        self % other
-    }
-}
-impl Rem for i8 {
-    fn rem(self, other: i8) -> i8 {
-        self % other
-    }
-}
-impl Rem for i16 {
-    fn rem(self, other: i16) -> i16 {
-        self % other
-    }
-}
-impl Rem for i32 {
-    fn rem(self, other: i32) -> i32 {
-        self % other
-    }
-}
-impl Rem for i64 {
-    fn rem(self, other: i64) -> i64 {
+
+impl<let N: u32> Rem for i<N> {
+    fn rem(self, other: Self) -> Self {
         self % other
     }
 }
@@ -297,26 +127,12 @@ impl Neg for Field {
     }
 }
 
-impl Neg for i8 {
-    fn neg(self) -> i8 {
+impl<let N: u32> Neg for i<N> {
+    fn neg(self) -> Self {
         -self
     }
 }
-impl Neg for i16 {
-    fn neg(self) -> i16 {
-        -self
-    }
-}
-impl Neg for i32 {
-    fn neg(self) -> i32 {
-        -self
-    }
-}
-impl Neg for i64 {
-    fn neg(self) -> i64 {
-        -self
-    }
-}
+
 // docs:end:neg-trait-impls
 
 // docs:start:wrapping-add-trait
@@ -343,7 +159,6 @@ impl WrappingAdd for u32 {
     }
 }
 
-// TODO: implement wrapping add/sub/mul for u64, u128 and i64 natively so they work on every field instead of gating them to bn254.
 #[field(bn254)]
 impl WrappingAdd for u64 {
     fn wrapping_add(self: u64, y: u64) -> u64 {
@@ -351,10 +166,24 @@ impl WrappingAdd for u64 {
     }
 }
 
+#[field(not(bn254))]
+impl WrappingAdd for u64 {
+    fn wrapping_add(self: u64, y: u64) -> u64 {
+        wrapping_add_int(self, y)
+    }
+}
+
 #[field(bn254)]
 impl WrappingAdd for u128 {
     fn wrapping_add(self: u128, y: u128) -> u128 {
         wrapping_add_hlp(self, y)
+    }
+}
+
+#[field(not(bn254))]
+impl WrappingAdd for u128 {
+    fn wrapping_add(self: u128, y: u128) -> u128 {
+        wrapping_add_int(self, y)
     }
 }
 
@@ -379,7 +208,6 @@ impl WrappingAdd for i32 {
     }
 }
 
-#[field(bn254)]
 impl WrappingAdd for i64 {
     fn wrapping_add(self: i64, y: i64) -> i64 {
         let x = self as u64;
@@ -400,31 +228,46 @@ pub trait WrappingSub {
 
 impl WrappingSub for u8 {
     fn wrapping_sub(self: u8, y: u8) -> u8 {
-        wrapping_sub_hlp(self, y) as u8
+        wrapping_sub_hlp(self, y, 0x100) as u8
     }
 }
 
 impl WrappingSub for u16 {
     fn wrapping_sub(self: u16, y: u16) -> u16 {
-        wrapping_sub_hlp(self, y) as u16
+        wrapping_sub_hlp(self, y, 0x10000) as u16
     }
 }
 
 impl WrappingSub for u32 {
     fn wrapping_sub(self: u32, y: u32) -> u32 {
-        wrapping_sub_hlp(self, y) as u32
+        wrapping_sub_hlp(self, y, 0x100000000) as u32
     }
 }
 #[field(bn254)]
 impl WrappingSub for u64 {
     fn wrapping_sub(self: u64, y: u64) -> u64 {
-        wrapping_sub_hlp(self, y) as u64
+        wrapping_sub_hlp(self, y, 0x10000000000000000) as u64
     }
 }
+
+#[field(not(bn254))]
+impl WrappingSub for u64 {
+    fn wrapping_sub(self: u64, y: u64) -> u64 {
+        wrapping_sub_int(self, y)
+    }
+}
+
 #[field(bn254)]
 impl WrappingSub for u128 {
     fn wrapping_sub(self: u128, y: u128) -> u128 {
-        wrapping_sub_hlp(self, y) as u128
+        wrapping_sub_hlp(self, y, 0x100000000000000000000000000000000) as u128
+    }
+}
+
+#[field(not(bn254))]
+impl WrappingSub for u128 {
+    fn wrapping_sub(self: u128, y: u128) -> u128 {
+        wrapping_sub_int(self, y)
     }
 }
 
@@ -448,7 +291,6 @@ impl WrappingSub for i32 {
         x.wrapping_sub(y as u32) as i32
     }
 }
-#[field(bn254)]
 impl WrappingSub for i64 {
     fn wrapping_sub(self: i64, y: i64) -> i64 {
         let x = self as u64;
@@ -491,6 +333,13 @@ impl WrappingMul for u64 {
     }
 }
 
+#[field(not(bn254))]
+impl WrappingMul for u64 {
+    fn wrapping_mul(self: u64, y: u64) -> u64 {
+        ((self as u128) * (y as u128)) as u64
+    }
+}
+
 impl WrappingMul for i8 {
     fn wrapping_mul(self: i8, y: i8) -> i8 {
         let x = self as u8;
@@ -512,7 +361,6 @@ impl WrappingMul for i32 {
     }
 }
 
-#[field(bn254)]
 impl WrappingMul for i64 {
     fn wrapping_mul(self: i64, y: i64) -> i64 {
         let x = self as u64;
@@ -524,6 +372,13 @@ impl WrappingMul for i64 {
 impl WrappingMul for u128 {
     fn wrapping_mul(self: u128, y: u128) -> u128 {
         wrapping_mul128_hlp(self, y)
+    }
+}
+
+#[field(not(bn254))]
+impl WrappingMul for u128 {
+    fn wrapping_mul(self: u128, y: u128) -> u128 {
+        wrapping_mul128_int(self, y)
     }
 }
 impl WrappingMul for Field {
@@ -540,12 +395,13 @@ where
     AsPrimitive::as_(x.as_() + y.as_())
 }
 
-fn wrapping_sub_hlp<T>(x: T, y: T) -> Field
+/// `bias` must be `2^W` for the `W`-bit type `T`: it prevents field underflow without
+/// changing the low `W` bits.
+fn wrapping_sub_hlp<T>(x: T, y: T, bias: Field) -> Field
 where
     T: AsPrimitive<Field>,
 {
-    //340282366920938463463374607431768211456 is 2^128, it is used to avoid underflow
-    x.as_() + 340282366920938463463374607431768211456 - y.as_()
+    x.as_() + bias - y.as_()
 }
 
 fn wrapping_mul_hlp<T>(x: T, y: T) -> T
@@ -556,8 +412,30 @@ where
     AsPrimitive::as_(x.as_() * y.as_())
 }
 
-#[field(bn254)]
+#[field(not(bn254))]
+fn wrapping_add_int<let N: u32>(x: u<N>, y: u<N>) -> u<N> {
+    let max: u<N> = !0;
+    if x <= max - y {
+        x + y
+    } else {
+        // `x + y - 2^N`, written so that neither side leaves the type.
+        x - (max - y) - 1
+    }
+}
+
+#[field(not(bn254))]
+fn wrapping_sub_int<let N: u32>(x: u<N>, y: u<N>) -> u<N> {
+    let max: u<N> = !0;
+    if x >= y {
+        x - y
+    } else {
+        // `x - y + 2^N`, written so that neither side leaves the type.
+        max - (y - x) + 1
+    }
+}
+
 global two_pow_64: u128 = 0x10000000000000000;
+
 /// Splits a 128 bits number into two 64 bits limbs
 #[field(bn254)]
 unconstrained fn split64(x: u128) -> (u64, u64) {
@@ -574,6 +452,21 @@ fn split_into_64_bit_limbs(x: u128) -> (u64, u64) {
     let (x_lo, x_hi) = unsafe { split64(x) };
     assert(x as Field == x_lo as Field + x_hi as Field * two_pow_64 as Field);
     (x_lo, x_hi)
+}
+
+/// Multiplies modulo `2^128` using 64-bit limbs.
+#[field(not(bn254))]
+fn wrapping_mul128_int(x: u128, y: u128) -> u128 {
+    let x_lo = x % two_pow_64;
+    let x_hi = x / two_pow_64;
+    let y_lo = y % two_pow_64;
+    let y_hi = y / two_pow_64;
+
+    let low = x_lo * y_lo;
+    // Discard cross-product high limbs; the remaining sum fits in u128.
+    let high = (x_lo * y_hi) % two_pow_64 + (x_hi * y_lo) % two_pow_64 + low / two_pow_64;
+
+    low % two_pow_64 + (high % two_pow_64) * two_pow_64
 }
 
 #[field(bn254)]
@@ -904,8 +797,7 @@ mod tests {
 
     mod wrapping_arithmetic {
         use crate::ops::arith::{Add, Div, Mul, Neg, Sub, WrappingAdd, WrappingMul, WrappingSub};
-        // Wrapping arithmetic on `u64`, `u128` and `i64` is bn254-only.
-        #[field(bn254)]
+
         #[test]
         fn test_wrapping_add() {
             assert_eq(255u8.wrapping_add(1u8), 0u8);
@@ -950,7 +842,6 @@ mod tests {
             assert_eq(neg_two_hundred.wrapping_add(two), neg_one_ninety_eight);
         }
 
-        #[field(bn254)]
         #[test]
         fn test_wrapping_sub() {
             assert_eq(0u8.wrapping_sub(1u8), 255u8);
@@ -985,7 +876,6 @@ mod tests {
             assert_eq(forty_two.wrapping_sub(fifty_eight), neg_sixteen);
         }
 
-        #[field(bn254)]
         #[test]
         fn test_wrapping_mul() {
             let zero: u128 = 0;
@@ -1038,7 +928,6 @@ mod tests {
         }
 
         // test wrapping operations is the same as the regular operations
-        #[field(bn254)]
         #[test]
         fn test_wrapping_vs_regular() {
             let u64_large = 0x123456789abcdef0u64;
@@ -1057,7 +946,7 @@ mod tests {
         fn test_field_wrapping_operations() {
             let zero: Field = 0;
             let one: Field = 1;
-            let large_val = 0xffffffffffffffff;
+            let large_val: Field = -1;
 
             // test Field wrapping operations
             assert_eq(zero.wrapping_add(one), one);
@@ -1198,8 +1087,6 @@ mod tests {
             assert_eq(3_i64.neg(), -3);
         }
 
-        // Wrapping arithmetic on `u64`, `u128` and `i64` is bn254-only.
-        #[field(bn254)]
         mod wrapping {
             use crate::ops::arith::{WrappingAdd, WrappingMul, WrappingSub};
 
