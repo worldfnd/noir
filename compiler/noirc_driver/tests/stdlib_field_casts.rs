@@ -7,10 +7,6 @@ use noirc_frontend::hir::def_collector::dc_crate::CompilationError;
 use noirc_frontend::hir::def_map::{CrateDefMap, parse_file};
 use noirc_frontend::hir::type_check::TypeCheckError;
 
-/// The `bn254` module of `std::field` is bn254-only by construction (128-bit limbs of the modulus) but is elaborated under every field, since `Field::lt` selects it at run time rather than by a field gate. Its errors under other fields are tolerated.
-// TODO: drop once field/bn254.nr is gated and Field::lt is split with #[field(not(bn254))].
-const TOLERATED_FILES: [&str; 1] = ["std/field/bn254.nr"];
-
 /// Every stdlib cast to `Field` starts from a type whose values all lie below the modulus of the field the compiler is built for; an impl that casts a wider type is gated to the fields where that type fits.
 #[test]
 fn stdlib_never_casts_a_wide_integer_to_field() {
@@ -35,9 +31,7 @@ fn stdlib_never_casts_a_wide_integer_to_field() {
                 inner @ TypeCheckError::IntegerTypeExceedsField { location, .. },
             ) => {
                 let path = context.file_manager.path(location.file).unwrap().display();
-                let path = path.to_string();
-                (!TOLERATED_FILES.contains(&path.as_str()))
-                    .then(|| format!("{path} @ {}: {inner}", location.span.start()))
+                Some(format!("{path} @ {}: {inner}", location.span.start()))
             }
             _ => None,
         })
