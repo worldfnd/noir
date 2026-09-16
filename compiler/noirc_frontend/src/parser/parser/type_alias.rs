@@ -3,7 +3,7 @@ use noirc_errors::Location;
 use crate::{
     ast::{ItemVisibility, TypeAlias, UnresolvedType, UnresolvedTypeData},
     parser::ParserErrorReason,
-    token::Token,
+    token::{Attribute, Token},
 };
 
 use super::Parser;
@@ -12,14 +12,17 @@ impl Parser<'_> {
     /// `TypeAlias` = 'type' identifier Generics '=' Type ';'
     pub(crate) fn parse_type_alias(
         &mut self,
+        attributes: Vec<(Attribute, Location)>,
         visibility: ItemVisibility,
         comptime: bool,
         start_location: Location,
     ) -> TypeAlias {
+        let attributes = self.validate_secondary_attributes(attributes);
         let location = self.location_at_previous_token_end();
         let Some(name) = self.eat_non_underscore_ident() else {
             self.expected_identifier();
             return TypeAlias {
+                attributes,
                 visibility,
                 comptime,
                 name: self.empty_ident_at_previous_token_end(),
@@ -74,6 +77,7 @@ impl Parser<'_> {
         let numeric_location = self.location_since(expr_location);
 
         TypeAlias {
+            attributes,
             visibility,
             comptime,
             name,

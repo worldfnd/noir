@@ -599,8 +599,9 @@ impl<'context> ItemBuilder<'context> {
             Vec::new()
         };
         if matches!(typ, Type::Bool | Type::Integer(..) | Type::FieldElement) {
-            // Numeric types seem to share all Field impls
-            impls.retain(|impl_| impl_.typ == typ);
+            // Numeric types share a method table; keep this type's own impls and the
+            // width-generic impls of its family.
+            impls.retain(|impl_| matches_primitive_type(&impl_.typ, &typ));
         }
 
         let trait_impls = self.build_primitive_type_trait_impls(&typ);
@@ -746,8 +747,14 @@ fn type_mentions_data_type(typ: &Type, data_type: &crate::DataType) -> bool {
     }
 }
 
+fn matches_primitive_type(typ: &Type, target_type: &Type) -> bool {
+    typ == target_type
+        || matches!((typ, target_type), (Type::Integer(sign, width), Type::Integer(target_sign, _))
+            if sign == target_sign && matches!(width.as_ref(), Type::NamedGeneric(_)))
+}
+
 fn type_mentions_primitive_type(typ: &Type, target_type: &Type) -> bool {
-    if typ == target_type {
+    if matches_primitive_type(typ, target_type) {
         return true;
     }
 

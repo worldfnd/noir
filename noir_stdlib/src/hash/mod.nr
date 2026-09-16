@@ -1,12 +1,16 @@
-// Exposed only for usage in `std::meta`
+#[field(bn254)]
 pub(crate) mod poseidon2;
 
 use crate::default::Default;
-use crate::embedded_curve_ops::{
-    EmbeddedCurvePoint, EmbeddedCurveScalar, multi_scalar_mul, multi_scalar_mul_array_return,
-};
 use crate::meta::derive_via;
 use crate::static_assert;
+
+// `use` takes no `#[field(..)]`, so the bn254-only curve types are reached through gated
+// aliases. Public signatures spell the module path out, which is what the generated docs link.
+#[field(bn254)]
+type EmbeddedCurvePoint = crate::embedded_curve_ops::EmbeddedCurvePoint;
+#[field(bn254)]
+type EmbeddedCurveScalar = crate::embedded_curve_ops::EmbeddedCurveScalar;
 
 /// The size of the state accepted by the backend in `poseidon2_permutation`.
 global POSEIDON2_CONFIG_STATE_SIZE: u32 = poseidon2_config_state_size();
@@ -45,25 +49,30 @@ pub fn blake3<let N: u32>(input: [u8; N]) -> [u8; 32]
 #[foreign(blake3)]
 fn __blake3<let N: u32>(input: [u8; N]) -> [u8; 32] {}
 
+#[field(bn254)]
 // docs:start:pedersen_commitment
-pub fn pedersen_commitment<let N: u32>(input: [Field; N]) -> EmbeddedCurvePoint {
+pub fn pedersen_commitment<let N: u32>(
+    input: [Field; N],
+) -> crate::embedded_curve_ops::EmbeddedCurvePoint {
     // docs:end:pedersen_commitment
     pedersen_commitment_with_separator(input, 0)
 }
 
+#[field(bn254)]
 #[inline_always]
 pub fn pedersen_commitment_with_separator<let N: u32>(
     input: [Field; N],
     separator: u32,
-) -> EmbeddedCurvePoint {
+) -> crate::embedded_curve_ops::EmbeddedCurvePoint {
     let mut points = [EmbeddedCurveScalar { lo: 0, hi: 0 }; N];
     for i in 0..N {
         points[i] = EmbeddedCurveScalar::from_field(input[i]);
     }
     let generators = derive_generators("DEFAULT_DOMAIN_SEPARATOR".as_bytes(), separator);
-    multi_scalar_mul(generators, points)
+    crate::embedded_curve_ops::multi_scalar_mul(generators, points)
 }
 
+#[field(bn254)]
 // docs:start:pedersen_hash
 pub fn pedersen_hash<let N: u32>(input: [Field; N]) -> Field
 // docs:end:pedersen_hash
@@ -71,6 +80,7 @@ pub fn pedersen_hash<let N: u32>(input: [Field; N]) -> Field
     pedersen_hash_with_separator(input, 0)
 }
 
+#[field(bn254)]
 #[no_predicates]
 pub fn pedersen_hash_with_separator<let N: u32>(input: [Field; N], separator: u32) -> Field {
     let mut scalars: [EmbeddedCurveScalar; N + 1] = [EmbeddedCurveScalar { lo: 0, hi: 0 }; N + 1];
@@ -89,7 +99,7 @@ pub fn pedersen_hash_with_separator<let N: u32>(input: [Field; N], separator: u3
     let length_generator: [EmbeddedCurvePoint; 1] =
         derive_generators("pedersen_hash_length".as_bytes(), 0);
     generators[N] = length_generator[0];
-    multi_scalar_mul_array_return(generators, scalars, true)[0].x
+    crate::embedded_curve_ops::multi_scalar_mul_array_return(generators, scalars, true)[0].x
 }
 
 #[field(bn254)]
@@ -97,7 +107,7 @@ pub fn pedersen_hash_with_separator<let N: u32>(input: [Field; N], separator: u3
 pub fn derive_generators<let N: u32, let M: u32>(
     domain_separator_bytes: [u8; M],
     starting_index: u32,
-) -> [EmbeddedCurvePoint; N] {
+) -> [crate::embedded_curve_ops::EmbeddedCurvePoint; N] {
     crate::assert_constant(domain_separator_bytes);
     crate::assert_constant(starting_index);
     __derive_generators(domain_separator_bytes, starting_index)
@@ -173,6 +183,29 @@ pub trait BuildHasher {
     fn build_hasher(self) -> H;
 }
 
+/// Multiply-add hasher for comptime maps. It is supported by every field and makes no
+/// collision-resistance claim, so it must not carry a security guarantee.
+pub(crate) struct NonCryptographicHasher {
+    _state: Field,
+}
+
+impl Hasher for NonCryptographicHasher {
+    fn finish(self) -> Field {
+        self._state
+    }
+
+    fn write(&mut self, input: Field) {
+        // The FNV prime sits far below the narrowest supported modulus.
+        self._state = self._state * 0x100000001b3 + input;
+    }
+}
+
+impl Default for NonCryptographicHasher {
+    fn default() -> Self {
+        NonCryptographicHasher { _state: 0 }
+    }
+}
+
 pub struct BuildHasherDefault<H>;
 
 impl<H> BuildHasher for BuildHasherDefault<H>
@@ -231,7 +264,6 @@ impl Hash for u32 {
     }
 }
 
-// TODO: write two limbs under a narrow field instead of gating u64, u128 and i64 to bn254.
 #[field(bn254)]
 impl Hash for u64 {
     fn hash<H>(self, state: &mut H)
@@ -242,6 +274,18 @@ impl Hash for u64 {
     }
 }
 
+// A field narrower than the integer takes 32-bit limbs, so no input bit is lost.
+#[field(not(bn254))]
+impl Hash for u64 {
+    fn hash<H>(self, state: &mut H)
+    where
+        H: Hasher,
+    {
+        H::write(state, (self % 0x100000000) as u32 as Field);
+        H::write(state, (self / 0x100000000) as u32 as Field);
+    }
+}
+
 #[field(bn254)]
 impl Hash for u128 {
     fn hash<H>(self, state: &mut H)
@@ -249,6 +293,20 @@ impl Hash for u128 {
         H: Hasher,
     {
         H::write(state, self as Field);
+    }
+}
+
+#[field(not(bn254))]
+impl Hash for u128 {
+    fn hash<H>(self, state: &mut H)
+    where
+        H: Hasher,
+    {
+        let mut rest = self;
+        for _ in 0..4 {
+            H::write(state, (rest % 0x100000000) as u32 as Field);
+            rest = rest / 0x100000000;
+        }
     }
 }
 
@@ -286,6 +344,16 @@ impl Hash for i64 {
         H: Hasher,
     {
         H::write(state, self as u64 as Field);
+    }
+}
+
+#[field(not(bn254))]
+impl Hash for i64 {
+    fn hash<H>(self, state: &mut H)
+    where
+        H: Hasher,
+    {
+        (self as u64).hash(state);
     }
 }
 
@@ -613,6 +681,7 @@ where
 // Some test vectors for Pedersen hash and Pedersen Commitment.
 // They have been generated using the same functions so the tests are for now useless
 // but they will be useful when we switch to Noir implementation.
+#[field(bn254)]
 #[test]
 fn assert_pedersen() {
     assert_eq(

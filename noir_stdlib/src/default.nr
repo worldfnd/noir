@@ -24,50 +24,14 @@ impl Default for Field {
     }
 }
 
-impl Default for u8 {
-    fn default() -> u8 {
-        0
-    }
-}
-impl Default for u16 {
-    fn default() -> u16 {
-        0
-    }
-}
-impl Default for u32 {
-    fn default() -> u32 {
-        0
-    }
-}
-impl Default for u64 {
-    fn default() -> u64 {
+impl<let N: u32> Default for u<N> {
+    fn default() -> Self {
         0
     }
 }
 
-impl Default for u128 {
-    fn default() -> u128 {
-        0
-    }
-}
-
-impl Default for i8 {
-    fn default() -> i8 {
-        0
-    }
-}
-impl Default for i16 {
-    fn default() -> i16 {
-        0
-    }
-}
-impl Default for i32 {
-    fn default() -> i32 {
-        0
-    }
-}
-impl Default for i64 {
-    fn default() -> i64 {
+impl<let N: u32> Default for i<N> {
+    fn default() -> Self {
         0
     }
 }

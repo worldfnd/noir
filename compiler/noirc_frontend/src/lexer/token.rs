@@ -1,3 +1,4 @@
+use acvm::FieldConfig;
 use noirc_errors::{Located, Location, Position, Span, Spanned};
 use num_bigint::BigInt;
 use std::fmt::{self, Display};
@@ -735,15 +736,6 @@ impl Attributes {
         })
     }
 
-    pub fn get_field_attribute(&self) -> Option<String> {
-        for secondary in &self.secondary {
-            if let SecondaryAttributeKind::Field(field) = &secondary.kind {
-                return Some(field.to_lowercase());
-            }
-        }
-        None
-    }
-
     pub fn is_foldable(&self) -> bool {
         self.function().is_some_and(|func_attribute| func_attribute.kind.is_foldable())
     }
@@ -908,6 +900,30 @@ pub struct SecondaryAttribute {
     pub location: Location,
 }
 
+/// A field name or modulus, optionally negated with `not(..)`.
+#[derive(PartialEq, Eq, Debug, Clone)]
+pub struct FieldPredicate {
+    pub name: String,
+    pub negated: bool,
+}
+
+impl FieldPredicate {
+    pub fn new(name: String, negated: bool) -> FieldPredicate {
+        FieldPredicate { name, negated }
+    }
+
+    /// Whether `field` is one of the fields this predicate keeps its item for.
+    pub fn admits(&self, field: FieldConfig) -> bool {
+        field.matches_field_attribute(&self.name.to_lowercase()) != self.negated
+    }
+}
+
+impl Display for FieldPredicate {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.negated { write!(f, "not({})", self.name) } else { write!(f, "{}", self.name) }
+    }
+}
+
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub enum SecondaryAttributeKind {
     /// Marks whether a function is deprecated or not.
@@ -923,7 +939,7 @@ pub enum SecondaryAttributeKind {
     // the entry point.
     ContractLibraryMethod,
     Export,
-    Field(String),
+    Field(FieldPredicate),
 
     /// A custom tag attribute: `#['foo]`
     Tag(String),
@@ -990,7 +1006,7 @@ impl SecondaryAttributeKind {
             SecondaryAttributeKind::Meta(meta) => meta.to_string(),
             SecondaryAttributeKind::ContractLibraryMethod => "contract_library_method".to_string(),
             SecondaryAttributeKind::Export => "export".to_string(),
-            SecondaryAttributeKind::Field(k) => format!("field({k})"),
+            SecondaryAttributeKind::Field(predicate) => format!("field({predicate})"),
             SecondaryAttributeKind::Abi(k) => format!("abi({k})"),
             SecondaryAttributeKind::Varargs => "varargs".to_string(),
             SecondaryAttributeKind::UseCallersScope => "use_callers_scope".to_string(),
