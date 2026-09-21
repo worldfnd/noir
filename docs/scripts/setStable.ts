@@ -58,6 +58,13 @@ async function main() {
     );
   }
 
+  // This checkout carries the versioned docs of the releases it was cut from, not of every release
+  // upstream publishes; a version with no docs folder here cannot be built, so it is not shown.
+  const versionedDocs = path.resolve(__dirname, '../versioned_docs');
+  const missing = stables.filter((tag) => !fs.existsSync(path.join(versionedDocs, `version-${tag}`)));
+  if (missing.length > 0) console.log('Skipping versions without a docs folder here: ', missing);
+  stables = stables.filter((tag) => !missing.includes(tag));
+
   stables = stables.slice(0, NUMBER_OF_VERSIONS_TO_SHOW);
 
   console.log('Filtered down to stables: ', stables);

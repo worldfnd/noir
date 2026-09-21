@@ -107,6 +107,7 @@ compiler/noirc_frontend/src/tests/runtime.rs
 compiler/noirc_frontend/src/tests/type_mismatch.rs
 compiler/noirc_frontend/src/tests/width_contract.rs
 design/field-genericity.md
+docs/scripts/setStable.ts
 noir_stdlib/docs/search-index.js
 noir_stdlib/docs/std/cmp/trait.Eq.html
 noir_stdlib/docs/std/cmp/trait.Ord.html
