@@ -612,9 +612,9 @@ fn errors_on_main_with_generics() {
 #[test]
 fn errors_on_unknown_integer_bit_size() {
     let src = r#"
-    fn main() -> pub u63 {
-                     ^^^ `u63` is not a supported integer type
-                     ~~~ integer widths are 8, 16, and every even width from 32 to 65536
+    fn main() -> pub u16385 {
+                     ^^^^^^ `u16385` is not a supported integer type
+                     ~~~~~~ integer widths are every width from 2 to 16384
         5
     }
     "#;
