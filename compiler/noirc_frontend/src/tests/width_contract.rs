@@ -12,7 +12,9 @@ use crate::monomorphization::ast::Type as MonomorphizedType;
 use crate::monomorphization::errors::MonomorphizationError;
 use crate::shared::{MAX_INTEGER_WIDTH, Signedness};
 use crate::test_utils::{GetProgramOptions, get_monomorphized_for_field, get_program_with_options};
-use crate::tests::{get_program_errors, get_program_errors_for_field};
+use crate::tests::{
+    check_errors, check_monomorphization_error, get_program_errors, get_program_errors_for_field,
+};
 
 /// Widths the circuit backend does not lower, from the narrowest the language has to the widest.
 const UNLOWERABLE_WIDTHS: [u32; 7] = [2, 3, 33, 66, 130, 256, MAX_INTEGER_WIDTH];
@@ -119,6 +121,58 @@ fn widths_the_language_does_not_have_are_refused_where_they_are_written() {
     let errors = get_program_errors("fn main() { let _: u08 = 0; }");
     assert!(unsupported_widths(&errors).is_empty(), "{errors:?}");
     assert!(!errors.is_empty());
+}
+
+/// Width 1 is refused in every spelling with the one instruction the named `u1` prints, so a
+/// user reads "use `bool`" whether they wrote `u1`, `u<1>`, `i<1>` or a generic bound to 1;
+/// width 0 is refused with the rule.
+#[test]
+fn every_spelling_of_width_1_says_use_bool_and_width_0_is_refused() {
+    check_errors(
+        r#"
+        fn main() {
+            let _: u1 = 0;
+                   ^^ `u1` has been removed, use `bool` instead
+        }
+        "#,
+    );
+    check_errors(
+        r#"
+        fn main() {
+            let _: u<1> = 0;
+                   ^ `u1` is not a supported integer type
+                   ~ `u1` has been removed, use `bool` instead
+        }
+        "#,
+    );
+    check_errors(
+        r#"
+        fn main() {
+            let _: i<1> = 0;
+                   ^ `i1` is not a supported integer type
+                   ~ `i1` has been removed, use `bool` instead
+        }
+        "#,
+    );
+    check_errors(
+        r#"
+        fn main() {
+            let _: u0 = 0;
+                   ^^ `u0` is not a supported integer type
+                   ~~ integer widths are every width from 2 to 16384
+        }
+        "#,
+    );
+    check_monomorphization_error(
+        r#"
+        fn narrow<let N: u32>() -> u<N - 1> { 0 }
+        fn main() {
+            let _ = narrow::<2>();
+                    ^^^^^^ `u1` is not a supported integer type
+                    ~~~~~~ `u1` has been removed, use `bool` instead
+        }
+        "#,
+    );
 }
 
 #[test]

@@ -391,6 +391,28 @@ impl ResolverError {
     }
 }
 
+/// The instruction printed for a type the language removed in favour of another.
+fn removed_type_message(typ: &str, replacement: &str) -> String {
+    format!("`{typ}` has been removed, use `{replacement}` instead")
+}
+
+/// The diagnostic for an integer width the language does not have, wherever the width became
+/// known. Width 1 carries the instruction the named `u1` and `i1` print, so every spelling of it
+/// says to use `bool`; every other width gets the rule.
+pub fn unsupported_integer_width_diagnostic(
+    signedness: crate::shared::Signedness,
+    bits: u32,
+    location: Location,
+) -> Diagnostic {
+    let name = format!("{}{bits}", signedness.type_name_prefix());
+    let note = if bits == 1 {
+        removed_type_message(&name, "bool")
+    } else {
+        format!("integer widths are every width from 2 to {}", crate::shared::MAX_INTEGER_WIDTH)
+    };
+    Diagnostic::simple_error(format!("`{name}` is not a supported integer type"), note, location)
+}
+
 impl<'a> From<&'a ResolverError> for Diagnostic {
     /// Only user errors can be transformed into a Diagnostic
     /// ICEs will make the compiler panic, as they could affect the
@@ -1182,20 +1204,13 @@ impl<'a> From<&'a ResolverError> for Diagnostic {
             },
             ResolverError::RemovedType { location, typ, replacement } => {
                 Diagnostic::simple_error(
-                    format!("`{typ}` has been removed, use `{replacement}` instead"),
+                    removed_type_message(typ, replacement),
                     String::new(),
                     *location,
                 )
             },
             ResolverError::UnsupportedIntegerWidth { location, signedness, bits } => {
-                Diagnostic::simple_error(
-                    format!(
-                        "`{}{bits}` is not a supported integer type",
-                        signedness.type_name_prefix()
-                    ),
-                    format!("integer widths are {}", crate::shared::LEGAL_INTEGER_WIDTHS),
-                    *location,
-                )
+                unsupported_integer_width_diagnostic(*signedness, *bits, *location)
             },
             ResolverError::MaximumRecursionDepthExceeded { location } => {
                 Diagnostic::simple_error(

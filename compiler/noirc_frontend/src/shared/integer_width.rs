@@ -5,9 +5,6 @@ use super::Signedness;
 /// consumer of the monomorphized output refuses on principle.
 pub const MAX_INTEGER_WIDTH: u32 = 16384;
 
-/// The rule in words, for diagnostics that name a width the language does not have.
-pub const LEGAL_INTEGER_WIDTHS: &str = "every width from 2 to 16384";
-
 /// Whether an integer type of `bits` bits exists, for either signedness: every width from `2`
 /// through [`MAX_INTEGER_WIDTH`], odd or even. Width 1 is refused in every spelling rather than
 /// aliased to `bool`; `design/field-genericity.md` records why.
