@@ -17,8 +17,9 @@ use crate::hir::def_map::{
     CrateDefMap, DefMaps, LocalModuleId, ModuleData, ModuleDefId, ModuleId, Namespace, PerNs,
 };
 
-use super::errors::ResolverError;
+use super::errors::{ResolverError, unsupported_integer_width_diagnostic};
 use super::visibility::item_in_module_is_visible;
+use crate::shared::Signedness;
 
 #[derive(Debug, Clone)]
 pub struct ImportDirective {
@@ -78,13 +79,16 @@ pub enum PathResolutionError {
     AssociatedItemNotImplemented { ident: Ident, type_name: String, traits: Vec<String> },
     #[error("associated type `{ident}` cannot be accessed directly")]
     AssociatedTypeNotAccessibleDirectly { ident: Ident, type_name: String, traits: Vec<String> },
+    #[error("`{}{bits}` is not a supported integer type", signedness.type_name_prefix())]
+    UnsupportedIntegerWidth { signedness: Signedness, bits: u32, location: Location },
 }
 
 impl PathResolutionError {
     pub fn location(&self) -> Location {
         match self {
             PathResolutionError::NoSuper(location)
-            | PathResolutionError::TurbofishNotAllowedOnItem { location, .. } => *location,
+            | PathResolutionError::TurbofishNotAllowedOnItem { location, .. }
+            | PathResolutionError::UnsupportedIntegerWidth { location, .. } => *location,
             PathResolutionError::Unresolved(ident)
             | PathResolutionError::Private(ident)
             | PathResolutionError::NotAModule { ident, .. }
@@ -125,6 +129,9 @@ impl<'a> From<&'a PathResolutionError> for CustomDiagnostic {
         match &error {
             PathResolutionError::Unresolved(ident) => {
                 CustomDiagnostic::simple_error(error.to_string(), String::new(), ident.location())
+            }
+            PathResolutionError::UnsupportedIntegerWidth { signedness, bits, location } => {
+                unsupported_integer_width_diagnostic(*signedness, *bits, *location)
             }
             PathResolutionError::Private(ident) => CustomDiagnostic::simple_error(
                 error.to_string(),

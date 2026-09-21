@@ -175,6 +175,40 @@ fn every_spelling_of_width_1_says_use_bool_and_width_0_is_refused() {
     );
 }
 
+/// In an expression path the name is looked up as a primitive type rather than resolved as a
+/// type, so the width diagnostic has to be raised there as well: `u16385::max_value()` names
+/// the rule, and `u1::max_value()` says to use `bool`, instead of "could not resolve".
+#[test]
+fn a_width_the_language_does_not_have_is_refused_in_an_expression_path() {
+    check_errors(
+        r#"
+        fn main() {
+            let _ = u16385::max_value();
+                    ^^^^^^ `u16385` is not a supported integer type
+                    ~~~~~~ integer widths are every width from 2 to 16384
+        }
+        "#,
+    );
+    check_errors(
+        r#"
+        fn main() {
+            let _ = i0::max_value();
+                    ^^ `i0` is not a supported integer type
+                    ~~ integer widths are every width from 2 to 16384
+        }
+        "#,
+    );
+    check_errors(
+        r#"
+        fn main() {
+            let _ = u1::max_value();
+                    ^^ `u1` is not a supported integer type
+                    ~~ `u1` has been removed, use `bool` instead
+        }
+        "#,
+    );
+}
+
 #[test]
 fn a_generic_width_is_checked_once_it_is_bound() {
     let src = "
