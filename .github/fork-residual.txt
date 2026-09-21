@@ -47,6 +47,7 @@ compiler/noirc_frontend/src/elaborator/generics.rs
 compiler/noirc_frontend/src/elaborator/lints.rs
 compiler/noirc_frontend/src/elaborator/mod.rs
 compiler/noirc_frontend/src/elaborator/options.rs
+compiler/noirc_frontend/src/elaborator/path_resolution.rs
 compiler/noirc_frontend/src/elaborator/primitive_types.rs
 compiler/noirc_frontend/src/elaborator/types.rs
 compiler/noirc_frontend/src/hir/comptime/errors.rs
@@ -66,6 +67,7 @@ compiler/noirc_frontend/src/hir/def_collector/dc_mod.rs
 compiler/noirc_frontend/src/hir/printer/items.rs
 compiler/noirc_frontend/src/hir/printer/items/hir_def.rs
 compiler/noirc_frontend/src/hir/resolution/errors.rs
+compiler/noirc_frontend/src/hir/resolution/import.rs
 compiler/noirc_frontend/src/hir/type_check/errors.rs
 compiler/noirc_frontend/src/hir/type_check/generics.rs
 compiler/noirc_frontend/src/hir_def/expr.rs
