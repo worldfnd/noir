@@ -12,10 +12,12 @@ use crate::monomorphization::ast::Type as MonomorphizedType;
 use crate::monomorphization::errors::MonomorphizationError;
 use crate::shared::{MAX_INTEGER_WIDTH, Signedness};
 use crate::test_utils::{GetProgramOptions, get_monomorphized_for_field, get_program_with_options};
-use crate::tests::{get_program_errors, get_program_errors_for_field};
+use crate::tests::{
+    check_errors, check_monomorphization_error, get_program_errors, get_program_errors_for_field,
+};
 
-/// Widths past the native ones, up to the widest the language has.
-const WIDE_WIDTHS: [u32; 5] = [34, 66, 130, 256, MAX_INTEGER_WIDTH];
+/// Widths the circuit backend does not lower, from the narrowest the language has to the widest.
+const UNLOWERABLE_WIDTHS: [u32; 7] = [2, 3, 33, 66, 130, 256, MAX_INTEGER_WIDTH];
 
 fn unsupported_widths(errors: &[CompilationError]) -> Vec<(Signedness, u32)> {
     errors
@@ -84,9 +86,9 @@ fn every_legal_width_is_nameable_including_i128_and_the_widest() {
     let src = "
         fn main() {
             let a: i128 = -1;
-            let b: u65536 = 1;
-            let c: i65536 = -1;
-            let d: u<65536> = 1;
+            let b: u16384 = 1;
+            let c: i16384 = -1;
+            let d: u<16384> = 1;
             let e: u8 = 1;
             let f: i32 = -1;
             assert(a == -1);
@@ -105,40 +107,114 @@ fn every_legal_width_is_nameable_including_i128_and_the_widest() {
 #[test]
 fn widths_the_language_does_not_have_are_refused_where_they_are_written() {
     for (name, signedness, bits) in [
-        ("u10", Signedness::Unsigned, 10),
-        ("i24", Signedness::Signed, 24),
-        ("u7", Signedness::Unsigned, 7),
-        ("u33", Signedness::Unsigned, 33),
-        ("u65538", Signedness::Unsigned, 65538),
-        ("i2", Signedness::Signed, 2),
-        ("u<10>", Signedness::Unsigned, 10),
-        ("i<65537>", Signedness::Signed, 65537),
+        ("u16385", Signedness::Unsigned, 16385),
+        ("i<16385>", Signedness::Signed, 16385),
+        ("i0", Signedness::Signed, 0),
+        ("u<0>", Signedness::Unsigned, 0),
     ] {
         let src = format!("fn main() {{ let _: {name} = 0; }}");
         let errors = get_program_errors(&src);
         assert_eq!(unsupported_widths(&errors), vec![(signedness, bits)], "{name}: {errors:?}");
     }
 
-    // `u1` and `i1` keep their own diagnostic, and a leading zero is not an integer type name.
-    let errors = get_program_errors("fn main() { let _: u1 = 0; }");
-    assert!(
-        errors.iter().any(|error| matches!(
-            error,
-            CompilationError::ResolverError(ResolverError::RemovedType { typ, .. }) if typ == "u1"
-        )),
-        "{errors:?}"
-    );
+    // A leading zero is not an integer type name.
     let errors = get_program_errors("fn main() { let _: u08 = 0; }");
     assert!(unsupported_widths(&errors).is_empty(), "{errors:?}");
     assert!(!errors.is_empty());
 }
 
+/// Width 1 is refused in every spelling with the one instruction the named `u1` prints, so a
+/// user reads "use `bool`" whether they wrote `u1`, `u<1>`, `i<1>` or a generic bound to 1;
+/// width 0 is refused with the rule.
+#[test]
+fn every_spelling_of_width_1_says_use_bool_and_width_0_is_refused() {
+    check_errors(
+        r#"
+        fn main() {
+            let _: u1 = 0;
+                   ^^ `u1` has been removed, use `bool` instead
+        }
+        "#,
+    );
+    check_errors(
+        r#"
+        fn main() {
+            let _: u<1> = 0;
+                   ^ `u1` is not a supported integer type
+                   ~ `u1` has been removed, use `bool` instead
+        }
+        "#,
+    );
+    check_errors(
+        r#"
+        fn main() {
+            let _: i<1> = 0;
+                   ^ `i1` is not a supported integer type
+                   ~ `i1` has been removed, use `bool` instead
+        }
+        "#,
+    );
+    check_errors(
+        r#"
+        fn main() {
+            let _: u0 = 0;
+                   ^^ `u0` is not a supported integer type
+                   ~~ integer widths are every width from 2 to 16384
+        }
+        "#,
+    );
+    check_monomorphization_error(
+        r#"
+        fn narrow<let N: u32>() -> u<N - 1> { 0 }
+        fn main() {
+            let _ = narrow::<2>();
+                    ^^^^^^ `u1` is not a supported integer type
+                    ~~~~~~ `u1` has been removed, use `bool` instead
+        }
+        "#,
+    );
+}
+
+/// In an expression path the name is looked up as a primitive type rather than resolved as a
+/// type, so the width diagnostic has to be raised there as well: `u16385::max_value()` names
+/// the rule, and `u1::max_value()` says to use `bool`, instead of "could not resolve".
+#[test]
+fn a_width_the_language_does_not_have_is_refused_in_an_expression_path() {
+    check_errors(
+        r#"
+        fn main() {
+            let _ = u16385::max_value();
+                    ^^^^^^ `u16385` is not a supported integer type
+                    ~~~~~~ integer widths are every width from 2 to 16384
+        }
+        "#,
+    );
+    check_errors(
+        r#"
+        fn main() {
+            let _ = i0::max_value();
+                    ^^ `i0` is not a supported integer type
+                    ~~ integer widths are every width from 2 to 16384
+        }
+        "#,
+    );
+    check_errors(
+        r#"
+        fn main() {
+            let _ = u1::max_value();
+                    ^^ `u1` is not a supported integer type
+                    ~~ `u1` has been removed, use `bool` instead
+        }
+        "#,
+    );
+}
+
 #[test]
 fn a_generic_width_is_checked_once_it_is_bound() {
     let src = "
-        fn shifted<let N: u32>() -> u<N + 2> { 0 }
+        fn shifted<let N: u32>() -> u<N + 16384> { 0 }
         fn main() {
-            let _ = shifted::<8>();
+            let _ = shifted::<1>();
         }
     ";
     for field in FieldId::ALL {
@@ -149,7 +225,7 @@ fn a_generic_width_is_checked_once_it_is_bound() {
                 error,
                 MonomorphizationError::UnsupportedIntegerWidth {
                     signedness: Signedness::Unsigned,
-                    bits: 10,
+                    bits: 16385,
                     ..
                 }
             ),
@@ -160,7 +236,7 @@ fn a_generic_width_is_checked_once_it_is_bound() {
 
 #[test]
 fn literal_bounds_hold_at_every_width() {
-    for bits in WIDE_WIDTHS {
+    for bits in UNLOWERABLE_WIDTHS {
         for signedness in [Signedness::Unsigned, Signedness::Signed] {
             let name = format!("{}{bits}", signedness.type_name_prefix());
             let (min, max) = match signedness {
@@ -224,9 +300,9 @@ fn comptime_arithmetic_and_casts_work_at_wide_widths() {
                 assert(f == 1361129467683753853853498429727072845823);
                 let g: u256 = 1 << 255;
                 assert(g == 57896044618658097711785492504343953926634992332820282019728792003956564819968);
-                let h: i65536 = -1;
-                assert((h as u65536) == {widest_max});
-                assert(((h as u65536) & 1) == 1);
+                let h: i16384 = -1;
+                assert((h as u16384) == {widest_max});
+                assert(((h as u16384) & 1) == 1);
             }}
         }}
     "
@@ -328,9 +404,9 @@ fn as_integer_reports_the_width_as_a_u32() {
                 let (signed, bits) = quote { i<256> }.as_type().as_integer().unwrap();
                 assert(signed);
                 assert(bits == 256);
-                let (_, bits) = quote { u65536 }.as_type().as_integer().unwrap();
+                let (_, bits) = quote { u16384 }.as_type().as_integer().unwrap();
                 let widest: u32 = bits;
-                assert(widest == 65536);
+                assert(widest == 16384);
                 assert(quote { Field }.as_type().as_integer()._is_some == false);
             }
         }

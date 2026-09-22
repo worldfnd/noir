@@ -76,7 +76,14 @@ fn numeric_traits_and_limits_work_for_configured_fields() {
                 assert(i34::min_value() == -8589934592);
                 assert(i128::max_value() == 170141183460469231731687303715884105727);
                 assert(i128::min_value() == -170141183460469231731687303715884105728);
-                assert(i65536::bits() == 65536);
+                assert(i16384::bits() == 16384);
+                assert(u2::max_value() == 3);
+                assert(u2::min_value() == 0);
+                assert(i2::max_value() == 1);
+                assert(i2::min_value() == -2);
+                assert(u2::bits() == 2);
+                assert(u3::max_value() == 7);
+                assert(i3::min_value() == -4);
             }
         }
     ";

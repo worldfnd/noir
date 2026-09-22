@@ -40,9 +40,10 @@ fn the_front_half_takes_every_width_and_the_circuit_path_stops_at_the_backend() 
         ("u8", Signedness::Unsigned, 8, true),
         ("u128", Signedness::Unsigned, 128, true),
         ("i64", Signedness::Signed, 64, true),
+        ("u3", Signedness::Unsigned, 3, false),
         ("u34", Signedness::Unsigned, 34, false),
         ("i128", Signedness::Signed, 128, false),
-        ("u65536", Signedness::Unsigned, 65536, false),
+        ("u16384", Signedness::Unsigned, 16384, false),
     ];
     for (typ, signedness, bits, lowerable) in cases {
         let source = format!("fn main(x: {typ}) -> pub {typ} {{ x + 1 }}");
@@ -104,11 +105,11 @@ fn unlowerable_widths_are_refused_inside_types_and_bodies() {
 
 #[test]
 fn the_abi_carries_the_width_as_written() {
-    let (mut context, crate_id) = context_for("fn main(x: u34, y: i65536) -> pub u34 { x }");
+    let (mut context, crate_id) = context_for("fn main(x: u34, y: i16384) -> pub u34 { x }");
     check_crate(&mut context, crate_id, &CompileOptions::default()).unwrap();
     let (parameters, return_type) =
         compute_function_abi(&context, &crate_id).expect("main has an abi");
     assert_eq!(parameters[0].typ, AbiType::Integer { sign: Sign::Unsigned, width: 34 });
-    assert_eq!(parameters[1].typ, AbiType::Integer { sign: Sign::Signed, width: 65536 });
+    assert_eq!(parameters[1].typ, AbiType::Integer { sign: Sign::Signed, width: 16384 });
     assert_eq!(return_type, Some(AbiType::Integer { sign: Sign::Unsigned, width: 34 }));
 }

@@ -1,20 +1,21 @@
 use super::Signedness;
 
-/// The widest integer type: `u65536` and `i65536` are the last legal widths.
-pub const MAX_INTEGER_WIDTH: u32 = 65536;
+/// The widest integer type: `u16384` and `i16384` are the last legal widths. The cap is the one
+/// Mavros lowers (its `MAX_SUPPORTED_INT_BITS`), so no width the front half admits is one the
+/// consumer of the monomorphized output refuses on principle.
+pub const MAX_INTEGER_WIDTH: u32 = 16384;
 
-/// The rule in words, for diagnostics that name a width the language does not have.
-pub const LEGAL_INTEGER_WIDTHS: &str = "8, 16, and every even width from 32 to 65536";
-
-/// Whether an integer type of `bits` bits exists, for either signedness: `8`, `16`, and every
-/// even width from `32` through [`MAX_INTEGER_WIDTH`]. `u1` and `i1` are spelled `bool`.
+/// Whether an integer type of `bits` bits exists, for either signedness: every width from `2`
+/// through [`MAX_INTEGER_WIDTH`], odd or even. Width 1 is refused in every spelling rather than
+/// aliased to `bool`; `design/field-genericity.md` records why.
 pub fn is_legal_integer_width(bits: u32) -> bool {
-    matches!(bits, 8 | 16) || ((32..=MAX_INTEGER_WIDTH).contains(&bits) && bits % 2 == 0)
+    (2..=MAX_INTEGER_WIDTH).contains(&bits)
 }
 
 /// Reads a name of the form `u<digits>` or `i<digits>` as a signedness and a width, without
-/// asking whether that width is legal. The digits must be plain decimal with no leading zero,
-/// so `u0`, `u007` and `u8_` are not integer type names, nor is a width too large for a `u32`.
+/// asking whether that width is legal: `u0` and `u1` parse, and the legality rule refuses them.
+/// The digits must be plain decimal with no leading zero, so `u00`, `u007` and `u8_` are not
+/// integer type names, nor is a width too large for a `u32`.
 pub fn parse_integer_type_name(name: &str) -> Option<(Signedness, u32)> {
     let (signedness, digits) = match name.split_at_checked(1)? {
         ("u", digits) => (Signedness::Unsigned, digits),
@@ -22,7 +23,7 @@ pub fn parse_integer_type_name(name: &str) -> Option<(Signedness, u32)> {
         _ => return None,
     };
     if digits.is_empty()
-        || digits.starts_with('0')
+        || (digits.starts_with('0') && digits.len() > 1)
         || !digits.bytes().all(|byte| byte.is_ascii_digit())
     {
         return None;
@@ -36,11 +37,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn legal_widths_are_8_16_and_even_widths_from_32_to_65536() {
-        for bits in [8, 16, 32, 34, 64, 128, 130, 256, 65534, 65536] {
+    fn legal_widths_are_every_width_from_2_to_16384() {
+        for bits in [2, 3, 8, 16, 33, 34, 64, 128, 129, 16383, 16384] {
             assert!(is_legal_integer_width(bits), "{bits}");
         }
-        for bits in [0, 1, 2, 4, 7, 9, 10, 12, 24, 31, 33, 129, 65535, 65537, 65538, u32::MAX] {
+        for bits in [0, 1, 16385, u32::MAX] {
             assert!(!is_legal_integer_width(bits), "{bits}");
         }
     }
@@ -50,9 +51,12 @@ mod tests {
         assert_eq!(parse_integer_type_name("u8"), Some((Signedness::Unsigned, 8)));
         assert_eq!(parse_integer_type_name("i128"), Some((Signedness::Signed, 128)));
         assert_eq!(parse_integer_type_name("u10"), Some((Signedness::Unsigned, 10)));
-        assert_eq!(parse_integer_type_name("u65536"), Some((Signedness::Unsigned, 65536)));
+        assert_eq!(parse_integer_type_name("u16384"), Some((Signedness::Unsigned, 16384)));
         assert_eq!(parse_integer_type_name("u4294967295"), Some((Signedness::Unsigned, u32::MAX)));
-        for name in ["u", "i", "u0", "u007", "u08", "u8_", "u1a", "U8", "u-8", "u4294967296", ""] {
+        // A width the language does not have still parses; legality is a separate question.
+        assert_eq!(parse_integer_type_name("u0"), Some((Signedness::Unsigned, 0)));
+        assert_eq!(parse_integer_type_name("u1"), Some((Signedness::Unsigned, 1)));
+        for name in ["u", "i", "u00", "u007", "u08", "u8_", "u1a", "U8", "u-8", "u4294967296", ""] {
             assert_eq!(parse_integer_type_name(name), None, "{name}");
         }
     }

@@ -331,7 +331,7 @@ impl Elaborator<'_> {
             self.push_err(ResolverError::UnsupportedIntegerWidth { location, signedness, bits });
             return Type::Error;
         }
-        Type::Integer(signedness, Box::new(width))
+        Type::Integer(signedness, std::rc::Rc::new(width))
     }
 
     /// Instantiates a primitive type with turbofish generics.
@@ -469,11 +469,13 @@ mod tests {
             ("i128", Some((Signedness::Signed, 128))),
             ("u34", Some((Signedness::Unsigned, 34))),
             ("i512", Some((Signedness::Signed, 512))),
-            ("u65536", Some((Signedness::Unsigned, 65536))),
-            ("u65538", None),
-            ("u10", None),
-            ("u24", None),
+            ("u2", Some((Signedness::Unsigned, 2))),
+            ("i3", Some((Signedness::Signed, 3))),
+            ("u10", Some((Signedness::Unsigned, 10))),
+            ("u16384", Some((Signedness::Unsigned, 16384))),
+            ("u16385", None),
             ("u1", None),
+            ("i1", None),
             ("u0", None),
             ("u007", None),
             ("u", None),
@@ -498,7 +500,7 @@ mod tests {
     #[test]
     fn a_generic_width_has_no_primitive_name() {
         let width = crate::Type::type_variable(crate::TypeVariableId(0));
-        let typ = crate::Type::Integer(Signedness::Unsigned, Box::new(width));
+        let typ = crate::Type::Integer(Signedness::Unsigned, std::rc::Rc::new(width));
         assert_eq!(PrimitiveType::from_type(&typ), None);
     }
 }
