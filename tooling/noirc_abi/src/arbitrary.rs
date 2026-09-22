@@ -24,11 +24,14 @@ fn ensure_unique_strings<'a>(iter: impl Iterator<Item = &'a mut String>) {
     }
 }
 
+/// The widest integer the arbitrary ABI types reach: one bit short of bn254's modulus.
+const MAX_WIDTH: u32 = 253;
+
 proptest::prop_compose! {
-    pub(super) fn arb_field_from_integer(bit_size: u32)(value: u128)-> FieldElement {
-        let width = (bit_size % 129).clamp(1, 128);
+    pub(super) fn arb_field_from_integer(bit_size: u32)(bytes in vec(any::<u8>(), 32))-> FieldElement {
+        let width = bit_size.clamp(1, MAX_WIDTH);
         let bound = (BigUint::from(1_u8) << width).min(FieldElement::modulus());
-        FieldElement::from_be_bytes_reduce(&(BigUint::from(value) % bound).to_bytes_be())
+        FieldElement::from_be_bytes_reduce(&(BigUint::from_bytes_be(&bytes) % bound).to_bytes_be())
     }
 }
 
@@ -87,7 +90,7 @@ fn arb_primitive_abi_type() -> SBoxedStrategy<AbiType> {
         Just(AbiType::Field),
         Just(AbiType::Boolean),
         any::<(Sign, u32)>().prop_map(|(sign, width)| {
-            let width = (width % 129).clamp(1, 128);
+            let width = (width % (MAX_WIDTH + 1)).clamp(1, MAX_WIDTH);
             AbiType::Integer { sign, width }
         }),
         // restrict length of strings to avoid running out of memory
