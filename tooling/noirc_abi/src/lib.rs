@@ -27,6 +27,7 @@ use std::{collections::BTreeMap, str};
 #[cfg(test)]
 mod arbitrary;
 
+pub mod conformance;
 pub mod errors;
 pub mod input_parser;
 mod scalar;
