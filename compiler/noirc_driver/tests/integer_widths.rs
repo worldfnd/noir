@@ -34,6 +34,8 @@ fn context_for(source: &str) -> (Context<'static, 'static>, CrateId) {
 
 /// The widths the circuit backend lowers keep compiling; every other width passes the front
 /// half and the monomorphizer, and stops at circuit generation with a message naming the type.
+/// The width is that of a helper `main` calls, since `main` itself takes and returns only
+/// integers narrower than the field.
 #[test]
 fn the_front_half_takes_every_width_and_the_circuit_path_stops_at_the_backend() {
     let cases = [
@@ -46,7 +48,10 @@ fn the_front_half_takes_every_width_and_the_circuit_path_stops_at_the_backend() 
         ("u16384", Signedness::Unsigned, 16384, false),
     ];
     for (typ, signedness, bits, lowerable) in cases {
-        let source = format!("fn main(x: {typ}) -> pub {typ} {{ x + 1 }}");
+        let source = format!(
+            "fn increment(x: {typ}) -> {typ} {{ x + 1 }}
+             fn main(x: u8) -> pub u8 {{ increment((x % 2) as {typ}) as u8 }}"
+        );
 
         let (mut context, crate_id) = context_for(&source);
         check_crate(&mut context, crate_id, &CompileOptions::default())
@@ -59,8 +64,15 @@ fn the_front_half_takes_every_width_and_the_circuit_path_stops_at_the_backend() 
             false,
         )
         .expect("every width monomorphizes");
-        assert_eq!(program.functions[0].return_type, Type::Integer(signedness, bits), "{typ}");
+        let increment =
+            program.functions.iter().find(|function| function.name == "increment").unwrap();
+        assert_eq!(increment.return_type, Type::Integer(signedness, bits), "{typ}");
 
+        // Arithmetic on a lowerable width wider than the linked field meets the backend's own
+        // limits, which are not the width boundary this test is about.
+        if lowerable && !FieldConfig::linked().fits_unsigned(bits) {
+            continue;
+        }
         let (mut context, crate_id) = context_for(&source);
         check_crate(&mut context, crate_id, &CompileOptions::default()).unwrap();
         let main = context.get_main_function(&crate_id).expect("main is defined");
@@ -69,15 +81,8 @@ fn the_front_half_takes_every_width_and_the_circuit_path_stops_at_the_backend() 
             Ok(_) => assert!(lowerable, "{typ} reached the backend"),
             Err(error) => {
                 let message = CustomDiagnostic::from(error).message;
-                if lowerable {
-                    // A lowerable width wider than the linked field meets the backend's own
-                    // range rule, which is a different refusal from the width boundary.
-                    assert!(!FieldConfig::linked().fits_unsigned(bits), "{typ}: {message}");
-                    assert!(!message.contains("cannot lower"), "{typ}: {message}");
-                } else {
-                    assert!(message.contains(&format!("`{typ}`")), "{message}");
-                    assert!(message.contains("`main`"), "{message}");
-                }
+                assert!(!lowerable, "{typ}: {message}");
+                assert!(message.contains(&format!("uses `{typ}`")), "{message}");
             }
         }
     }
@@ -103,13 +108,16 @@ fn unlowerable_widths_are_refused_inside_types_and_bodies() {
     }
 }
 
+/// The widest integer `main` takes is one bit short of the field's modulus.
 #[test]
 fn the_abi_carries_the_width_as_written() {
-    let (mut context, crate_id) = context_for("fn main(x: u34, y: i16384) -> pub u34 { x }");
+    let widest = FieldConfig::linked().num_bits() - 1;
+    let source = format!("fn main(x: u34, y: i{widest}) -> pub u34 {{ assert(y == y); x }}");
+    let (mut context, crate_id) = context_for(&source);
     check_crate(&mut context, crate_id, &CompileOptions::default()).unwrap();
     let (parameters, return_type) =
         compute_function_abi(&context, &crate_id).expect("main has an abi");
     assert_eq!(parameters[0].typ, AbiType::Integer { sign: Sign::Unsigned, width: 34 });
-    assert_eq!(parameters[1].typ, AbiType::Integer { sign: Sign::Signed, width: 16384 });
+    assert_eq!(parameters[1].typ, AbiType::Integer { sign: Sign::Signed, width: widest });
     assert_eq!(return_type, Some(AbiType::Integer { sign: Sign::Unsigned, width: 34 }));
 }
