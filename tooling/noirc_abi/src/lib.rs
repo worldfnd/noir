@@ -29,7 +29,10 @@ mod arbitrary;
 
 pub mod errors;
 pub mod input_parser;
+mod scalar;
 mod serialization;
+
+pub use scalar::{ScalarError, decode_scalar, encode_scalar};
 
 /// A map from the fields in an TOML/JSON file which correspond to some ABI to their values
 pub type InputMap = BTreeMap<String, InputValue>;
