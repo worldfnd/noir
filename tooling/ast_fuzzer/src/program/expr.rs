@@ -5,7 +5,7 @@ use nargo::errors::Location;
 
 use arbitrary::{Arbitrary, Unstructured};
 use noirc_frontend::{
-    ast::{BinaryOpKind, IntegerBitSize, UnaryOp},
+    ast::{BinaryOpKind, UnaryOp},
     hir::comptime::field_to_signed_bigint,
     monomorphization::{
         ast::{
@@ -32,7 +32,6 @@ pub fn gen_literal(
     config: &Config,
 ) -> arbitrary::Result<Expression> {
     use FieldElement as Field;
-    use IntegerBitSize::*;
 
     let expr = match typ {
         Type::Unit => Expression::Literal(Literal::Unit),
@@ -48,23 +47,25 @@ pub fn gen_literal(
         Type::Integer(signedness, integer_bit_size) => {
             let field = if signedness.is_signed() {
                 match integer_bit_size {
-                    Eight => Field::from(i8::arbitrary(u)?),
-                    Sixteen => Field::from(i16::arbitrary(u)?),
-                    ThirtyTwo => Field::from(i32::arbitrary(u)?),
-                    SixtyFour => Field::from(i64::arbitrary(u)?),
-                    HundredTwentyEight => {
+                    8 => Field::from(i8::arbitrary(u)?),
+                    16 => Field::from(i16::arbitrary(u)?),
+                    32 => Field::from(i32::arbitrary(u)?),
+                    64 => Field::from(i64::arbitrary(u)?),
+                    128 => {
                         // `ssa_gen::FunctionContext::checked_numeric_constant` doesn't allow negative
                         // values with 128 bits, so let's stick to the positive range.
                         Field::from(i128::arbitrary(u)?.abs())
                     }
+                    _ => unreachable!("the fuzzer only generates ACIR widths: {typ}"),
                 }
             } else {
                 match integer_bit_size {
-                    Eight => Field::from(u32::from(u8::arbitrary(u)?)),
-                    Sixteen => Field::from(u32::from(u16::arbitrary(u)?)),
-                    ThirtyTwo => Field::from(u32::arbitrary(u)?),
-                    SixtyFour => Field::from(u64::arbitrary(u)?),
-                    HundredTwentyEight => Field::from(u128::arbitrary(u)?),
+                    8 => Field::from(u32::from(u8::arbitrary(u)?)),
+                    16 => Field::from(u32::from(u16::arbitrary(u)?)),
+                    32 => Field::from(u32::arbitrary(u)?),
+                    64 => Field::from(u64::arbitrary(u)?),
+                    128 => Field::from(u128::arbitrary(u)?),
+                    _ => unreachable!("the fuzzer only generates ACIR widths: {typ}"),
                 }
             };
 
@@ -142,7 +143,6 @@ pub fn gen_range(
     max_size: usize,
 ) -> arbitrary::Result<(Expression, Expression)> {
     use FieldElement as Field;
-    use IntegerBitSize::*;
 
     let Type::Integer(signedness, integer_bit_size) = typ else {
         unreachable!("invalid range type: {typ}")
@@ -151,75 +151,74 @@ pub fn gen_range(
     let (start, end) = {
         if signedness.is_signed() {
             match integer_bit_size {
-                Eight => {
+                8 => {
                     let s = i8::arbitrary(u)?;
                     let e = s.saturating_add_unsigned(u.choose_index(max_size)? as u8);
                     let s = Field::from(s);
                     let e = Field::from(e);
                     (s, e)
                 }
-                Sixteen => {
+                16 => {
                     let s = i16::arbitrary(u)?;
                     let e = s.saturating_add_unsigned(u.choose_index(max_size)? as u16);
                     let s = Field::from(s);
                     let e = Field::from(e);
                     (s, e)
                 }
-                ThirtyTwo => {
+                32 => {
                     let s = i32::arbitrary(u)?;
                     let e = s.saturating_add_unsigned(u.choose_index(max_size)? as u32);
                     let s = Field::from(s);
                     let e = Field::from(e);
                     (s, e)
                 }
-                SixtyFour => {
+                64 => {
                     let s = i64::arbitrary(u)?;
                     let e = s.saturating_add_unsigned(u.choose_index(max_size)? as u64);
                     let s = Field::from(s);
                     let e = Field::from(e);
                     (s, e)
                 }
-                HundredTwentyEight => {
-                    unreachable!("invalid bit size for range: {integer_bit_size} (signed)")
-                }
+                _ => unreachable!("invalid bit size for a signed range: {integer_bit_size}"),
             }
         } else {
             match integer_bit_size {
-                Eight => {
+                8 => {
                     let s = u8::arbitrary(u)?;
                     let e = s.saturating_add(u.choose_index(max_size)? as u8);
                     let s = Field::from(u32::from(s));
                     let e = Field::from(u32::from(e));
                     (s, e)
                 }
-                Sixteen => {
+                16 => {
                     let s = u16::arbitrary(u)?;
                     let e = s.saturating_add(u.choose_index(max_size)? as u16);
                     let s = Field::from(u32::from(s));
                     let e = Field::from(u32::from(e));
                     (s, e)
                 }
-                ThirtyTwo => {
+                32 => {
                     let s = u32::arbitrary(u)?;
                     let e = s.saturating_add(u.choose_index(max_size)? as u32);
                     let s = Field::from(s);
                     let e = Field::from(e);
                     (s, e)
                 }
-                SixtyFour => {
+                64 => {
                     let s = u64::arbitrary(u)?;
                     let e = s.saturating_add(u.choose_index(max_size)? as u64);
                     let s = Field::from(s);
                     let e = Field::from(e);
                     (s, e)
                 }
-                HundredTwentyEight => {
+                128 => {
                     let s = u128::arbitrary(u)?;
                     let e = s.saturating_add(u.choose_index(max_size)? as u128);
                     let s = Field::from(s);
                     let e = Field::from(e);
                     (s, e)
                 }
+                _ => unreachable!("the fuzzer only generates ACIR widths: {typ}"),
             }
         }
     };

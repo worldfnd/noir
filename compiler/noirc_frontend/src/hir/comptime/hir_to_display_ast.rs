@@ -400,9 +400,14 @@ impl Type {
                 let element = Box::new(element.to_display_ast());
                 UnresolvedTypeData::Vector(element)
             }
-            Type::Integer(sign, bit_size) => {
-                UnresolvedTypeData::integer(*sign, *bit_size, Location::dummy())
-            }
+            Type::Integer(sign, width) => match width.constant_width() {
+                Some(bits) => UnresolvedTypeData::integer(*sign, bits, Location::dummy()),
+                None => UnresolvedTypeData::integer_with_width(
+                    *sign,
+                    width.to_type_expression(),
+                    Location::dummy(),
+                ),
+            },
             Type::Bool => UnresolvedTypeData::bool(Location::dummy()),
             Type::String(length) => {
                 let length = length.to_type_expression();

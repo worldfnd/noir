@@ -31,6 +31,7 @@ mod turbofish;
 mod type_mismatch;
 mod unused_items;
 mod visibility;
+mod width_contract;
 
 // XXX: These tests repeat a lot of code
 // what we should do is have test cases which are passed to a test harness

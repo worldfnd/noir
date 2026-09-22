@@ -754,7 +754,6 @@ mod tests {
 
     use super::super::ast::{Assign, Expression, IdentId, Literal, LocalId};
     use super::*;
-    use crate::ast::IntegerBitSize;
     use crate::shared::Signedness;
     use noirc_errors::Location;
 
@@ -772,7 +771,7 @@ mod tests {
     fn u32_literal(v: u32) -> Expression {
         Expression::Literal(Literal::Integer(
             v.into(),
-            Type::Integer(Signedness::Unsigned, IntegerBitSize::ThirtyTwo),
+            Type::Integer(Signedness::Unsigned, 32),
             Location::dummy(),
         ))
     }

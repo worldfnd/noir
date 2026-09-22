@@ -27,8 +27,7 @@ use crate::token::{Keyword, LocatedToken, SecondaryAttributeKind};
 use crate::{
     QuotedType, Type,
     ast::{
-        BlockExpression, ExpressionKind, Ident, IntegerBitSize, LValue, Pattern, StatementKind,
-        UnresolvedTypeData,
+        BlockExpression, ExpressionKind, Ident, LValue, Pattern, StatementKind, UnresolvedTypeData,
     },
     hir::{
         comptime::{
@@ -55,7 +54,7 @@ use rustc_hash::FxHashMap as HashMap;
 #[derive(PartialEq, Clone, Copy)]
 pub(crate) enum TypeShape {
     Field,
-    Integer(Signedness, IntegerBitSize),
+    Integer(Signedness, u32),
     Bool,
     Unit,
     Sequence,
@@ -70,7 +69,7 @@ impl std::fmt::Display for TypeShape {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             TypeShape::Field => write!(f, "Field"),
-            TypeShape::Integer(sign, size) => write!(f, "{}", Type::Integer(*sign, *size)),
+            TypeShape::Integer(sign, size) => write!(f, "{}", Type::integer(*sign, *size)),
             TypeShape::Bool => write!(f, "bool"),
             TypeShape::Unit => write!(f, "()"),
             TypeShape::Sequence => write!(f, "an array or vector"),
@@ -86,7 +85,7 @@ impl std::fmt::Display for TypeShape {
 pub(crate) fn type_shape(typ: &Type) -> Option<TypeShape> {
     match typ {
         Type::FieldElement => Some(TypeShape::Field),
-        Type::Integer(sign, size) => Some(TypeShape::Integer(*sign, *size)),
+        Type::Integer(sign, width) => Some(TypeShape::Integer(*sign, width.constant_width()?)),
         Type::Bool => Some(TypeShape::Bool),
         Type::Unit => Some(TypeShape::Unit),
         Type::Array(..) | Type::Vector(_) => Some(TypeShape::Sequence),
@@ -315,7 +314,7 @@ pub(crate) fn get_u8((value, location): (Value, Location)) -> IResult<u8> {
     {
         return Ok(value);
     }
-    let expected = Type::Integer(Signedness::Unsigned, IntegerBitSize::Eight);
+    let expected = Type::uint(8);
     type_mismatch(value, expected, location)
 }
 
@@ -334,7 +333,7 @@ pub(crate) fn get_u64((value, location): (Value, Location)) -> IResult<u64> {
     {
         return Ok(value);
     }
-    let expected = Type::Integer(Signedness::Unsigned, IntegerBitSize::SixtyFour);
+    let expected = Type::uint(64);
     type_mismatch(value, expected, location)
 }
 
@@ -858,10 +857,7 @@ pub(super) fn eq_item<T: Eq>(
 /// Type to be used in `Value::Array(<values>, <array-type>)`.
 pub(crate) fn byte_array_type(len: usize) -> Type {
     let len: u32 = len.try_into().expect("ICE: byte_array_type: N is expected to fit into a u32");
-    Type::Array(
-        Box::new(Type::Integer(Signedness::Unsigned, IntegerBitSize::Eight)),
-        Box::new(Type::constant_u32(len)),
-    )
+    Type::Array(Box::new(Type::uint(8)), Box::new(Type::constant_u32(len)))
 }
 
 /// Create a `Value::Array` from bytes.
@@ -1004,16 +1000,13 @@ mod tests {
     use super::{check_return_type_shape, type_shape};
     use crate::Shared;
     use crate::Type;
-    use crate::ast::IntegerBitSize;
     use crate::hir::comptime::value::Value;
-    use crate::shared::Signedness;
-
     #[test]
     fn matching_shapes_pass() {
         let loc = Location::dummy();
         check_return_type_shape(&Value::Bool(true), type_shape(&Type::Bool), loc).unwrap();
 
-        let u32 = Type::Integer(Signedness::Unsigned, IntegerBitSize::ThirtyTwo);
+        let u32 = Type::uint(32);
         check_return_type_shape(&Value::u32(0), type_shape(&u32), loc).unwrap();
 
         // Arrays and vectors share a shape, so an array value satisfies a vector-declared return.
@@ -1040,7 +1033,7 @@ mod tests {
                 .is_err()
         );
 
-        let u32 = Type::Integer(Signedness::Unsigned, IntegerBitSize::ThirtyTwo);
+        let u32 = Type::uint(32);
         let u8_value = Value::u8(0);
         assert!(check_return_type_shape(&u8_value, type_shape(&u32), loc).is_err());
 

@@ -8,12 +8,7 @@ use num_bigint::BigInt;
 use strum_macros::EnumIter;
 
 use crate::token::FmtStrFragment;
-use crate::{
-    ast::{BinaryOpKind, IntegerBitSize},
-    hir_def::expr::Constructor,
-    shared::Signedness,
-    token::Attributes,
-};
+use crate::{ast::BinaryOpKind, hir_def::expr::Constructor, shared::Signedness, token::Attributes};
 use crate::{shared::Visibility, token::FunctionAttributeKind};
 use serde::{Deserialize, Serialize};
 
@@ -557,8 +552,8 @@ pub struct Function {
 #[derive(Debug, PartialEq, Eq, Clone, Hash, PartialOrd, Ord)]
 pub enum Type {
     Field,
-    Array(/*len:*/ u32, Rc<Type>), // Array(4, Field) = [Field; 4]
-    Integer(Signedness, /*bits:*/ IntegerBitSize), // u32 = Integer(unsigned, ThirtyTwo)
+    Array(/*len:*/ u32, Rc<Type>),      // Array(4, Field) = [Field; 4]
+    Integer(Signedness, /*bits:*/ u32), // u32 = Integer(unsigned, 32)
     Bool,
     String(/*len:*/ u32), // String(4) = str[4]
     FmtString(/*len:*/ u32, Rc<Type>),

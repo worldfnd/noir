@@ -613,7 +613,8 @@ fn errors_on_main_with_generics() {
 fn errors_on_unknown_integer_bit_size() {
     let src = r#"
     fn main() -> pub u63 {
-                     ^^^ Could not resolve 'u63' in path
+                     ^^^ `u63` is not a supported integer type
+                     ~~~ integer widths are 8, 16, and every even width from 32 to 65536
         5
     }
     "#;

@@ -16,12 +16,11 @@ use crate::{
     },
     node_interner::{DefinitionKind, ExprId, FuncId, FunctionModifiers, NodeInterner},
     recursion::TypeRecursionContext,
-    shared::{ForeignCall, Signedness, Visibility},
+    shared::{ForeignCall, Visibility},
     token::{FunctionAttributeKind, SecondaryAttributeKind},
 };
 
 use noirc_errors::Location;
-use num_bigint::BigInt;
 
 pub(super) fn deprecated_function(interner: &NodeInterner, expr: ExprId) -> Option<TypeCheckError> {
     let HirExpression::Ident(HirIdent { location, id, impl_kind: _ }, _) =
@@ -577,43 +576,30 @@ pub(crate) fn check_integer_literal_fits_its_type(
 
     match expr {
         HirExpression::Literal(HirLiteral::Integer(value)) => match typ {
-            Type::Integer(Signedness::Unsigned, bit_size) => {
-                let bit_size: u32 = bit_size.into();
-                let max = if bit_size == 128 { u128::MAX } else { 2u128.pow(bit_size) - 1 };
-                // Compare the literal's exact integer value (a field-agnostic `BigInt`) against
-                // the type's range, so this stays correct even when compiling for a field smaller
-                // than the integer type (e.g. Goldilocks).
-                if value < BigInt::ZERO || value > BigInt::from(max) {
+            // The literal's exact value is a field-agnostic `BigInt`, so the bound holds even
+            // when the field is smaller than the integer type. A width that still names a
+            // generic has no range yet; the monomorphizer repeats the check once it is bound.
+            Type::Integer(..) => {
+                let (Some(min), Some(max)) =
+                    (typ.integral_minimum_size(), typ.integral_maximum_size())
+                else {
+                    return None;
+                };
+                if value < min || value > max {
                     return Some(TypeCheckError::IntegerLiteralDoesNotFitItsType {
                         expr: value,
                         ty: typ,
-                        range: format!("0..={max}"),
+                        range: format!("{min}..={max}"),
                         location,
                     });
                 }
             }
-            Type::Integer(Signedness::Signed, bit_count) => {
-                let bit_count: u32 = bit_count.into();
-                let modulus = 2u128.pow(bit_count - 1);
-                let max = modulus - 1;
-
-                if value > BigInt::from(max) || value < -BigInt::from(modulus) {
-                    return Some(TypeCheckError::IntegerLiteralDoesNotFitItsType {
-                        expr: value,
-                        ty: typ,
-                        range: format!("-{modulus}..={max}"),
-                        location,
-                    });
-                }
-            }
-            // A `Field` literal must be a canonical element of `[0, p)`. The lexer no longer
-            // enforces this (the bound moved here so integer literals aren't field-capped), so
-            // reject out-of-field Field literals at type-check using the modulus directly. We
-            // deliberately do NOT route this through `integral_maximum_size()` (which returns
-            // `None` for Field as the field-arithmetic selector).
+            // A `Field` literal is a canonical element of `[0, p)`, a negative one standing
+            // for the negation of its magnitude. The bound comes from the modulus directly, not
+            // from `integral_maximum_size()`, which returns `None` for `Field`.
             Type::FieldElement => {
                 let modulus = interner.field().modulus();
-                if value >= BigInt::from(modulus.clone()) {
+                if value.magnitude() >= modulus {
                     return Some(TypeCheckError::IntegerLiteralDoesNotFitItsType {
                         expr: value,
                         ty: typ,

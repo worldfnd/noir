@@ -13,10 +13,10 @@ use crate::{
     ast::{
         ArrayLiteral, AsTraitPath, BinaryOpKind, BlockExpression, CallExpression, CastExpression,
         ConstrainExpression, ConstrainKind, ConstructorExpression, Expression, ExpressionKind,
-        Ident, IfExpression, IndexExpression, InfixExpression, IntegerBitSize, ItemVisibility,
-        Lambda, Literal, MatchExpression, MemberAccessExpression, MethodCallExpression,
-        PrefixExpression, Statement, StatementKind, TraitBound, UnaryOp, UnresolvedTraitConstraint,
-        UnresolvedTypeData, UnresolvedTypeExpression, UnsafeExpression,
+        Ident, IfExpression, IndexExpression, InfixExpression, ItemVisibility, Lambda, Literal,
+        MatchExpression, MemberAccessExpression, MethodCallExpression, PrefixExpression, Statement,
+        StatementKind, TraitBound, UnaryOp, UnresolvedTraitConstraint, UnresolvedTypeData,
+        UnresolvedTypeExpression, UnsafeExpression,
     },
     elaborator::{
         ScopeForest,
@@ -46,7 +46,6 @@ use crate::{
         StmtId, TraitItemId,
         pusher::{HasLocation, PushedExpr},
     },
-    shared::Signedness,
     token::{FmtStrFragment, IntegerTypeSuffix, Tokens},
 };
 
@@ -421,18 +420,8 @@ impl Elaborator<'_> {
 
     #[tracing::instrument(level = "trace", skip_all)]
     fn integer_suffix_type(&mut self, suffix: Option<IntegerTypeSuffix>) -> Type {
-        use {Signedness::*, Type::Integer};
         match suffix {
-            Some(IntegerTypeSuffix::I8) => Integer(Signed, IntegerBitSize::Eight),
-            Some(IntegerTypeSuffix::I16) => Integer(Signed, IntegerBitSize::Sixteen),
-            Some(IntegerTypeSuffix::I32) => Integer(Signed, IntegerBitSize::ThirtyTwo),
-            Some(IntegerTypeSuffix::I64) => Integer(Signed, IntegerBitSize::SixtyFour),
-            Some(IntegerTypeSuffix::U8) => Integer(Unsigned, IntegerBitSize::Eight),
-            Some(IntegerTypeSuffix::U16) => Integer(Unsigned, IntegerBitSize::Sixteen),
-            Some(IntegerTypeSuffix::U32) => Integer(Unsigned, IntegerBitSize::ThirtyTwo),
-            Some(IntegerTypeSuffix::U64) => Integer(Unsigned, IntegerBitSize::SixtyFour),
-            Some(IntegerTypeSuffix::U128) => Integer(Unsigned, IntegerBitSize::HundredTwentyEight),
-            Some(IntegerTypeSuffix::Field) => Type::FieldElement,
+            Some(suffix) => suffix.as_type(),
             None => self.polymorphic_integer_or_field(),
         }
     }

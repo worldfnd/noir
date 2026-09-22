@@ -4,7 +4,6 @@ use arbitrary::Unstructured;
 use nargo::errors::Location;
 use noirc_evaluator::{assert_ssa_snapshot, ssa::ssa_gen};
 use noirc_frontend::{
-    ast::IntegerBitSize,
     monomorphization::ast::{
         Call, Definition, Expression, For, FuncId, Function, Ident, IdentId, InlineType, LValue,
         Literal, LocalId, Program, Type,
@@ -60,8 +59,7 @@ fn test_modulo_of_negative_literals_in_range() {
     use super::expr::{int_literal, range_modulo};
 
     let max_size = 5;
-    let index_type =
-        Type::Integer(noirc_frontend::shared::Signedness::Signed, IntegerBitSize::SixtyFour);
+    let index_type = Type::Integer(noirc_frontend::shared::Signedness::Signed, 64);
 
     let start_range =
         range_modulo(int_literal(-9i64, index_type.clone()), index_type.clone(), max_size);

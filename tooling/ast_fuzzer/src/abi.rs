@@ -56,7 +56,7 @@ fn to_abi_type(typ: &Type) -> AbiType {
         Type::Array(len, typ) => AbiType::Array { length: *len, typ: Box::new(to_abi_type(typ)) },
         Type::Integer(signedness, integer_bit_size) => AbiType::Integer {
             sign: if signedness.is_signed() { Sign::Signed } else { Sign::Unsigned },
-            width: integer_bit_size.bit_size().into(),
+            width: *integer_bit_size,
         },
         Type::Bool => AbiType::Boolean,
         Type::String(len) => AbiType::String { length: *len },

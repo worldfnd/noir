@@ -79,13 +79,17 @@ pub(super) fn abi_type_from_hir_type(context: &Context, typ: &Type) -> AbiType {
             let typ = typ.as_ref();
             AbiType::Array { length, typ: Box::new(abi_type_from_hir_type(context, typ)) }
         }
-        Type::Integer(sign, bit_width) => {
+        Type::Integer(sign, width) => {
             let sign = match sign {
                 Signedness::Unsigned => Sign::Unsigned,
                 Signedness::Signed => Sign::Signed,
             };
+            let span = get_main_function_location(context);
+            let width = width
+                .evaluate_to_u32(span)
+                .expect("Cannot have an integer of generic width as a parameter to main");
 
-            AbiType::Integer { sign, width: (*bit_width).into() }
+            AbiType::Integer { sign, width }
         }
         Type::TypeVariable(binding) => {
             if binding.is_integer() || binding.is_integer_or_field() {

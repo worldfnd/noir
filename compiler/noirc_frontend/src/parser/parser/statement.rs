@@ -11,6 +11,7 @@ use crate::{
 };
 
 use super::Parser;
+use super::types::TypeGenerics;
 
 impl Parser<'_> {
     pub(crate) fn parse_statement_or_error(&mut self) -> Statement {
@@ -452,7 +453,7 @@ impl Parser<'_> {
             && !self.at(&Token::Semicolon)
             && !self.at_eof()
         {
-            if let Some(typ) = self.parse_type_allowing_generics(true) {
+            if let Some(typ) = self.parse_type_allowing_generics(TypeGenerics::Allowed) {
                 self.push_error(
                     ParserErrorReason::MissingColonInLetStatement,
                     pattern.location().merge(typ.location),
