@@ -3,11 +3,12 @@ use num_traits::{Num, One, Zero};
 use std::collections::{BTreeMap, HashSet};
 use thiserror::Error;
 
-use acvm::{AcirField, FieldElement};
+use acvm::{AcirField, FieldConfig, FieldElement};
 use itertools::Itertools;
 use serde::Serialize;
 
 use crate::errors::InputParserError;
+use crate::scalar::{container, not_carried, pattern_of, signed_value};
 use crate::{Abi, AbiType};
 
 pub mod json;
@@ -218,14 +219,17 @@ impl Format {
 }
 
 impl Format {
+    /// Parses the inputs of `abi` from `input_string`, reading every value in `field`: each
+    /// scalar must be the value of its type whose element is below `field`'s modulus.
     pub fn parse(
         &self,
         input_string: &str,
         abi: &Abi,
+        field: FieldConfig,
     ) -> Result<BTreeMap<String, InputValue>, InputParserError> {
         match self {
-            Format::Json => json::parse_json(input_string, abi),
-            Format::Toml => toml::parse_toml(input_string, abi),
+            Format::Json => json::parse_json(input_string, abi, field),
+            Format::Toml => toml::parse_toml(input_string, abi, field),
         }
     }
 
@@ -245,7 +249,7 @@ impl Format {
 mod serialization_tests {
     use std::collections::BTreeMap;
 
-    use acvm::{AcirField, FieldElement};
+    use acvm::{AcirField, FieldConfig, FieldElement};
     use strum::IntoEnumIterator;
 
     use crate::{
@@ -313,14 +317,27 @@ mod serialization_tests {
         for format in Format::iter() {
             let serialized_inputs = format.serialize(&input_map, &abi).unwrap();
 
-            let reconstructed_input_map = format.parse(&serialized_inputs, &abi).unwrap();
+            let reconstructed_input_map =
+                format.parse(&serialized_inputs, &abi, FieldConfig::linked()).unwrap();
 
             assert_eq!(input_map, reconstructed_input_map);
         }
     }
 }
 
-fn parse_str_to_field(value: &str, arg_name: &str) -> Result<FieldElement, InputParserError> {
+/// Refuse a field whose elements the linked element cannot hold, before any value is read.
+fn ensure_parsable(field: FieldConfig) -> Result<(), InputParserError> {
+    match not_carried(field) {
+        Some((field, linked)) => Err(InputParserError::FieldNotCarried { field, linked }),
+        None => Ok(()),
+    }
+}
+
+fn parse_str_to_field(
+    value: &str,
+    arg_name: &str,
+    field: FieldConfig,
+) -> Result<FieldElement, InputParserError> {
     let big_num = if let Some(hex) = value.strip_prefix("0x") {
         BigUint::from_str_radix(hex, 16)
     } else {
@@ -331,12 +348,13 @@ fn parse_str_to_field(value: &str, arg_name: &str) -> Result<FieldElement, Input
         value: value.into(),
         error: err_msg.to_string(),
     })?;
-    if bigint < FieldElement::modulus() {
-        Ok(field_from_big_uint(bigint))
+    if bigint < *field.modulus() {
+        Ok(container(&bigint))
     } else {
         Err(InputParserError::InputExceedsFieldModulus {
             arg_name: arg_name.into(),
             value: value.to_string(),
+            field: field.id(),
         })
     }
 }
@@ -363,25 +381,31 @@ fn parse_str_to_bigint(value: &str, arg_name: &str) -> Result<BigInt, InputParse
     Ok(BigInt::from_biguint(sign, magnitude))
 }
 
-/// Converts a scalar of `typ` into the field element that carries it.
+/// Converts a scalar of `typ` into the element of `field` that carries it.
 ///
-/// An integer is carried as its fixed-width two's complement bit pattern and is accepted iff it is in the range of its type and that pattern is below the modulus; it is never reduced. A boolean is `0` or `1`. A `Field` is any value below the modulus, a negative one being the negation of its magnitude.
-// TODO: take the field as a FieldConfig argument instead of reading the linked modulus, so consumers other than nargo can pass one in.
+/// An integer is carried as its fixed-width two's complement bit pattern and is accepted iff it is in the range of its type and that pattern is below the modulus; it is never reduced. A boolean is `0` or `1`. A `Field` is any value below the modulus, a negative one being the negation of its magnitude in `field`.
 fn scalar_to_field(
     value: &BigInt,
     typ: &AbiType,
     arg_name: &str,
+    field: FieldConfig,
 ) -> Result<FieldElement, InputParserError> {
     let (min, max, pattern) = match typ {
         AbiType::Field => {
-            if *value.magnitude() >= FieldElement::modulus() {
+            let magnitude = value.magnitude();
+            if magnitude >= field.modulus() {
                 return Err(InputParserError::InputExceedsFieldModulus {
                     arg_name: arg_name.into(),
                     value: value.to_string(),
+                    field: field.id(),
                 });
             }
-            let field = field_from_big_uint(value.magnitude().clone());
-            return Ok(if value.sign() == num_bigint::Sign::Minus { -field } else { field });
+            let element = if value.sign() == num_bigint::Sign::Minus {
+                field.modulus() - magnitude
+            } else {
+                magnitude.clone()
+            };
+            return Ok(container(&element));
         }
         AbiType::Boolean => (BigInt::zero(), BigInt::one(), value.clone()),
         AbiType::Integer { sign: crate::Sign::Unsigned, width } => {
@@ -415,97 +439,91 @@ fn scalar_to_field(
     }
 
     let pattern = pattern.to_biguint().expect("a value in range has a non-negative bit pattern");
-    if pattern >= FieldElement::modulus() {
+    if pattern >= *field.modulus() {
         return Err(InputParserError::InputExceedsFieldModulus {
             arg_name: arg_name.into(),
             value: value.to_string(),
+            field: field.id(),
         });
     }
-    Ok(field_from_big_uint(pattern))
+    Ok(container(&pattern))
 }
 
-fn field_from_big_uint(bigint: BigUint) -> FieldElement {
-    FieldElement::from_be_bytes_reduce(&bigint.to_bytes_be())
-}
-
+/// The value a signed integer's element spells, in hexadecimal padded to the width of a
+/// serialized element, [`FieldConfig::num_bytes`].
 fn field_to_signed_hex(f: FieldElement, bit_size: u32) -> String {
-    let f_u128 = f.to_u128();
-    let max = if bit_size == 128 { i128::MAX as u128 } else { (1 << (bit_size - 1)) - 1 };
-    if f_u128 > max {
-        let f = FieldElement::from(2u32).pow(&bit_size.into()) - f;
-        format!("-0x{}", f.to_hex())
-    } else {
-        format!("0x{}", f.to_hex())
-    }
+    let value = signed_value(&pattern_of(f), bit_size);
+    let width = FieldConfig::linked().num_bytes() as usize * 2;
+    let sign = if value.sign() == num_bigint::Sign::Minus { "-" } else { "" };
+    format!("{sign}0x{:0width$x}", value.magnitude())
 }
 
 #[cfg(test)]
 mod tests {
-    use acvm::{AcirField, FieldElement};
+    use acvm::{FieldConfig, FieldElement};
     use num_bigint::{BigInt, BigUint};
     use strum::IntoEnumIterator;
 
+    use crate::scalar::{carried_fields, container, uncarried_fields};
     use crate::{Abi, AbiParameter, AbiType, AbiVisibility, Sign, errors::InputParserError};
 
     use super::{Format, InputValue, parse_str_to_bigint, parse_str_to_field, scalar_to_field};
 
-    fn big_uint_from_field(field: FieldElement) -> BigUint {
-        BigUint::from_bytes_be(&field.to_be_bytes())
-    }
-
     #[test]
     fn parse_empty_str_fails() {
         // Check that this fails appropriately rather than being treated as 0, etc.
-        assert!(parse_str_to_field("", "arg_name").is_err());
+        for field in carried_fields() {
+            assert!(parse_str_to_field("", "arg_name", field).is_err());
+        }
     }
 
     #[test]
     fn parse_fields_from_strings() {
-        let fields = vec![
-            FieldElement::zero(),
-            FieldElement::one(),
-            FieldElement::from(u128::MAX) + FieldElement::one(),
-            // Equivalent to `FieldElement::modulus() - 1`
-            -FieldElement::one(),
-        ];
+        for field in carried_fields() {
+            let largest = field.modulus() - 1u8;
+            let values = [BigUint::ZERO, BigUint::from(1u8), BigUint::from(u64::MAX >> 1), largest];
 
-        for field in fields {
-            let hex_field = format!("0x{}", field.to_hex());
-            let field_from_hex = parse_str_to_field(&hex_field, "arg_name").unwrap();
-            assert_eq!(field_from_hex, field);
-
-            let dec_field = big_uint_from_field(field).to_string();
-            let field_from_dec = parse_str_to_field(&dec_field, "arg_name").unwrap();
-            assert_eq!(field_from_dec, field);
+            for value in values {
+                let expected = container(&value);
+                let hex = format!("0x{value:x}");
+                assert_eq!(parse_str_to_field(&hex, "arg_name", field).unwrap(), expected);
+                let decimal = value.to_string();
+                assert_eq!(parse_str_to_field(&decimal, "arg_name", field).unwrap(), expected);
+            }
         }
     }
 
     #[test]
     fn rejects_noncanonical_fields() {
-        let noncanonical_field = FieldElement::modulus().to_string();
-        assert!(parse_str_to_field(&noncanonical_field, "arg_name").is_err());
+        for field in carried_fields() {
+            for value in [field.modulus().clone(), field.modulus() + 1u8] {
+                assert!(parse_str_to_field(&value.to_string(), "arg_name", field).is_err());
+            }
+        }
     }
 
     #[test]
     fn quoted_signed_values_are_carried_in_twos_complement() {
-        let parse = |value: &str, width| -> Result<FieldElement, InputParserError> {
-            let value = parse_str_to_bigint(value, "arg_name")?;
-            scalar_to_field(&value, &signed(width), "arg_name")
-        };
-        assert_eq!(parse("1", 8).unwrap(), FieldElement::from(1_u128));
-        assert_eq!(parse("-1", 8).unwrap(), FieldElement::from(255_u128));
-        assert_eq!(parse("-1", 16).unwrap(), FieldElement::from(65535_u128));
-        assert_eq!(parse("-0x10", 8).unwrap(), FieldElement::from(240_u128));
+        for field in carried_fields() {
+            let parse = |value: &str, width| -> Result<FieldElement, InputParserError> {
+                let value = parse_str_to_bigint(value, "arg_name")?;
+                scalar_to_field(&value, &signed(width), "arg_name", field)
+            };
+            assert_eq!(parse("1", 8).unwrap(), FieldElement::from(1_u128));
+            assert_eq!(parse("-1", 8).unwrap(), FieldElement::from(255_u128));
+            assert_eq!(parse("-1", 16).unwrap(), FieldElement::from(65535_u128));
+            assert_eq!(parse("-0x10", 8).unwrap(), FieldElement::from(240_u128));
 
-        assert_eq!(parse("127", 8).unwrap(), FieldElement::from(127_i128));
-        assert!(parse("128", 8).is_err());
-        assert_eq!(parse("-128", 8).unwrap(), FieldElement::from(128_i128));
-        assert!(parse("-129", 8).is_err());
+            assert_eq!(parse("127", 8).unwrap(), FieldElement::from(127_i128));
+            assert!(parse("128", 8).is_err());
+            assert_eq!(parse("-128", 8).unwrap(), FieldElement::from(128_i128));
+            assert!(parse("-129", 8).is_err());
 
-        assert_eq!(parse("32767", 16).unwrap(), FieldElement::from(32767_i128));
-        assert!(parse("32768", 16).is_err());
-        assert_eq!(parse("-32768", 16).unwrap(), FieldElement::from(32768_i128));
-        assert!(parse("-32769", 16).is_err());
+            assert_eq!(parse("32767", 16).unwrap(), FieldElement::from(32767_i128));
+            assert!(parse("32768", 16).is_err());
+            assert_eq!(parse("-32768", 16).unwrap(), FieldElement::from(32768_i128));
+            assert!(parse("-32769", 16).is_err());
+        }
     }
 
     #[test]
@@ -532,12 +550,13 @@ mod tests {
         format: &Format,
         typ: AbiType,
         spelling: &str,
+        field: FieldConfig,
     ) -> Result<FieldElement, InputParserError> {
         let source = match format {
             Format::Toml => format!("x = {spelling}"),
             Format::Json => format!("{{\"x\": {spelling}}}"),
         };
-        let mut inputs = format.parse(&source, &abi_with_single_param(typ))?;
+        let mut inputs = format.parse(&source, &abi_with_single_param(typ), field)?;
         match inputs.remove("x") {
             Some(InputValue::Field(value)) => Ok(value),
             other => panic!("expected a scalar, got {other:?}"),
@@ -552,99 +571,122 @@ mod tests {
         AbiType::Integer { sign: Sign::Signed, width }
     }
 
+    /// `p - 1` is the largest element in every spelling that reaches it; `p` and `p + 1` are refused with an error that names the selected field and its modulus.
     #[test]
-    fn unsigned_values_must_fit_their_width_in_every_spelling() {
-        for format in Format::iter() {
-            for spelling in ["255", "\"255\"", "\"0xff\""] {
-                let value = parse_scalar(&format, unsigned(8), spelling).unwrap();
-                assert_eq!(value, FieldElement::from(255_u32), "{format:?}: {spelling} as u8");
-            }
-            for spelling in ["256", "\"256\"", "\"0x100\"", "-1"] {
-                assert!(
-                    parse_scalar(&format, unsigned(8), spelling).is_err(),
-                    "{format:?}: {spelling} is not a u8"
-                );
-            }
-            // A native spelling reaches only i64 magnitudes, whatever the width.
-            assert_eq!(
-                parse_scalar(&format, unsigned(128), "5").unwrap(),
-                FieldElement::from(5_u32)
-            );
-            assert!(parse_scalar(&format, unsigned(128), "-1").is_err());
-        }
-    }
-
-    /// The 64-bit values straddle Goldilocks' `p = 2^64 - 2^32 + 1`: `p - 1` is accepted, `p` and `u64::MAX` are rejected; under bn254 all of them are accepted. Only the quoted spelling reaches these magnitudes.
-    #[test]
-    fn unsigned_values_are_accepted_iff_below_the_modulus() {
-        let modulus = FieldElement::modulus();
-        for format in Format::iter() {
-            for value in
-                [u64::MAX - u64::from(u32::MAX), u64::MAX - u64::from(u32::MAX) + 1, u64::MAX]
-            {
-                let expected =
-                    (BigUint::from(value) < modulus).then(|| FieldElement::from(u128::from(value)));
-                assert_eq!(
-                    parse_scalar(&format, unsigned(64), &format!("\"{value}\"")).ok(),
-                    expected,
-                    "{format:?}: {value} as u64"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn boolean_values_must_be_zero_or_one_in_every_spelling() {
-        for format in Format::iter() {
-            assert_eq!(
-                parse_scalar(&format, AbiType::Boolean, "true").unwrap(),
-                FieldElement::one()
-            );
-            assert_eq!(parse_scalar(&format, AbiType::Boolean, "1").unwrap(), FieldElement::one());
-            assert_eq!(
-                parse_scalar(&format, AbiType::Boolean, "\"0\"").unwrap(),
-                FieldElement::zero()
-            );
-            for spelling in ["2", "\"2\"", "-1"] {
-                assert!(
-                    parse_scalar(&format, AbiType::Boolean, spelling).is_err(),
-                    "{format:?}: {spelling} is not a bool"
-                );
-            }
-        }
-    }
-
-    /// The 64-bit patterns straddle Goldilocks' `p = 2^64 - 2^32 + 1`: `-2^32` is `p - 1` and is accepted, `-2^32 + 1` is `p` and is rejected, and so is `-1`; under bn254 all of them are accepted.
-    #[test]
-    fn signed_values_are_accepted_iff_their_bit_pattern_is_below_the_modulus() {
-        let modulus = FieldElement::modulus();
-        let two_64 = BigUint::from(1_u8) << 64;
-        let two_32 = BigUint::from(1_u8) << 32;
-        let cases = [
-            (BigInt::from(1), BigUint::from(1_u8)),
-            (BigInt::from(i64::MAX), BigUint::from(i64::MAX as u64)),
-            (BigInt::from(i64::MIN), BigUint::from(1_u8) << 63),
-            (-BigInt::from(1_u64 << 32), &two_64 - &two_32),
-            (-BigInt::from(1_u64 << 32) + 1, &two_64 - &two_32 + 1_u8),
-            (BigInt::from(-1), &two_64 - 1_u8),
-        ];
-        for format in Format::iter() {
-            for (value, pattern) in &cases {
-                let expected = (*pattern < modulus)
-                    .then(|| FieldElement::from_be_bytes_reduce(&pattern.to_bytes_be()));
-                for spelling in [value.to_string(), format!("\"{value}\"")] {
-                    let actual = parse_scalar(&format, signed(64), &spelling).ok();
-                    assert_eq!(actual, expected, "{format:?}: {spelling} as i64");
+    fn field_values_are_accepted_iff_below_the_selected_modulus() {
+        for field in carried_fields() {
+            let modulus = field.modulus();
+            let largest = modulus - 1u8;
+            for format in Format::iter() {
+                for spelling in [format!("\"{largest}\""), format!("\"0x{largest:x}\"")] {
+                    assert_eq!(
+                        parse_scalar(&format, AbiType::Field, &spelling, field).unwrap(),
+                        container(&largest),
+                        "{}, {format:?}: {spelling}",
+                        field.name()
+                    );
+                }
+                for value in [modulus.clone(), modulus + 1u8] {
+                    let error =
+                        parse_scalar(&format, AbiType::Field, &format!("\"{value}\""), field)
+                            .unwrap_err();
+                    let message = error.to_string();
+                    assert!(
+                        message.contains(&format!("exceeds the {} field modulus", field.name()))
+                            && message.contains(&format!("[0, {modulus})")),
+                        "{}, {format:?}: {message}",
+                        field.name()
+                    );
                 }
             }
         }
     }
 
+    /// Parsed values are carried in the linked field element, so a field with a larger modulus is refused before any value is read.
     #[test]
-    fn negative_field_values_are_negated_natively_and_rejected_quoted() {
+    fn a_field_the_linked_element_cannot_hold_is_refused() {
+        let linked = FieldConfig::linked().id();
+        for field in uncarried_fields() {
+            for format in Format::iter() {
+                let error = parse_scalar(&format, AbiType::Field, "1", field).unwrap_err();
+                assert!(
+                    matches!(error, InputParserError::FieldNotCarried { field: refused, linked: held } if refused == field.id() && held == linked),
+                    "{}, {format:?}: {error}",
+                    field.name()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn nested_fields_use_the_selected_modulus() {
+        use acvm::FieldId;
+
+        let field = FieldConfig::new(FieldId::Goldilocks);
+        if field.modulus() > FieldConfig::linked().modulus() {
+            return;
+        }
+        let abi = abi_with_single_param(AbiType::Struct {
+            path: "S".into(),
+            fields: vec![(
+                "values".into(),
+                AbiType::Array { length: 2, typ: Box::new(AbiType::Field) },
+            )],
+        });
+        let largest = field.modulus() - 1u8;
         for format in Format::iter() {
-            assert_eq!(parse_scalar(&format, AbiType::Field, "-1").unwrap(), -FieldElement::one());
-            assert!(parse_scalar(&format, AbiType::Field, "\"-1\"").is_err());
+            let source = match format {
+                Format::Toml => "[x]\nvalues = [-1, \"1\"]".to_string(),
+                Format::Json => "{\"x\": {\"values\": [-1, \"1\"]}}".to_string(),
+            };
+            let values = format.parse(&source, &abi, field).unwrap();
+            let InputValue::Struct(fields) = &values["x"] else { panic!("{format:?}") };
+            assert_eq!(
+                fields["values"],
+                InputValue::Vec(vec![
+                    InputValue::Field(container(&largest)),
+                    InputValue::Field(1u8.into()),
+                ]),
+                "{format:?}"
+            );
+            let serialized = format.serialize(&values, &abi).unwrap();
+            assert_eq!(format.parse(&serialized, &abi, field).unwrap(), values);
+        }
+    }
+
+    /// The widest integer an entry point takes is one bit short of the modulus; every value of it survives a serialize-and-parse round trip, including signed values whose magnitude does not fit 128 bits.
+    #[test]
+    fn the_widest_integers_round_trip_through_every_format() {
+        for field in carried_fields() {
+            let width = field.num_bits() - 1;
+            let two_to_the_width = BigInt::from(1u8) << width;
+            let cases = [
+                (unsigned(width), BigInt::ZERO),
+                (unsigned(width), &two_to_the_width - 1u8),
+                (signed(width), BigInt::ZERO),
+                (signed(width), BigInt::from(-1)),
+                (signed(width), -(&two_to_the_width >> 1u8)),
+                (signed(width), (&two_to_the_width >> 1u8) - 1u8),
+                (signed(200.min(width)), -(BigInt::from(1u8) << (200.min(width) - 1))),
+            ];
+            for (typ, value) in cases {
+                for format in Format::iter() {
+                    let abi = abi_with_single_param(typ.clone());
+                    let parsed = parse_scalar(&format, typ.clone(), &format!("\"{value}\""), field)
+                        .unwrap_or_else(|error| {
+                            panic!("{}, {format:?}: {value} as {typ:?}: {error}", field.name())
+                        });
+                    let inputs = [("x".to_string(), InputValue::Field(parsed))].into();
+                    let serialized = format.serialize(&inputs, &abi).unwrap();
+                    let reparsed = format.parse(&serialized, &abi, field).unwrap();
+                    assert_eq!(
+                        reparsed,
+                        inputs,
+                        "{}, {format:?}: {value} as {typ:?}",
+                        field.name()
+                    );
+                }
+            }
         }
     }
 }
