@@ -57,7 +57,7 @@ pub enum Type {
     /// kind `u32`, like an array length: a `Constant` for a named type such as `u32`, or a
     /// generic, or an arithmetic expression over one, for `u<N>` and `u<2 * N>` until
     /// monomorphization binds it.
-    Integer(Signedness, Box<Type>),
+    Integer(Signedness, Rc<Type>),
 
     /// The primitive `bool` type.
     Bool,
@@ -1381,7 +1381,34 @@ impl Type {
 
     /// The integer type of `bits` bits with the given signedness.
     pub fn integer(sign: Signedness, bits: u32) -> Type {
-        Type::Integer(sign, Box::new(Type::constant_u32(bits)))
+        Type::Integer(sign, Type::constant_width_type(bits))
+    }
+
+    /// The shared constant type for an integer width. Integer types are built, cloned and walked
+    /// constantly during elaboration, so the widths they carry are shared: one cell per width for
+    /// the thread, handed out by reference count, never allocated per type.
+    pub fn constant_width_type(bits: u32) -> Rc<Type> {
+        thread_local! {
+            static CONSTANT_WIDTHS: RefCell<HashMap<u32, Rc<Type>>> =
+                RefCell::new(HashMap::default());
+        }
+        CONSTANT_WIDTHS.with(|widths| {
+            Rc::clone(
+                widths
+                    .borrow_mut()
+                    .entry(bits)
+                    .or_insert_with(|| Rc::new(Type::constant_u32(bits))),
+            )
+        })
+    }
+
+    /// Rebuild an integer type around `f(width)`, keeping the shared width when it is already a
+    /// constant, which no walk over a type can change.
+    fn map_width(sign: Signedness, width: &Rc<Type>, f: impl FnOnce(&Type) -> Type) -> Type {
+        match width.as_ref() {
+            Type::Constant(_) => Type::Integer(sign, Rc::clone(width)),
+            other => Type::Integer(sign, Rc::new(f(other))),
+        }
     }
 
     pub fn type_variable_with_kind(interner: &NodeInterner, type_var_kind: Kind) -> Type {
@@ -2899,10 +2926,9 @@ impl Type {
                 let rhs = rhs.substitute_helper(type_bindings, substitute_bound_typevars);
                 Type::InfixExpr(Box::new(lhs), *op, Box::new(rhs), *inversion)
             }
-            Type::Integer(sign, width) => {
-                let width = width.substitute_helper(type_bindings, substitute_bound_typevars);
-                Type::Integer(*sign, Box::new(width))
-            }
+            Type::Integer(sign, width) => Type::map_width(*sign, width, |width| {
+                width.substitute_helper(type_bindings, substitute_bound_typevars)
+            }),
 
             Type::FieldElement
             | Type::Bool
@@ -3030,7 +3056,7 @@ impl Type {
                     InfixExpr(Box::new(lhs), *op, Box::new(rhs), *inversion)
                 }
 
-                Integer(sign, width) => Integer(*sign, Box::new(recur(width))),
+                Integer(sign, width) => Type::map_width(*sign, width, |width| helper(width, i)),
 
                 // Expect that this function should only be called on instantiated types
                 Forall(..) => unreachable!(),
@@ -3090,7 +3116,11 @@ impl Type {
             | Type::Error
             | Type::Quoted(_) => (),
 
-            Type::Integer(_, width) => width.replace_named_generics_with_type_variables(),
+            Type::Integer(_, width) => {
+                if !matches!(width.as_ref(), Type::Constant(_)) {
+                    Rc::make_mut(width).replace_named_generics_with_type_variables();
+                }
+            }
             Type::Array(elem, len) => {
                 len.replace_named_generics_with_type_variables();
                 elem.replace_named_generics_with_type_variables();
@@ -3916,6 +3946,32 @@ mod tests {
         // Depth 100 hits the limit
         let typ = create_nested_array(TYPE_RECURSION_LIMIT as usize);
         let _ = typ.follow_bindings();
+    }
+
+    /// Integer types share one constant width per bit size, and walking such a type keeps the
+    /// shared width instead of rebuilding it; a width that is still a type variable is rebuilt.
+    #[test]
+    fn constant_integer_widths_are_shared_and_kept_by_type_walks() {
+        let Type::Integer(_, first) = Type::uint(32) else { unreachable!() };
+        let Type::Integer(_, second) = Type::uint(32) else { unreachable!() };
+        assert!(Rc::ptr_eq(&first, &second));
+        let Type::Integer(_, other) = Type::uint(33) else { unreachable!() };
+        assert!(!Rc::ptr_eq(&first, &other));
+
+        let Type::Integer(_, followed) = Type::uint(32).follow_bindings() else { unreachable!() };
+        assert!(Rc::ptr_eq(&first, &followed));
+        let mut bindings = TypeBindings::default();
+        let var = TypeVariable::unbound(TypeVariableId(0), Kind::u32());
+        bindings.insert(var.id(), (var.clone(), Kind::u32(), Type::constant_u32(8)));
+        let Type::Integer(_, substituted) = Type::uint(32).substitute(&bindings) else {
+            unreachable!()
+        };
+        assert!(Rc::ptr_eq(&first, &substituted));
+
+        let generic = Type::Integer(Signedness::Unsigned, Rc::new(Type::TypeVariable(var)));
+        let Type::Integer(_, bound) = generic.substitute(&bindings) else { unreachable!() };
+        assert_eq!(*bound, Type::constant_u32(8));
+        assert!(!Rc::ptr_eq(&first, &bound));
     }
 
     #[test]

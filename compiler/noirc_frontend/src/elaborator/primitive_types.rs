@@ -331,7 +331,7 @@ impl Elaborator<'_> {
             self.push_err(ResolverError::UnsupportedIntegerWidth { location, signedness, bits });
             return Type::Error;
         }
-        Type::Integer(signedness, Box::new(width))
+        Type::Integer(signedness, std::rc::Rc::new(width))
     }
 
     /// Instantiates a primitive type with turbofish generics.
@@ -500,7 +500,7 @@ mod tests {
     #[test]
     fn a_generic_width_has_no_primitive_name() {
         let width = crate::Type::type_variable(crate::TypeVariableId(0));
-        let typ = crate::Type::Integer(Signedness::Unsigned, Box::new(width));
+        let typ = crate::Type::Integer(Signedness::Unsigned, std::rc::Rc::new(width));
         assert_eq!(PrimitiveType::from_type(&typ), None);
     }
 }
