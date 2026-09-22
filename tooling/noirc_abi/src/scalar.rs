@@ -8,7 +8,7 @@
 //! than the linked one; other fields are refused before any value is read.
 
 use acvm::{AcirField, FieldConfig, FieldElement, FieldId};
-use num_bigint::BigUint;
+use num_bigint::{BigInt, BigUint};
 use thiserror::Error;
 
 use crate::{AbiType, input_parser::InputValue};
@@ -120,6 +120,16 @@ fn fits_scalar_type(pattern: &BigUint, typ: &AbiType) -> bool {
     }
 }
 
+/// The value a signed integer's bit pattern spells at its declared width.
+pub(crate) fn signed_value(pattern: &BigUint, width: u32) -> BigInt {
+    let pattern = BigInt::from(pattern.clone());
+    if width > 0 && pattern.bit(u64::from(width - 1)) {
+        pattern - (BigInt::from(1u8) << width)
+    } else {
+        pattern
+    }
+}
+
 /// The linked element holding `pattern`, which the caller has checked is below the modulus of a
 /// carried field.
 pub(crate) fn container(pattern: &BigUint) -> FieldElement {
@@ -134,13 +144,14 @@ pub(crate) fn pattern_of(element: FieldElement) -> BigUint {
 #[cfg(test)]
 mod tests {
     use acvm::FieldConfig;
-    use num_bigint::BigUint;
+    use num_bigint::{BigInt, BigUint};
     use proptest::prelude::*;
 
     use crate::{AbiType, Sign, input_parser::InputValue};
 
     use super::{
-        ScalarError, carried_fields, container, decode_scalar, encode_scalar, uncarried_fields,
+        ScalarError, carried_fields, container, decode_scalar, encode_scalar, signed_value,
+        uncarried_fields,
     };
 
     fn unsigned(width: u32) -> AbiType {
@@ -261,6 +272,20 @@ mod tests {
             let value = InputValue::Field(0u8.into());
             assert_eq!(encode_scalar(&value, &AbiType::Field, field), Err(refusal));
         }
+    }
+
+    #[test]
+    fn a_signed_pattern_reads_as_twos_complement_at_its_width() {
+        assert_eq!(signed_value(&BigUint::from(255u8), 8), BigInt::from(-1));
+        assert_eq!(signed_value(&BigUint::from(128u8), 8), BigInt::from(-128));
+        assert_eq!(signed_value(&BigUint::from(127u8), 8), BigInt::from(127));
+        assert_eq!(signed_value(&BigUint::from(255u8), 9), BigInt::from(255));
+        let width = 253;
+        assert_eq!(signed_value(&(two_to_the(width) - 1u8), width), BigInt::from(-1));
+        assert_eq!(
+            signed_value(&two_to_the(width - 1), width),
+            -BigInt::from(two_to_the(width - 1))
+        );
     }
 
     proptest! {

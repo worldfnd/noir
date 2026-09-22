@@ -1,3 +1,4 @@
+use acvm::FieldConfig;
 use noirc_abi::{
     Abi, InputMap, MAIN_RETURN_NAME,
     input_parser::{Format, InputValue},
@@ -8,7 +9,7 @@ use crate::{errors::CliError, fs::artifact::write_to_file};
 
 /// Returns the circuit's parameters and its return value, if one exists.
 ///
-/// The file is is expected to contain ABI encoded inputs in TOML or JSON format.
+/// The file contains ABI encoded inputs in TOML or JSON, read in the linked field.
 pub fn read_inputs_from_file(
     file_path: &Path,
     abi: &Abi,
@@ -37,7 +38,7 @@ pub fn read_inputs_from_file(
     let inputs = std::fs::read_to_string(file_path)
         .map_err(|e| FilesystemError(InvalidInputFile(file_path.to_path_buf(), e.to_string())))?;
 
-    let mut inputs = format.parse(&inputs, abi)?;
+    let mut inputs = format.parse(&inputs, abi, FieldConfig::linked())?;
     let return_value = inputs.remove(MAIN_RETURN_NAME);
 
     Ok((inputs, return_value))
