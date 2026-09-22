@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::rc::Rc;
 
-use acvm::FieldValue;
+use acvm::{FieldConfig, FieldValue};
 use iter_extended::vecmap;
 use noirc_errors::CustomDiagnostic as Diagnostic;
 use noirc_errors::DiagnosticKind;
@@ -775,7 +775,13 @@ impl<'a> From<&'a TypeCheckError> for Diagnostic {
                     diagnostic.add_secondary("This type has an invalid entry point type inside it".to_string(), *location);
                 }
 
-                diagnostic.add_note("Note: vectors, references, empty arrays, empty strings, or any type containing them may not be used in main, contract functions, test functions, fuzz functions or foldable functions.".to_string());
+                let note = if let InvalidType::IntegerExceedsField { field, .. } = invalid_type.innermost() {
+                    let widest = FieldConfig::new(*field).num_bits() - 1;
+                    format!("Note: under {field}, an integer that main or a contract function takes or returns must be at most {widest} bits wide, so that each of its values is below the field modulus. Split a wider integer into narrower ones.")
+                } else {
+                    "Note: vectors, references, empty arrays, empty strings, or any type containing them may not be used in main, contract functions, test functions, fuzz functions or foldable functions.".to_string()
+                };
+                diagnostic.add_note(note);
                 invalid_type.add_to_diagnostic(*location, &mut diagnostic);
                 diagnostic
             },
