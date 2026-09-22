@@ -11,51 +11,18 @@ impl Not for bool {
     }
 }
 
-impl Not for u128 {
-    fn not(self) -> u128 {
+impl<let N: u32> Not for u<N> {
+    fn not(self) -> Self {
         !self
     }
 }
-impl Not for u64 {
-    fn not(self) -> u64 {
+
+impl<let N: u32> Not for i<N> {
+    fn not(self) -> Self {
         !self
     }
 }
-impl Not for u32 {
-    fn not(self) -> u32 {
-        !self
-    }
-}
-impl Not for u16 {
-    fn not(self) -> u16 {
-        !self
-    }
-}
-impl Not for u8 {
-    fn not(self) -> u8 {
-        !self
-    }
-}
-impl Not for i8 {
-    fn not(self) -> i8 {
-        !self
-    }
-}
-impl Not for i16 {
-    fn not(self) -> i16 {
-        !self
-    }
-}
-impl Not for i32 {
-    fn not(self) -> i32 {
-        !self
-    }
-}
-impl Not for i64 {
-    fn not(self) -> i64 {
-        !self
-    }
-}
+
 // docs:end:not-trait-impls
 
 // docs:start:bitor-trait
@@ -70,48 +37,14 @@ impl BitOr for bool {
     }
 }
 
-impl BitOr for u128 {
-    fn bitor(self, other: u128) -> u128 {
+impl<let N: u32> BitOr for u<N> {
+    fn bitor(self, other: Self) -> Self {
         self | other
     }
 }
-impl BitOr for u64 {
-    fn bitor(self, other: u64) -> u64 {
-        self | other
-    }
-}
-impl BitOr for u32 {
-    fn bitor(self, other: u32) -> u32 {
-        self | other
-    }
-}
-impl BitOr for u16 {
-    fn bitor(self, other: u16) -> u16 {
-        self | other
-    }
-}
-impl BitOr for u8 {
-    fn bitor(self, other: u8) -> u8 {
-        self | other
-    }
-}
-impl BitOr for i8 {
-    fn bitor(self, other: i8) -> i8 {
-        self | other
-    }
-}
-impl BitOr for i16 {
-    fn bitor(self, other: i16) -> i16 {
-        self | other
-    }
-}
-impl BitOr for i32 {
-    fn bitor(self, other: i32) -> i32 {
-        self | other
-    }
-}
-impl BitOr for i64 {
-    fn bitor(self, other: i64) -> i64 {
+
+impl<let N: u32> BitOr for i<N> {
+    fn bitor(self, other: Self) -> Self {
         self | other
     }
 }
@@ -128,48 +61,14 @@ impl BitAnd for bool {
     }
 }
 
-impl BitAnd for u128 {
-    fn bitand(self, other: u128) -> u128 {
+impl<let N: u32> BitAnd for u<N> {
+    fn bitand(self, other: Self) -> Self {
         self & other
     }
 }
-impl BitAnd for u64 {
-    fn bitand(self, other: u64) -> u64 {
-        self & other
-    }
-}
-impl BitAnd for u32 {
-    fn bitand(self, other: u32) -> u32 {
-        self & other
-    }
-}
-impl BitAnd for u16 {
-    fn bitand(self, other: u16) -> u16 {
-        self & other
-    }
-}
-impl BitAnd for u8 {
-    fn bitand(self, other: u8) -> u8 {
-        self & other
-    }
-}
-impl BitAnd for i8 {
-    fn bitand(self, other: i8) -> i8 {
-        self & other
-    }
-}
-impl BitAnd for i16 {
-    fn bitand(self, other: i16) -> i16 {
-        self & other
-    }
-}
-impl BitAnd for i32 {
-    fn bitand(self, other: i32) -> i32 {
-        self & other
-    }
-}
-impl BitAnd for i64 {
-    fn bitand(self, other: i64) -> i64 {
+
+impl<let N: u32> BitAnd for i<N> {
+    fn bitand(self, other: Self) -> Self {
         self & other
     }
 }
@@ -186,48 +85,14 @@ impl BitXor for bool {
     }
 }
 
-impl BitXor for u128 {
-    fn bitxor(self, other: u128) -> u128 {
+impl<let N: u32> BitXor for u<N> {
+    fn bitxor(self, other: Self) -> Self {
         self ^ other
     }
 }
-impl BitXor for u64 {
-    fn bitxor(self, other: u64) -> u64 {
-        self ^ other
-    }
-}
-impl BitXor for u32 {
-    fn bitxor(self, other: u32) -> u32 {
-        self ^ other
-    }
-}
-impl BitXor for u16 {
-    fn bitxor(self, other: u16) -> u16 {
-        self ^ other
-    }
-}
-impl BitXor for u8 {
-    fn bitxor(self, other: u8) -> u8 {
-        self ^ other
-    }
-}
-impl BitXor for i8 {
-    fn bitxor(self, other: i8) -> i8 {
-        self ^ other
-    }
-}
-impl BitXor for i16 {
-    fn bitxor(self, other: i16) -> i16 {
-        self ^ other
-    }
-}
-impl BitXor for i32 {
-    fn bitxor(self, other: i32) -> i32 {
-        self ^ other
-    }
-}
-impl BitXor for i64 {
-    fn bitxor(self, other: i64) -> i64 {
+
+impl<let N: u32> BitXor for i<N> {
+    fn bitxor(self, other: Self) -> Self {
         self ^ other
     }
 }
@@ -238,48 +103,14 @@ pub trait Shl {
 }
 // docs:end:shl-trait
 
-impl Shl for u128 {
-    fn shl(self, other: u128) -> u128 {
+impl<let N: u32> Shl for u<N> {
+    fn shl(self, other: Self) -> Self {
         self << other
     }
 }
-impl Shl for u64 {
-    fn shl(self, other: u64) -> u64 {
-        self << other
-    }
-}
-impl Shl for u32 {
-    fn shl(self, other: u32) -> u32 {
-        self << other
-    }
-}
-impl Shl for u16 {
-    fn shl(self, other: u16) -> u16 {
-        self << other
-    }
-}
-impl Shl for u8 {
-    fn shl(self, other: u8) -> u8 {
-        self << other
-    }
-}
-impl Shl for i8 {
-    fn shl(self, other: i8) -> i8 {
-        self << other
-    }
-}
-impl Shl for i16 {
-    fn shl(self, other: i16) -> i16 {
-        self << other
-    }
-}
-impl Shl for i32 {
-    fn shl(self, other: i32) -> i32 {
-        self << other
-    }
-}
-impl Shl for i64 {
-    fn shl(self, other: i64) -> i64 {
+
+impl<let N: u32> Shl for i<N> {
+    fn shl(self, other: Self) -> Self {
         self << other
     }
 }
@@ -290,48 +121,14 @@ pub trait Shr {
 }
 // docs:end:shr-trait
 
-impl Shr for u128 {
-    fn shr(self, other: u128) -> u128 {
+impl<let N: u32> Shr for u<N> {
+    fn shr(self, other: Self) -> Self {
         self >> other
     }
 }
-impl Shr for u64 {
-    fn shr(self, other: u64) -> u64 {
-        self >> other
-    }
-}
-impl Shr for u32 {
-    fn shr(self, other: u32) -> u32 {
-        self >> other
-    }
-}
-impl Shr for u16 {
-    fn shr(self, other: u16) -> u16 {
-        self >> other
-    }
-}
-impl Shr for u8 {
-    fn shr(self, other: u8) -> u8 {
-        self >> other
-    }
-}
-impl Shr for i8 {
-    fn shr(self, other: i8) -> i8 {
-        self >> other
-    }
-}
-impl Shr for i16 {
-    fn shr(self, other: i16) -> i16 {
-        self >> other
-    }
-}
-impl Shr for i32 {
-    fn shr(self, other: i32) -> i32 {
-        self >> other
-    }
-}
-impl Shr for i64 {
-    fn shr(self, other: i64) -> i64 {
+
+impl<let N: u32> Shr for i<N> {
+    fn shr(self, other: Self) -> Self {
         self >> other
     }
 }

@@ -7,6 +7,7 @@ use super::Formatter;
 
 impl Formatter<'_> {
     pub(super) fn format_type_alias(&mut self, type_alias: TypeAlias) {
+        self.format_secondary_attributes(type_alias.attributes);
         self.write_indentation();
         self.format_item_visibility(type_alias.visibility);
         if type_alias.comptime {

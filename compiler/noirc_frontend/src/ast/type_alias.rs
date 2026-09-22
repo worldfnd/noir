@@ -1,4 +1,5 @@
 use super::{Ident, ItemVisibility, UnresolvedGenerics, UnresolvedType};
+use crate::token::SecondaryAttribute;
 use iter_extended::vecmap;
 use noirc_errors::Location;
 use std::fmt::Display;
@@ -7,6 +8,7 @@ use std::fmt::Display;
 /// Depending on '`numeric_type`', a Type Alias can be an alias to a normal type, or to a numeric generic type
 #[derive(Clone, Debug)]
 pub struct TypeAlias {
+    pub attributes: Vec<SecondaryAttribute>,
     pub name: Ident,
     pub generics: UnresolvedGenerics,
     pub typ: UnresolvedType,
@@ -19,6 +21,9 @@ pub struct TypeAlias {
 
 impl Display for TypeAlias {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for attribute in &self.attributes {
+            writeln!(f, "{attribute}")?;
+        }
         let generics = vecmap(&self.generics, |generic| generic.to_string());
         write!(f, "type {}<{}> = {}", self.name, generics.join(", "), self.typ)
     }

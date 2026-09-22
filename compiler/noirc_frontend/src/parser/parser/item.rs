@@ -228,6 +228,7 @@ impl<'a> Parser<'a> {
             self.mutable_and_unconstrained_not_applicable(modifiers);
 
             return vec![ItemKind::TypeAlias(self.parse_type_alias(
+                attributes,
                 modifiers.visibility,
                 modifiers.comptime.is_some(),
                 start_location,

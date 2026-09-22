@@ -112,13 +112,21 @@ impl FieldConfig {
 
     /// Whether the argument of a `#[field(..)]` attribute names this field: either by name, or by its modulus written in decimal or `0x` hexadecimal.
     pub fn matches_field_attribute(&self, argument: &str) -> bool {
-        let modulus = match argument.strip_prefix("0x") {
-            Some(hex) => BigUint::parse_bytes(hex.as_bytes(), 16),
-            None => BigUint::parse_bytes(argument.as_bytes(), 10),
-        };
-        match modulus {
+        match Self::parse_modulus(argument) {
             Some(modulus) => modulus == *self.modulus(),
             None => argument == self.name(),
+        }
+    }
+
+    /// Accepts a supported field name or a numeric modulus, including unsupported moduli.
+    pub fn names_a_field(argument: &str) -> bool {
+        Self::parse_modulus(argument).is_some() || FieldId::from_name(argument).is_some()
+    }
+
+    fn parse_modulus(argument: &str) -> Option<BigUint> {
+        match argument.strip_prefix("0x") {
+            Some(hex) => BigUint::parse_bytes(hex.as_bytes(), 16),
+            None => BigUint::parse_bytes(argument.as_bytes(), 10),
         }
     }
 

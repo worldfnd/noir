@@ -59,15 +59,14 @@ pub comptime fn warn<let N: u32, T, let N2: u32, T2>(
 // docs:start:derive_example
 // These are needed for the unconstrained hashmap we're using to store derive functions
 use crate::collections::umap::UHashMap;
-use crate::hash::BuildHasherDefault;
-use crate::hash::poseidon2::Poseidon2Hasher;
+use crate::hash::{BuildHasherDefault, NonCryptographicHasher};
 
 // A derive function is one that given a type definition can
 // create us a quoted trait impl from it.
 pub comptime type DeriveFunction = fn(TypeDefinition) -> Quoted;
 
 // We'll keep a global HANDLERS map to keep track of the derive handler for each trait
-comptime mut global HANDLERS: UHashMap<TraitDefinition, DeriveFunction, BuildHasherDefault<Poseidon2Hasher>> =
+comptime mut global HANDLERS: UHashMap<TraitDefinition, DeriveFunction, BuildHasherDefault<NonCryptographicHasher>> =
     UHashMap::default();
 
 // Given a type definition and a vector of traits to derive, create trait impls for each.
