@@ -54,7 +54,7 @@ pub(crate) fn with_interpreter<T>(
     let mut collector = DefCollector::new(def_map);
 
     let options = ElaboratorOptions::test_default();
-    context.def_interner.seed_field(options.field);
+    context.def_interner.seed_field_gates(options.field_gates());
     let reuse_existing_module_declarations = false;
     collect_defs(
         &mut collector,

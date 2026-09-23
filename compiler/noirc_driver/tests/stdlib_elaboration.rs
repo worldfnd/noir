@@ -1,14 +1,22 @@
 use std::path::Path;
 
 use acvm::{FieldConfig, FieldId};
-use noirc_driver::{file_manager_with_stdlib, prepare_crate};
+use noirc_driver::{CompileOptions, check_crate, file_manager_with_stdlib, prepare_crate};
 use noirc_errors::CustomDiagnostic;
 use noirc_frontend::elaborator::FrontendOptions;
+use noirc_frontend::graph::CrateId;
 use noirc_frontend::hir::Context;
 use noirc_frontend::hir::comptime::EvaluationTracker;
 use noirc_frontend::hir::def_map::{CrateDefMap, parse_file};
 
 fn elaborate(source: &str, field: FieldId) -> Vec<String> {
+    let options =
+        FrontendOptions { field: FieldConfig::new(field), ..FrontendOptions::test_default() };
+    diagnostics_with(source, options).into_iter().map(|(_, rendered)| rendered).collect()
+}
+
+/// A context holding the standard library and `source` as `main.nr`, ready to elaborate.
+fn context_with_stdlib(source: &str) -> (Context<'static, 'static>, CrateId) {
     let root = Path::new("");
     let file_name = Path::new("main.nr");
     let mut file_manager = file_manager_with_stdlib(root);
@@ -23,8 +31,13 @@ fn elaborate(source: &str, field: FieldId) -> Vec<String> {
     // A tracker makes the interpreter answer `is_unconstrained()` from the calling context
     // rather than always `true`, so constrained branches run under `comptime` as well.
     context.evaluation_tracker = Some(EvaluationTracker::new(Default::default()));
-    let options =
-        FrontendOptions { field: FieldConfig::new(field), ..FrontendOptions::test_default() };
+    (context, crate_id)
+}
+
+/// Every diagnostic of elaborating `source`, rendered, with whether it is a warning. The
+/// standard library's warnings are included, which `check_crate` would drop.
+fn diagnostics_with(source: &str, options: FrontendOptions) -> Vec<(bool, String)> {
+    let (mut context, crate_id) = context_with_stdlib(source);
     let errors = CrateDefMap::collect_defs(crate_id, &mut context, options);
     errors
         .iter()
@@ -34,12 +47,13 @@ fn elaborate(source: &str, field: FieldId) -> Vec<String> {
             let diagnostic = CustomDiagnostic::from(error);
             let notes: Vec<_> =
                 diagnostic.secondaries.iter().map(|secondary| secondary.message.clone()).collect();
-            format!(
+            let rendered = format!(
                 "{path} @ {}: {} {}",
                 location.span.start(),
                 diagnostic.message,
                 notes.join(" ")
-            )
+            );
+            (diagnostic.is_warning(), rendered)
         })
         .collect()
 }
@@ -93,29 +107,32 @@ fn numeric_traits_and_limits_work_for_configured_fields() {
     }
 }
 
-#[test]
-fn goldilocks_stdlib_fallbacks_preserve_values() {
-    let source = "
-        use std::hash::{Hash, Hasher};
-        use std::ops::{WrappingAdd, WrappingSub, WrappingMul};
+/// Checks that hold when the field-generic halves of `Field::lt`, the wide `Hash` impls and the
+/// wrapping ops are the ones compiled; `is_bn254` says which field the checks expect to run under.
+fn generic_halves_source(is_bn254: bool) -> String {
+    let not = if is_bn254 { "" } else { "!" };
+    format!(
+        "
+        use std::hash::{{Hash, Hasher}};
+        use std::ops::{{WrappingAdd, WrappingSub, WrappingMul}};
 
-        struct Limbs { values: [Field; 4], len: u32 }
-        impl Hasher for Limbs {
-            fn finish(self) -> Field { self.len as Field }
-            fn write(&mut self, input: Field) {
+        struct Limbs {{ values: [Field; 4], len: u32 }}
+        impl Hasher for Limbs {{
+            fn finish(self) -> Field {{ self.len as Field }}
+            fn write(&mut self, input: Field) {{
                 self.values[self.len] = input;
                 self.len += 1;
-            }
-        }
+            }}
+        }}
 
-        unconstrained fn check_unconstrained_order() {
+        unconstrained fn check_unconstrained_order() {{
             assert(Field::lt(0, -1));
             assert(!Field::lt(-1, 0));
-        }
+        }}
 
-        fn main() {
-            comptime {
-                assert(!std::compat::is_bn254());
+        fn main() {{
+            comptime {{
+                assert({not}std::compat::is_bn254());
                 let max64 = u64::max_value();
                 let max128 = u128::max_value();
                 assert(max64.wrapping_add(1) == 0);
@@ -131,15 +148,15 @@ fn goldilocks_stdlib_fallbacks_preserve_values() {
                 assert(i64::min_value().wrapping_sub(1) == i64::max_value());
                 assert(i64::min_value().wrapping_mul(-1) == i64::min_value());
 
-                let mut limbs = Limbs { values: [0; 4], len: 0 };
+                let mut limbs = Limbs {{ values: [0; 4], len: 0 }};
                 max64.hash(&mut limbs);
                 assert(limbs.len == 2);
                 assert(limbs.values == [0xffffffff, 0xffffffff, 0, 0]);
-                limbs = Limbs { values: [0; 4], len: 0 };
+                limbs = Limbs {{ values: [0; 4], len: 0 }};
                 0x112233445566778899aabbccddeeff00u128.hash(&mut limbs);
                 assert(limbs.len == 4);
                 assert(limbs.values == [0xddeeff00, 0x99aabbcc, 0x55667788, 0x11223344]);
-                limbs = Limbs { values: [0; 4], len: 0 };
+                limbs = Limbs {{ values: [0; 4], len: 0 }};
                 (-1i64).hash(&mut limbs);
                 assert(limbs.values == [0xffffffff, 0xffffffff, 0, 0]);
 
@@ -152,11 +169,90 @@ fn goldilocks_stdlib_fallbacks_preserve_values() {
                 assert(Field::lt(-2, -1));
                 assert(!Field::lt(-1, -2));
                 check_unconstrained_order();
-            }
-        }
-    ";
-    let errors = elaborate(source, FieldId::Goldilocks);
+            }}
+        }}
+    "
+    )
+}
+
+#[test]
+fn goldilocks_stdlib_fallbacks_preserve_values() {
+    let errors = elaborate(&generic_halves_source(false), FieldId::Goldilocks);
     assert!(errors.is_empty(), "{}", errors.join("\n"));
+}
+
+/// `--generic-builtins` compiles the field-generic halves on bn254 too, where they pass the same
+/// checks; without it bn254's own `Hash for u64` writes one element, so the limb check fails.
+/// What the mode leaves behind is at most an unused private helper of a dropped bn254 half
+/// (`wrapping_mul128_hlp` of `WrappingMul for u128`): a stdlib warning `check_crate` never shows.
+#[test]
+fn bn254_takes_the_generic_halves_under_generic_builtins() {
+    let source = generic_halves_source(true);
+    let options = FrontendOptions {
+        field: FieldConfig::new(FieldId::Bn254),
+        generic_builtins: true,
+        ..FrontendOptions::test_default()
+    };
+    let (warnings, errors): (Vec<_>, Vec<_>) =
+        diagnostics_with(&source, options).into_iter().partition(|(is_warning, _)| *is_warning);
+    let errors: Vec<_> = errors.into_iter().map(|(_, rendered)| rendered).collect();
+    assert!(errors.is_empty(), "{}", errors.join("\n"));
+    let warnings: Vec<_> = warnings.into_iter().map(|(_, rendered)| rendered).collect();
+    assert!(
+        warnings
+            .iter()
+            .all(|warning| warning.starts_with("std/") && warning.contains("unused function")),
+        "the option leaves at most unused private helpers behind in the stdlib: {}",
+        warnings.join("\n")
+    );
+
+    // The interpreter locates a failed `assert` at its condition.
+    let limb_check = source.find("limbs.len == 2").expect("the limb check is in the source");
+    let errors = elaborate(&source, FieldId::Bn254);
+    assert!(
+        errors.len() == 1
+            && errors[0].starts_with(&format!("main.nr @ {limb_check}: Assertion failed")),
+        "bn254 hashes a u64 in one write without the option: {}",
+        errors.join("\n")
+    );
+}
+
+/// `nargo --generic-builtins` reaches the frontend through `CompileOptions`: `check_crate`
+/// accepts the generic halves' checks under bn254 with the option and refuses them without it.
+#[test]
+fn the_compile_option_reaches_the_frontend() {
+    let source = generic_halves_source(true);
+    let with_option =
+        CompileOptions { field: FieldId::Bn254, generic_builtins: true, ..Default::default() };
+    let (mut context, crate_id) = context_with_stdlib(&source);
+    let ((), warnings) = check_crate(&mut context, crate_id, &with_option)
+        .unwrap_or_else(|errors| panic!("the generic halves pass under the option: {errors:?}"));
+    assert!(warnings.is_empty(), "the stdlib's warning is not the root crate's: {warnings:?}");
+
+    let without_option = CompileOptions { field: FieldId::Bn254, ..Default::default() };
+    let (mut context, crate_id) = context_with_stdlib(&source);
+    let errors = check_crate(&mut context, crate_id, &without_option)
+        .expect_err("bn254's own `Hash for u64` writes one element");
+    assert!(errors.iter().any(|error| error.message.contains("Assertion failed")), "{errors:?}");
+}
+
+/// The option acts on bn254's halves only. Under another field a `not(<field>)` gate excludes
+/// an item the field's range cannot hold (`From<u64>` for `Field` under Goldilocks), which no
+/// benchmark may bring back, so the standard library keeps compiling under every field.
+#[test]
+fn generic_builtins_leave_the_stdlib_compiling_under_every_field() {
+    for field in FieldId::ALL {
+        let options = FrontendOptions {
+            field: FieldConfig::new(field),
+            generic_builtins: true,
+            ..FrontendOptions::test_default()
+        };
+        let errors: Vec<_> = diagnostics_with("fn main() {}", options)
+            .into_iter()
+            .filter_map(|(is_warning, rendered)| (!is_warning).then_some(rendered))
+            .collect();
+        assert!(errors.is_empty(), "{field}: {}", errors.join("\n"));
+    }
 }
 
 #[test]

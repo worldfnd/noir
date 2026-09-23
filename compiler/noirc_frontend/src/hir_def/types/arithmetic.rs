@@ -895,6 +895,7 @@ mod proptests {
                 enabled_unstable_features: &[],
                 disable_required_unstable_features: false,
                 field: acvm::FieldConfig::linked(),
+                generic_builtins: false,
             };
             let mut elaborator = Elaborator::from_context(
                 &mut context,
