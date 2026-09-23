@@ -152,6 +152,7 @@ noir_stdlib/src/meta/mod.nr
 noir_stdlib/src/meta/typ.nr
 noir_stdlib/src/ops/arith.nr
 noir_stdlib/src/ops/bit.nr
+scripts/gather_benchmark_data.sh
 tooling/artifact_cli/src/fs/inputs.rs
 tooling/ast_fuzzer/fuzz/src/targets/orig_vs_morph.rs
 tooling/ast_fuzzer/src/abi.rs
