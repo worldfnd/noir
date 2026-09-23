@@ -9,6 +9,7 @@
 
 use std::collections::HashSet;
 
+use acvm::FieldConfig;
 use iter_extended::vecmap;
 use itertools::Itertools;
 use noirc_errors::Location;
@@ -403,6 +404,7 @@ impl Elaborator<'_> {
             if let Err(err) = Self::check_if_type_is_valid_for_program(
                 &return_type,
                 is_entry_point || func.is_test_or_fuzz(),
+                is_entry_point.then(|| self.interner.field()),
                 func.has_inline_attribute(),
                 output,
                 func.return_type().location,
@@ -604,6 +606,7 @@ impl Elaborator<'_> {
             if let Err(err) = Self::check_if_type_is_valid_for_program(
                 &typ,
                 is_entry_point || is_test_or_fuzz,
+                is_entry_point.then(|| self.interner.field()),
                 has_inline_attribute,
                 output,
                 type_location,
@@ -640,15 +643,17 @@ impl Elaborator<'_> {
 
     /// Only sized types are valid to be used as main's parameters or the parameters to a contract
     /// function. If the given type is not sized (e.g. contains a vector or `NamedGeneric` type), an
-    /// error is issued.
+    /// error is issued. `field` is the field whose modulus bounds the integers of `main` and of a
+    /// contract function, and is `None` for test and fuzz functions.
     fn check_if_type_is_valid_for_program(
         typ: &Type,
         is_entry_point: bool,
+        field: Option<FieldConfig>,
         has_inline_attribute: bool,
         output: bool,
         location: Location,
     ) -> Result<(), TypeCheckError> {
-        if is_entry_point && let Some(invalid_type) = typ.program_validity(output) {
+        if is_entry_point && let Some(invalid_type) = typ.program_validity(output, field) {
             return Err(TypeCheckError::InvalidTypeForEntryPoint { invalid_type, location });
         }
 

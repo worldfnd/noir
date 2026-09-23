@@ -26,13 +26,20 @@ setup_repo() {
     git -C $temp_dir -c advice.detachedHead=false checkout $repo_tag
 }
 
+# `nargo` rotates its log file daily, so a loop that runs across midnight leaves two files
+# behind; the report reads one.
+collect_logs() {
+    cat ./tmp/* > "$OUTPUT_DIR/$1"
+    rm ./tmp/*
+}
+
 compile_project() {
     echo "Compiling program (ACIR)"
     for ((i = 1; i <= NUM_COMPILE_RUNS; i++)); do
       NOIR_LOG=$NOIR_LOG NARGO_LOG_DIR=./tmp $NARGO compile --force --silence-warnings 2>> /dev/null
     done
 
-    mv ./tmp/* $OUTPUT_DIR/compilation.jsonl
+    collect_logs compilation.jsonl
 }
 
 execute_project() {
@@ -41,7 +48,7 @@ execute_project() {
       NOIR_LOG=$NOIR_LOG NARGO_LOG_DIR=./tmp $NARGO execute --silence-warnings >> /dev/null
     done
 
-    mv ./tmp/* $OUTPUT_DIR/execution.jsonl
+    collect_logs execution.jsonl
 }
 
 save_artifact() {
@@ -55,7 +62,7 @@ compile_brillig_project() {
       NOIR_LOG=$NOIR_LOG NARGO_LOG_DIR=./tmp $NARGO compile --force --force-brillig --silence-warnings 2>> /dev/null
     done
 
-    mv ./tmp/* $OUTPUT_DIR/brillig_compilation.jsonl
+    collect_logs brillig_compilation.jsonl
 }
 
 execute_brillig_project() {
@@ -64,7 +71,7 @@ execute_brillig_project() {
       NOIR_LOG=$NOIR_LOG NARGO_LOG_DIR=./tmp $NARGO execute --force-brillig --silence-warnings >> /dev/null
     done
 
-    mv ./tmp/* $OUTPUT_DIR/brillig_execution.jsonl
+    collect_logs brillig_execution.jsonl
 }
 
 save_brillig_artifact() {

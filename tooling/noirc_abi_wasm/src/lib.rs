@@ -6,7 +6,7 @@ use getrandom_v2 as _;
 use getrandom_v4 as _; // cSpell:disable-line
 
 use acvm::{
-    AcirField, FieldElement,
+    AcirField, FieldConfig, FieldElement,
     acir::native_types::{WitnessMap, WitnessStack},
     pwg::RawAssertionPayload,
 };
@@ -77,6 +77,7 @@ pub fn abi_encode(
                 toml_return_value,
                 &abi.return_type.as_ref().unwrap().abi_type,
                 MAIN_RETURN_NAME,
+                FieldConfig::linked(),
             )
             .map_err(JsAbiError::from)
         })
@@ -89,7 +90,7 @@ pub fn abi_encode(
             let value = inputs
                 .get(&arg_name)
                 .ok_or_else(|| InputParserError::MissingArgument(arg_name.clone()))?;
-            InputValue::try_from_json(value.clone(), &abi_type, &arg_name)
+            InputValue::try_from_json(value.clone(), &abi_type, &arg_name, FieldConfig::linked())
                 .map(|input_value| (arg_name, input_value))
         })?;
 

@@ -43,7 +43,9 @@ compiler/noirc_frontend/src/ast/type_alias.rs
 compiler/noirc_frontend/src/elaborator/comptime.rs
 compiler/noirc_frontend/src/elaborator/enums.rs
 compiler/noirc_frontend/src/elaborator/expressions.rs
+compiler/noirc_frontend/src/elaborator/function.rs
 compiler/noirc_frontend/src/elaborator/generics.rs
+compiler/noirc_frontend/src/elaborator/globals.rs
 compiler/noirc_frontend/src/elaborator/lints.rs
 compiler/noirc_frontend/src/elaborator/mod.rs
 compiler/noirc_frontend/src/elaborator/options.rs
@@ -150,6 +152,8 @@ noir_stdlib/src/meta/mod.nr
 noir_stdlib/src/meta/typ.nr
 noir_stdlib/src/ops/arith.nr
 noir_stdlib/src/ops/bit.nr
+scripts/gather_benchmark_data.sh
+tooling/artifact_cli/src/fs/inputs.rs
 tooling/ast_fuzzer/fuzz/src/targets/orig_vs_morph.rs
 tooling/ast_fuzzer/src/abi.rs
 tooling/ast_fuzzer/src/compare/compiled.rs
@@ -158,6 +162,7 @@ tooling/ast_fuzzer/src/program/func.rs
 tooling/ast_fuzzer/src/program/mod.rs
 tooling/ast_fuzzer/src/program/tests.rs
 tooling/ast_fuzzer/src/program/types.rs
+tooling/greybox_fuzzer/src/corpus.rs
 tooling/lsp/src/notifications/mod.rs
 tooling/lsp/src/requests/completion/builtins.rs
 tooling/lsp/src/requests/hover/from_visitor.rs
@@ -175,8 +180,13 @@ tooling/nargo_fmt/src/formatter/impls.rs
 tooling/nargo_fmt/src/formatter/trait_impl.rs
 tooling/noirc_abi/Cargo.toml
 tooling/noirc_abi/src/arbitrary.rs
+tooling/noirc_abi/src/conformance.rs
+tooling/noirc_abi/src/errors.rs
 tooling/noirc_abi/src/input_parser/json.rs
 tooling/noirc_abi/src/input_parser/mod.rs
 tooling/noirc_abi/src/input_parser/toml.rs
+tooling/noirc_abi/src/lib.rs
+tooling/noirc_abi/src/scalar.rs
+tooling/noirc_abi_wasm/src/lib.rs
 tooling/noirc_abi_wasm/test/browser/errors.test.ts
 tooling/noirc_abi_wasm/test/node/errors.test.ts
