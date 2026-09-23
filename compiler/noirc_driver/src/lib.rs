@@ -306,6 +306,14 @@ pub struct CompileOptions {
     /// Field to compile for: bn254, goldilocks or bls12_381. Defaults to the field this compiler is built with; lowering to a circuit needs a build for that field.
     #[arg(long, value_name = "FIELD", default_value_t = FieldId::linked())]
     pub field: FieldId,
+
+    /// Benchmark mode for bn254 builds: where the standard library keeps an item written for
+    /// bn254 and a field-generic twin (`Field::lt`, `Hash` for `u64`, `u128` and `i64`, and the
+    /// wrapping arithmetic for `u64` and `u128`), compile the twin, so the two can be measured
+    /// on one backend. Hashes of those types then differ from a normal build's. Under another
+    /// field the option changes nothing.
+    #[arg(long, hide = true)]
+    pub generic_builtins: bool,
 }
 
 impl Default for CompileOptions {
@@ -354,6 +362,7 @@ impl Default for CompileOptions {
             no_unstable_features: false,
             disable_comptime_printing: false,
             field: FieldId::linked(),
+            generic_builtins: false,
         }
     }
 }
@@ -409,6 +418,7 @@ impl CompileOptions {
             enabled_unstable_features: &self.unstable_features,
             disable_required_unstable_features: self.no_unstable_features,
             field: FieldConfig::new(self.field),
+            generic_builtins: self.generic_builtins,
         }
     }
 }

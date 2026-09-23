@@ -81,6 +81,14 @@ static TOP_LEVEL_MODULE_ATTRIBUTES: ModuleAttributes = ModuleAttributes {
 
 type TypeAttributes = Vec<SecondaryAttribute>;
 
+/// How `#[field(..)]` gates are decided for one compilation: the field, and whether
+/// `--generic-builtins` prefers the field-generic twin of an item written for that field.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct FieldGates {
+    pub field: FieldConfig,
+    pub generic_builtins: bool,
+}
+
 /// The node interner is the central storage location of all nodes in Noir's Hir (the
 /// various node types can be found in `hir_def`). The interner is also used to collect
 /// extra information about the Hir, such as the type of each node, information about
@@ -89,8 +97,9 @@ type TypeAttributes = Vec<SecondaryAttribute>;
 /// monomorphization - and it is not useful afterward.
 #[derive(Debug)]
 pub struct NodeInterner {
-    /// The field this compilation runs under, seeded once by the first elaboration entry point.
-    field: Option<FieldConfig>,
+    /// The field this compilation runs under and how its gates are decided, seeded once by the
+    /// first elaboration entry point.
+    field_gates: Option<FieldGates>,
 
     pub(crate) nodes: Arena<Node>,
     pub(crate) func_meta: HashMap<FuncId, FuncMeta>,
@@ -499,7 +508,7 @@ impl DefinitionKind {
 impl Default for NodeInterner {
     fn default() -> Self {
         NodeInterner {
-            field: None,
+            field_gates: None,
             nodes: Arena::default(),
             func_meta: HashMap::default(),
             function_definition_ids: HashMap::default(),
@@ -563,13 +572,21 @@ impl Default for NodeInterner {
 impl NodeInterner {
     // TODO: Require the field at construction instead of seeding it later.
     pub fn field(&self) -> FieldConfig {
-        self.field.expect("ICE: the field is queried before the compilation seeded it")
+        self.field_gates().field
     }
 
-    pub fn seed_field(&mut self, field: FieldConfig) {
-        match self.field {
-            None => self.field = Some(field),
-            Some(seeded) => assert_eq!(seeded, field, "ICE: a compilation runs under one field"),
+    /// The field and the gate policy this compilation runs under.
+    pub fn field_gates(&self) -> FieldGates {
+        self.field_gates.expect("ICE: the field is queried before the compilation seeded it")
+    }
+
+    pub fn seed_field_gates(&mut self, gates: FieldGates) {
+        match self.field_gates {
+            None => self.field_gates = Some(gates),
+            Some(seeded) => assert_eq!(
+                seeded, gates,
+                "ICE: a compilation runs under one field and one gate policy"
+            ),
         }
     }
 }

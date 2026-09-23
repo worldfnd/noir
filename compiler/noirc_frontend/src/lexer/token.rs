@@ -912,9 +912,14 @@ impl FieldPredicate {
         FieldPredicate { name, negated }
     }
 
+    /// Whether `field` is the one this predicate names, before any negation.
+    pub fn names(&self, field: FieldConfig) -> bool {
+        field.matches_field_attribute(&self.name.to_lowercase())
+    }
+
     /// Whether `field` is one of the fields this predicate keeps its item for.
     pub fn admits(&self, field: FieldConfig) -> bool {
-        field.matches_field_attribute(&self.name.to_lowercase()) != self.negated
+        self.names(field) != self.negated
     }
 }
 

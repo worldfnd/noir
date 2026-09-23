@@ -484,7 +484,7 @@ impl<'context> Elaborator<'context> {
         options: ElaboratorOptions<'context>,
         elaborate_reasons: im::Vector<ElaborateReason>,
     ) -> Self {
-        interner.seed_field(options.field);
+        interner.seed_field_gates(options.field_gates());
         Self {
             scopes: ScopeForest::default(),
             errors: CompilationErrors::default(),
@@ -1435,7 +1435,7 @@ pub mod test_utils {
         let root_module_id = def_map.root();
         let mut collector = DefCollector::new(def_map);
         let options = ElaboratorOptions::test_default();
-        context.def_interner.seed_field(options.field);
+        context.def_interner.seed_field_gates(options.field_gates());
         let reuse_existing_module_declarations = false;
 
         collect_defs(
