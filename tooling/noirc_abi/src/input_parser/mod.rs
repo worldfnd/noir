@@ -654,7 +654,7 @@ mod tests {
         }
     }
 
-    /// The widest integer an entry point takes is one bit short of the modulus; every value of it survives a serialize-and-parse round trip, including signed values whose magnitude does not fit 128 bits.
+    /// The widest integer the parser carries is one bit short of the modulus (a hand-written ABI can name it; a compiled entry point stops at `u128`); every value of it survives a serialize-and-parse round trip, including signed values whose magnitude does not fit 128 bits.
     #[test]
     fn the_widest_integers_round_trip_through_every_format() {
         for field in carried_fields() {

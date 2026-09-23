@@ -18,7 +18,8 @@ pub struct BoundaryVector {
 }
 
 /// The boundary vectors of `field`: `p - 1`, `p` and `p + 1` for `Field`, the two
-/// signednesses at their widest entry-point width and one bit wider, the 64-bit values that
+/// signednesses at the widest width the parser carries (one bit short of the modulus, which a
+/// hand-written ABI can still name) and one bit wider, the 64-bit values that
 /// straddle the Goldilocks modulus, a native spelling of a wide type, and the spellings each
 /// scalar type refuses whatever the field.
 pub fn boundary_vectors(field: FieldConfig) -> Vec<BoundaryVector> {
