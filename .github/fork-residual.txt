@@ -153,6 +153,8 @@ noir_stdlib/src/meta/typ.nr
 noir_stdlib/src/ops/arith.nr
 noir_stdlib/src/ops/bit.nr
 scripts/gather_benchmark_data.sh
+test_programs/compile_failure/entry_point_width_u24/Nargo.toml
+test_programs/compile_failure/entry_point_width_u24/src/main.nr
 tooling/artifact_cli/src/fs/inputs.rs
 tooling/ast_fuzzer/fuzz/src/targets/orig_vs_morph.rs
 tooling/ast_fuzzer/src/abi.rs
@@ -170,6 +172,7 @@ tooling/lsp/src/with_file.rs
 tooling/nargo_cli/examples/ssa_pass_impact.rs
 tooling/nargo_cli/src/cli/execute_cmd/interpret.rs
 tooling/nargo_cli/src/cli/interpret_cmd.rs
+tooling/nargo_cli/tests/snapshots/compile_failure/entry_point_width_u24/execute__tests__stderr.snap
 tooling/nargo_cli/tests/snapshots/compile_failure/poseidon_permutation/execute__tests__stderr.snap
 tooling/nargo_cli/tests/snapshots/execution_failure/brillig_entry_points_shared_recursive/execute__tests__comptime_stderr.snap
 tooling/nargo_doc/src/items.rs
