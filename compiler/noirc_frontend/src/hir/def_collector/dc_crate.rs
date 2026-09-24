@@ -507,7 +507,7 @@ impl DefCollector {
         reuse_existing_module_declarations: bool,
         errors: &mut CompilationErrors,
     ) {
-        context.def_interner.seed_field(options.field);
+        context.def_interner.seed_field_gates(options.field_gates());
         let module_id = ModuleId { krate: crate_id, local_id: local_module_id };
         context
             .def_interner
@@ -562,6 +562,7 @@ impl DefCollector {
             enabled_unstable_features: options.enabled_unstable_features,
             disable_required_unstable_features: options.disable_required_unstable_features,
             field: options.field,
+            generic_builtins: options.generic_builtins,
         };
 
         let more_errors =

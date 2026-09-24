@@ -1,14 +1,12 @@
-//! The front half admits every integer width the language has; the circuit backend lowers a
-//! few. The boundary between them fires on the circuit path only.
+//! The front half admits every integer width the language has inside a program; the circuit
+//! backend lowers a few. Inside a program the boundary between them fires on the circuit path
+//! only; at an entry point the front half holds the type to the lowerable set itself.
 
 use std::path::Path;
 
 use acvm::FieldConfig;
 use fm::FileManager;
-use noirc_abi::{AbiType, Sign};
-use noirc_driver::{
-    CompileOptions, check_crate, compile_no_check, compute_function_abi, prepare_crate,
-};
+use noirc_driver::{CompileOptions, check_crate, compile_no_check, prepare_crate};
 use noirc_errors::CustomDiagnostic;
 use noirc_frontend::graph::CrateId;
 use noirc_frontend::hir::Context;
@@ -34,8 +32,8 @@ fn context_for(source: &str) -> (Context<'static, 'static>, CrateId) {
 
 /// The widths the circuit backend lowers keep compiling; every other width passes the front
 /// half and the monomorphizer, and stops at circuit generation with a message naming the type.
-/// The width is that of a helper `main` calls, since `main` itself takes and returns only
-/// integers narrower than the field.
+/// The width is that of a helper `main` calls, since `main` itself takes and returns only the
+/// lowerable types.
 #[test]
 fn the_front_half_takes_every_width_and_the_circuit_path_stops_at_the_backend() {
     let cases = [
@@ -93,7 +91,7 @@ fn the_front_half_takes_every_width_and_the_circuit_path_stops_at_the_backend() 
 #[test]
 fn unlowerable_widths_are_refused_inside_types_and_bodies() {
     let sources = [
-        "fn main(x: [u34; 2]) -> pub u34 { x[0] }",
+        "fn helper(x: [u34; 2]) -> u34 { x[0] } fn main(x: u8) -> pub u8 { helper([x as u34; 2]) as u8 }",
         "fn main(x: u8) -> pub u8 { let wide: u34 = x as u34; (wide + 1) as u8 }",
         "fn helper(x: u34) -> u34 { x } fn main(x: u8) -> pub u8 { helper(x as u34) as u8 }",
     ];
@@ -106,18 +104,4 @@ fn unlowerable_widths_are_refused_inside_types_and_bodies() {
         let message = CustomDiagnostic::from(error).message;
         assert!(message.contains("`u34`"), "{source}: {message}");
     }
-}
-
-/// The widest integer `main` takes is one bit short of the field's modulus.
-#[test]
-fn the_abi_carries_the_width_as_written() {
-    let widest = FieldConfig::linked().num_bits() - 1;
-    let source = format!("fn main(x: u34, y: i{widest}) -> pub u34 {{ assert(y == y); x }}");
-    let (mut context, crate_id) = context_for(&source);
-    check_crate(&mut context, crate_id, &CompileOptions::default()).unwrap();
-    let (parameters, return_type) =
-        compute_function_abi(&context, &crate_id).expect("main has an abi");
-    assert_eq!(parameters[0].typ, AbiType::Integer { sign: Sign::Unsigned, width: 34 });
-    assert_eq!(parameters[1].typ, AbiType::Integer { sign: Sign::Signed, width: widest });
-    assert_eq!(return_type, Some(AbiType::Integer { sign: Sign::Unsigned, width: 34 }));
 }

@@ -1,0 +1,6 @@
+[package]
+name = "entry_point_width_u24"
+type = "bin"
+authors = [""]
+
+[dependencies]

@@ -325,16 +325,35 @@ fn integer_exceeding_field(errors: &[CompilationError]) -> Option<(String, Field
     })
 }
 
+/// The lowerability reason an entry point type is refused, looking past the aliases and struct
+/// fields that contain it.
+fn integer_not_lowerable(errors: &[CompilationError]) -> Option<String> {
+    errors.iter().find_map(|error| match error {
+        CompilationError::TypeError(TypeCheckError::InvalidTypeForEntryPoint {
+            invalid_type,
+            ..
+        }) => match invalid_type.innermost() {
+            InvalidType::IntegerNotLowerable { typ } => Some(typ.to_string()),
+            _ => None,
+        },
+        _ => None,
+    })
+}
+
 /// One field element carries each integer across the entry point, as its unsigned bit pattern,
-/// so a type crosses only if every pattern it can hold is below the modulus: the widest such
-/// width is one bit short of the modulus, for signed and unsigned types alike.
+/// so a type crosses only if every pattern it can hold is below the modulus. Of the nine
+/// lowerable types, bn254 and bls12_381 carry every one and Goldilocks stops at 32 bits.
 #[test]
 fn entry_point_integers_must_fit_below_the_modulus() {
     for field in FieldId::ALL {
-        let widest = FieldConfig::new(field).num_bits() - 1;
-        for sign in ["u", "i"] {
-            for (width, fits) in [(widest, true), (widest + 1, false)] {
+        let refused: &[&str] = match field {
+            FieldId::Goldilocks => &["u64", "u128", "i64"],
+            FieldId::Bn254 | FieldId::Bls12_381 => &[],
+        };
+        for (sign, widths) in [("u", &[8u32, 16, 32, 64, 128][..]), ("i", &[8, 16, 32, 64][..])] {
+            for &width in widths {
                 let typ = format!("{sign}{width}");
+                let fits = !refused.contains(&typ.as_str());
                 for src in [
                     format!("fn main(x: {typ}) {{ assert(x == x); }}"),
                     format!("fn main(x: pub {typ}) {{ assert(x == x); }}"),
@@ -355,6 +374,71 @@ fn entry_point_integers_must_fit_below_the_modulus() {
             }
         }
     }
+}
+
+/// An entry point carries only the integer types the circuit backend lowers, so the `Prover.toml`
+/// input language is a fixed list: any other width, however narrow, is refused at `main` under
+/// every field, wherever the type holds it, while a helper keeps every width.
+#[test]
+fn entry_point_integers_are_the_lowerable_types() {
+    for field in FieldId::ALL {
+        for typ in ["u2", "u24", "u34", "u253", "u16384", "i2", "i66", "i128"] {
+            for src in [
+                format!("fn main(x: {typ}) {{ assert(x == x); }}"),
+                format!("fn main(x: pub {typ}) {{ assert(x == x); }}"),
+                format!("fn main() -> pub {typ} {{ 0 }}"),
+                format!("fn main(x: [{typ}; 2]) {{ assert(x[0] == x[1]); }}"),
+                format!("fn main(x: (Field, {typ})) {{ assert(x.1 == x.1); }}"),
+                format!(
+                    "struct Pair {{ a: Field, b: {typ} }}
+                     fn main(x: Pair) {{ assert(x.b == x.b); }}"
+                ),
+                format!(
+                    "type Word = {typ};
+                     fn main(x: Word) {{ assert(x == x); }}"
+                ),
+            ] {
+                let errors = get_program_errors_for_field(&src, field);
+                assert_eq!(errors.len(), 1, "{field}: `{src}`: {errors:?}");
+                assert_eq!(
+                    integer_not_lowerable(&errors).as_deref(),
+                    Some(typ),
+                    "{field}: `{src}`: {errors:?}"
+                );
+            }
+
+            let helper = format!(
+                "fn helper(x: {typ}) -> {typ} {{ x }}
+                 fn main(x: u8) -> pub u8 {{ helper(x as {typ}) as u8 }}"
+            );
+            let errors = get_program_errors_for_field(&helper, field);
+            assert!(errors.is_empty(), "{field}: `{helper}`: {errors:?}");
+        }
+    }
+}
+
+#[test]
+fn the_entry_point_diagnostic_lists_the_lowerable_types() {
+    let src = "
+    fn main(x: u24) {
+               ^^^ Invalid type found in the entry point to a program
+               ~~~ Integers the circuit backend does not lower are not valid entry point types. Found: u24
+        assert(x == x);
+    }
+    ";
+    let options = GetProgramOptions { allow_elaborator_errors: true, ..Default::default() };
+    check_errors_with_options(src, false, options);
+
+    let errors =
+        get_program_errors_for_field("fn main(x: u24) { assert(x == x); }", FieldId::Bn254);
+    let diagnostic = CustomDiagnostic::from(&errors[0]);
+    assert_eq!(
+        diagnostic.notes,
+        vec![
+            "Note: main and contract functions take and return only the integer types the circuit backend lowers: u8, u16, u32, u64, u128, i8, i16, i32 and i64. Widen or narrow the value inside the program."
+                .to_string()
+        ]
+    );
 }
 
 /// The rule reaches an integer wherever the entry point's type holds it, including a width that
@@ -390,25 +474,26 @@ fn the_entry_point_rule_looks_through_every_aggregate() {
     }
 }
 
-/// Only values that cross the entry point are carried in one field element: helpers, folded
-/// functions, test and fuzz functions and values computed inside the circuit keep every width.
+/// Only values that cross the entry point are carried in one field element and spelled as a
+/// lowerable type: helpers, folded functions, test and fuzz functions and values computed
+/// inside the circuit keep every width.
 #[test]
 fn the_entry_point_rule_leaves_other_functions_alone() {
     let src = "
-        fn helper(x: u64) -> u64 { x + 1 }
+        fn helper(x: u64, y: u24) -> u64 { x + y as u64 }
 
         #[fold]
-        fn folded(x: u64) -> u64 { x * 2 }
+        fn folded(x: u64, y: u24) -> u64 { x * 2 + y as u64 }
 
         #[test]
-        fn tested(x: u64) { assert(x == x); }
+        fn tested(x: u64, y: u24) { assert(x == x); assert(y == y); }
 
         #[fuzz]
-        fn fuzzed(x: u64) { assert(x == x); }
+        fn fuzzed(x: u64, y: u24) { assert(x == x); assert(y == y); }
 
         fn main(x: u32, y: Field, z: bool) -> pub u32 {
             let wide: u128 = (x as u128) << 64;
-            let sum = helper(x as u64) + folded(x as u64) + ((wide >> 64) as u64);
+            let sum = helper(x as u64, x as u24) + folded(x as u64, x as u24) + ((wide >> 64) as u64);
             assert(y == y);
             assert(z == z);
             sum as u32
@@ -444,6 +529,26 @@ fn contract_functions_follow_the_entry_point_rule() {
             ),
             "goldilocks: {errors:?}"
         );
+    }
+
+    let src = "
+        contract Wallet {
+            pub fn balance(x: u24) -> pub u24 { x }
+
+            #[contract_library_method]
+            pub fn double(x: u24) -> u24 { x * 2 }
+        }
+    ";
+    for field in FieldId::ALL {
+        let errors = get_program_errors_for_field(src, field);
+        assert_eq!(errors.len(), 2, "{field}: {errors:?}");
+        for error in &errors {
+            assert_eq!(
+                integer_not_lowerable(std::slice::from_ref(error)).as_deref(),
+                Some("u24"),
+                "{field}: {errors:?}"
+            );
+        }
     }
 }
 

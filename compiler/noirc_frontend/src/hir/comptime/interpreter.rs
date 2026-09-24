@@ -1937,12 +1937,14 @@ impl Context<'_, '_> {
         let location = func_meta.location;
         let enabled_unstable_features =
             &self.required_unstable_features.get(&crate_id).cloned().unwrap_or_default();
+        let gates = self.def_interner.field_gates();
         let cli_options = ElaboratorOptions {
             debug_comptime_in_file: None,
 
             enabled_unstable_features,
             disable_required_unstable_features: false,
-            field: self.def_interner.field(),
+            field: gates.field,
+            generic_builtins: gates.generic_builtins,
         };
         let module_id = ModuleId { krate: crate_id, local_id };
 

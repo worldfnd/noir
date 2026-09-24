@@ -483,6 +483,7 @@ fn dereference_immutable_reference() {
             enabled_unstable_features: &[],
             disable_required_unstable_features: true,
             field: acvm::FieldConfig::linked(),
+            generic_builtins: false,
         },
         ..Default::default()
     };
