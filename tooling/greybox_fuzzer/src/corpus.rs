@@ -7,6 +7,7 @@ use std::{
     sync::atomic::AtomicU64,
 };
 
+use acvm::FieldConfig;
 use fm::{FileId, FileManager};
 use noirc_abi::{
     Abi, InputMap,
@@ -123,13 +124,14 @@ impl CorpusFileManager {
                 panic!("could not read file {} into string", path.as_os_str().display())
             });
 
-            let parsed_source = parse_json(&source, &self.abi).map_err(|parsing_error| {
-                format!(
-                    "Error while parsing file {}: {:?}",
-                    path.as_os_str().display(),
-                    parsing_error
-                )
-            })?;
+            let parsed_source =
+                parse_json(&source, &self.abi, FieldConfig::linked()).map_err(|parsing_error| {
+                    format!(
+                        "Error while parsing file {}: {:?}",
+                        path.as_os_str().display(),
+                        parsing_error
+                    )
+                })?;
 
             // Add the file and its parsed contents to our tracking maps
             let file_id = self.file_manager.add_file_with_source(path.as_path(), source).unwrap();

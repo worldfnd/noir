@@ -10,7 +10,8 @@ use crate::test_utils::{
     GetProgramOptions, get_monomorphized, get_monomorphized_for_field, get_program_with_options,
     stdlib_src,
 };
-use crate::tests::{assert_no_errors, get_program_errors_for_field};
+use crate::tests::{assert_no_errors, check_errors_with_options, get_program_errors_for_field};
+use crate::validity::InvalidType;
 
 #[test]
 fn field_literals_must_be_canonical() {
@@ -44,7 +45,7 @@ fn field_literals_must_be_canonical() {
 #[test]
 fn integer_literals_above_the_modulus_stay_exact() {
     for field in FieldId::ALL {
-        let src = format!("fn main() -> pub u64 {{ {} }}", u64::MAX);
+        let src = format!("fn main() {{ let x: u64 = {}; assert(x != 0); }}", u64::MAX);
         let program = get_monomorphized_for_field(&src, field).unwrap().to_string();
         assert!(program.contains(&u64::MAX.to_string()), "{field}: {program}");
     }
@@ -146,8 +147,8 @@ fn narrowing_before_a_field_cast_is_accepted_under_every_field() {
 fn casts_to_field_through_an_inferred_type_follow_the_same_rule() {
     let src = "fn apply<T>(f: fn(T) -> Field, x: T) -> Field { f(x) }
 
-    fn main(x: u64) -> pub Field {
-        apply(|v| v as Field, x)
+    fn main(x: u32) -> pub Field {
+        apply(|v| v as Field, x as u64)
     }";
     for field in FieldId::ALL {
         let result = get_monomorphized_for_field(src, field);
@@ -265,7 +266,7 @@ fn type_level_field_arithmetic_wraps_under_the_configured_field() {
 #[test]
 fn type_level_integer_arithmetic_works_under_every_field() {
     let src = "fn value<let N: u64>() -> u64 { N }
-               fn main() -> pub u64 { value::<18446744069414584320_u64 + 1_u64>() }";
+               fn main() { assert(value::<18446744069414584320_u64 + 1_u64>() != 0); }";
     for field in FieldId::ALL {
         let program = get_monomorphized_for_field(src, field).unwrap().to_string();
         assert!(program.contains("18446744069414584321"), "{field}: {program}");
@@ -307,4 +308,179 @@ fn comptime_crypto_uses_the_configured_field() {
             }
         }
     }
+}
+
+/// The field-driven reason an entry point type is refused, looking past the aliases and struct
+/// fields that contain it.
+fn integer_exceeding_field(errors: &[CompilationError]) -> Option<(String, FieldId)> {
+    errors.iter().find_map(|error| match error {
+        CompilationError::TypeError(TypeCheckError::InvalidTypeForEntryPoint {
+            invalid_type,
+            ..
+        }) => match invalid_type.innermost() {
+            InvalidType::IntegerExceedsField { typ, field } => Some((typ.to_string(), *field)),
+            _ => None,
+        },
+        _ => None,
+    })
+}
+
+/// One field element carries each integer across the entry point, as its unsigned bit pattern,
+/// so a type crosses only if every pattern it can hold is below the modulus: the widest such
+/// width is one bit short of the modulus, for signed and unsigned types alike.
+#[test]
+fn entry_point_integers_must_fit_below_the_modulus() {
+    for field in FieldId::ALL {
+        let widest = FieldConfig::new(field).num_bits() - 1;
+        for sign in ["u", "i"] {
+            for (width, fits) in [(widest, true), (widest + 1, false)] {
+                let typ = format!("{sign}{width}");
+                for src in [
+                    format!("fn main(x: {typ}) {{ assert(x == x); }}"),
+                    format!("fn main(x: pub {typ}) {{ assert(x == x); }}"),
+                    format!("fn main() -> pub {typ} {{ 0 }}"),
+                ] {
+                    let errors = get_program_errors_for_field(&src, field);
+                    if fits {
+                        assert!(errors.is_empty(), "{field}: `{src}`: {errors:?}");
+                    } else {
+                        assert_eq!(errors.len(), 1, "{field}: `{src}`: {errors:?}");
+                        assert_eq!(
+                            integer_exceeding_field(&errors),
+                            Some((typ.clone(), field)),
+                            "{field}: `{src}`: {errors:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The rule reaches an integer wherever the entry point's type holds it, including a width that
+/// only a struct's generic argument or an arithmetic expression spells out.
+#[test]
+fn the_entry_point_rule_looks_through_every_aggregate() {
+    let programs = [
+        "fn main(x: [u64; 2]) { assert(x[0] == x[1]); }",
+        "fn main(x: (Field, i64)) { assert(x.1 == x.1); }",
+        "struct Pair { a: Field, b: u64 }
+         fn main(x: Pair) { assert(x.b == x.b); }",
+        "struct Inner { value: i64 }
+         struct Outer { inner: [Inner; 2] }
+         fn main(x: Outer) { assert(x.inner[0].value == x.inner[1].value); }",
+        "type Word = u64;
+         fn main(x: Word) { assert(x == x); }",
+        "struct Wrapper<let N: u32> { inner: u<N> }
+         fn main(x: Wrapper<64>) { assert(x.inner == x.inner); }",
+        "fn main(x: u<2 * 32>) { assert(x == x); }",
+        "fn main() -> pub (Field, [u64; 1]) { (0, [0]) }",
+        "fn main() -> pub [u64; 0] { [] }",
+    ];
+    for src in programs {
+        let errors = get_program_errors_for_field(src, FieldId::Bn254);
+        assert!(errors.is_empty(), "bn254: `{src}`: {errors:?}");
+
+        let errors = get_program_errors_for_field(src, FieldId::Goldilocks);
+        assert_eq!(errors.len(), 1, "goldilocks: `{src}`: {errors:?}");
+        assert!(
+            matches!(integer_exceeding_field(&errors), Some((_, FieldId::Goldilocks))),
+            "goldilocks: `{src}`: {errors:?}"
+        );
+    }
+}
+
+/// Only values that cross the entry point are carried in one field element: helpers, folded
+/// functions, test and fuzz functions and values computed inside the circuit keep every width.
+#[test]
+fn the_entry_point_rule_leaves_other_functions_alone() {
+    let src = "
+        fn helper(x: u64) -> u64 { x + 1 }
+
+        #[fold]
+        fn folded(x: u64) -> u64 { x * 2 }
+
+        #[test]
+        fn tested(x: u64) { assert(x == x); }
+
+        #[fuzz]
+        fn fuzzed(x: u64) { assert(x == x); }
+
+        fn main(x: u32, y: Field, z: bool) -> pub u32 {
+            let wide: u128 = (x as u128) << 64;
+            let sum = helper(x as u64) + folded(x as u64) + ((wide >> 64) as u64);
+            assert(y == y);
+            assert(z == z);
+            sum as u32
+        }
+    ";
+    for field in FieldId::ALL {
+        let errors = get_program_errors_for_field(src, field);
+        assert!(errors.is_empty(), "{field}: {errors:?}");
+    }
+}
+
+/// A contract function is an entry point too; a library method in the contract is not.
+#[test]
+fn contract_functions_follow_the_entry_point_rule() {
+    let src = "
+        contract Wallet {
+            pub fn balance(x: u64) -> pub u64 { x }
+
+            #[contract_library_method]
+            pub fn double(x: u64) -> u64 { x * 2 }
+        }
+    ";
+    let errors = get_program_errors_for_field(src, FieldId::Bn254);
+    assert!(errors.is_empty(), "bn254: {errors:?}");
+
+    let errors = get_program_errors_for_field(src, FieldId::Goldilocks);
+    assert_eq!(errors.len(), 2, "goldilocks: {errors:?}");
+    for error in &errors {
+        assert!(
+            matches!(
+                integer_exceeding_field(std::slice::from_ref(error)),
+                Some((typ, FieldId::Goldilocks)) if typ == "u64"
+            ),
+            "goldilocks: {errors:?}"
+        );
+    }
+}
+
+#[test]
+fn the_entry_point_diagnostic_names_the_field_and_the_widest_width() {
+    let src = "
+    struct Pair {
+           ~~~~ Struct Pair has an invalid entry point type
+        a: Field,
+        b: u64,
+        ~ Field b has an invalid entry point type
+        ~ Integers wider than 63 bits are not valid entry point types under goldilocks. Found: u64
+    }
+
+    fn main(x: Pair, y: i64) {
+               ^^^^ Invalid type found in the entry point to a program
+               ~~~~ This type has an invalid entry point type inside it
+                        ^^^ Invalid type found in the entry point to a program
+                        ~~~ Integers wider than 63 bits are not valid entry point types under goldilocks. Found: i64
+        assert(x.b == x.b);
+        assert(y == y);
+    }
+    ";
+    let options = GetProgramOptions {
+        allow_elaborator_errors: true,
+        ..GetProgramOptions::for_field(FieldId::Goldilocks)
+    };
+    check_errors_with_options(src, false, options);
+
+    let errors =
+        get_program_errors_for_field("fn main(x: u64) { assert(x == x); }", FieldId::Goldilocks);
+    let diagnostic = CustomDiagnostic::from(&errors[0]);
+    assert_eq!(
+        diagnostic.notes,
+        vec![
+            "Note: under goldilocks, an integer that main or a contract function takes or returns must be at most 63 bits wide, so that each of its values is below the field modulus. Split a wider integer into narrower ones."
+                .to_string()
+        ]
+    );
 }

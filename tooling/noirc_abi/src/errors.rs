@@ -1,8 +1,9 @@
 use crate::{
     AbiType,
     input_parser::{InputTypecheckingError, InputValue},
+    scalar::not_carried_message,
 };
-use acvm::{AcirField, FieldElement, acir::native_types::Witness};
+use acvm::{FieldConfig, FieldElement, FieldId, acir::native_types::Witness};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -22,10 +23,12 @@ pub enum InputParserError {
     )]
     InputOverflowsMaximum { arg_name: String, value: String, max: String },
     #[error(
-        "The value passed for parameter `{arg_name}` is invalid:\nValue {value} exceeds field modulus. Values must fall within [0, {})",
-        FieldElement::modulus()
+        "The value passed for parameter `{arg_name}` is invalid:\nValue {value} exceeds the {field} field modulus. Values must fall within [0, {})",
+        FieldConfig::new(*field).modulus()
     )]
-    InputExceedsFieldModulus { arg_name: String, value: String },
+    InputExceedsFieldModulus { arg_name: String, value: String, field: FieldId },
+    #[error("Inputs cannot be parsed: {}", not_carried_message(*field, *linked))]
+    FieldNotCarried { field: FieldId, linked: FieldId },
     #[error("cannot parse value `{0}` into {1:?}")]
     AbiTypeMismatch(String, AbiType),
     #[error("Expected argument `{0}`, but none was found")]

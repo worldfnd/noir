@@ -719,7 +719,7 @@ impl<'interner> Monomorphizer<'interner> {
             }
 
             let output = true;
-            if let Some(invalid_type) = return_target_type.program_validity(output) {
+            if let Some(invalid_type) = return_target_type.program_validity(output, None) {
                 let location = return_type_location;
                 return Err(MonomorphizationError::InvalidTypeForEntryPoint {
                     invalid_type,

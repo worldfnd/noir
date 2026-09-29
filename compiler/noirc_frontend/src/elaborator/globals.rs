@@ -121,9 +121,10 @@ impl Elaborator<'_> {
         // Globals marked with `#[abi(tag)]` are emitted directly into the contract's ABI, so
         // their types must be representable in the ABI. We reuse `program_validity` (in input
         // mode) since the set of ABI-representable value types coincides with what a `main`
-        // entry-point accepts as a parameter.
+        // entry-point accepts as a parameter, except for the field's bound on integers: a tag
+        // carries an integer's magnitude rather than a field element.
         if has_abi_attribute
-            && let Some(invalid_type) = let_statement.r#type.program_validity(false)
+            && let Some(invalid_type) = let_statement.r#type.program_validity(false, None)
         {
             let location = abi_type_location.unwrap_or(location);
             self.push_err(ResolverError::NonAbiTypeInAbiGlobal { invalid_type, location });

@@ -58,12 +58,12 @@ fn named_and_parametric_widths_are_the_same_type_in_every_position() {
             let z: u34 = y;
             (z as u::<66>) as i66
         }
-        fn main(x: u34) -> pub u68 {
+        fn main(x: u34) -> pub u34 {
             let wrapper = Wrapper::<34> { inner: x, named: x };
             assert(wrapper.inner == wrapper.named);
             assert(x.width() == 34);
             assert(annotated(x) == 1);
-            widen(x)
+            (widen(x) >> 34) as u34
         }
     ";
     for field in FieldId::ALL {
@@ -76,7 +76,8 @@ fn named_and_parametric_widths_are_the_same_type_in_every_position() {
             main.parameters[0].3.as_ref(),
             &MonomorphizedType::Integer(Signedness::Unsigned, 34)
         );
-        assert_eq!(main.return_type, MonomorphizedType::Integer(Signedness::Unsigned, 68));
+        let widen = program.functions.iter().find(|function| function.name == "widen").unwrap();
+        assert_eq!(widen.return_type, MonomorphizedType::Integer(Signedness::Unsigned, 68));
         assert!(program.to_string().contains("u68"), "{field}: {program}");
     }
 }
@@ -452,10 +453,10 @@ fn casts_to_field_follow_the_field_rule_at_every_width() {
         let src = if generic {
             format!(
                 "fn to_field<let N: u32>(x: u<N>) -> Field {{ x as Field }}
-                 fn main(x: u{bits}) -> pub Field {{ to_field(x) }}"
+                 fn main(x: u8) -> pub Field {{ to_field(x as u{bits}) }}"
             )
         } else {
-            format!("fn main(x: u{bits}) -> pub Field {{ x as Field }}")
+            format!("fn main(x: u8) -> pub Field {{ (x as u{bits}) as Field }}")
         };
         for field in FieldId::ALL {
             let fits = FieldConfig::new(field).fits_unsigned(bits);
@@ -511,10 +512,16 @@ fn the_downsizing_warning_reaches_widths_above_128_bits() {
 
 #[test]
 fn a_match_on_a_wide_integer_still_needs_a_catch_all() {
-    let errors = get_program_errors("fn main(x: u256) -> pub u8 { match x { 0 => 1, _ => 3, } }");
+    let errors = get_program_errors(
+        "fn classify(x: u256) -> u8 { match x { 0 => 1, _ => 3, } }
+         fn main(x: u8) -> pub u8 { classify(x as u256) }",
+    );
     assert!(errors.is_empty(), "{errors:?}");
 
-    let errors = get_program_errors("fn main(x: u256) -> pub u8 { match x { 0 => 1, } }");
+    let errors = get_program_errors(
+        "fn classify(x: u256) -> u8 { match x { 0 => 1, } }
+         fn main(x: u8) -> pub u8 { classify(x as u256) }",
+    );
     assert!(
         errors.iter().any(|error| matches!(
             error,

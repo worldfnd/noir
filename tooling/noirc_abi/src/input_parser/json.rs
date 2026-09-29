@@ -1,17 +1,21 @@
 use super::{
-    InputValue, field_to_signed_hex, parse_str_to_bigint, parse_str_to_field, scalar_to_field,
+    InputValue, ensure_parsable, field_to_signed_hex, parse_str_to_bigint, parse_str_to_field,
+    scalar_to_field,
 };
 use crate::{Abi, AbiType, MAIN_RETURN_NAME, errors::InputParserError};
-use acvm::{AcirField, FieldElement};
+use acvm::{AcirField, FieldConfig, FieldElement};
 use iter_extended::{try_btree_map, try_vecmap};
 use num_bigint::BigInt;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+/// Parses the inputs of `abi` from JSON, reading every value in `field`.
 pub fn parse_json(
     input_string: &str,
     abi: &Abi,
+    field: FieldConfig,
 ) -> Result<BTreeMap<String, InputValue>, InputParserError> {
+    ensure_parsable(field)?;
     // Parse input.json into a BTreeMap.
     let data: BTreeMap<String, JsonTypes> = serde_json::from_str(input_string)?;
 
@@ -22,7 +26,7 @@ pub fn parse_json(
             .get(&arg_name)
             .ok_or_else(|| InputParserError::MissingArgument(arg_name.clone()))?;
 
-        InputValue::try_from_json(value.clone(), &abi_type, &arg_name)
+        InputValue::from_json(value.clone(), &abi_type, &arg_name, field)
             .map(|input_value| (arg_name, input_value))
     })?;
 
@@ -31,10 +35,11 @@ pub fn parse_json(
     if let (Some(return_type), Some(json_return_value)) =
         (&abi.return_type, data.get(MAIN_RETURN_NAME))
     {
-        let return_value = InputValue::try_from_json(
+        let return_value = InputValue::from_json(
             json_return_value.clone(),
             &return_type.abi_type,
             MAIN_RETURN_NAME,
+            field,
         )?;
         parsed_inputs.insert(MAIN_RETURN_NAME.to_owned(), return_value);
     }
@@ -147,24 +152,41 @@ impl JsonTypes {
 }
 
 impl InputValue {
+    /// Converts one JSON value of `param_type`, read in `field`.
     pub fn try_from_json(
         value: JsonTypes,
         param_type: &AbiType,
         arg_name: &str,
+        field: FieldConfig,
+    ) -> Result<InputValue, InputParserError> {
+        ensure_parsable(field)?;
+        Self::from_json(value, param_type, arg_name, field)
+    }
+
+    fn from_json(
+        value: JsonTypes,
+        param_type: &AbiType,
+        arg_name: &str,
+        field: FieldConfig,
     ) -> Result<InputValue, InputParserError> {
         let input_value = match (value, param_type) {
             (JsonTypes::String(string), AbiType::String { .. }) => InputValue::String(string),
             (JsonTypes::String(string), AbiType::Field) => {
-                InputValue::Field(parse_str_to_field(&string, arg_name)?)
+                InputValue::Field(parse_str_to_field(&string, arg_name, field)?)
             }
             (JsonTypes::String(string), AbiType::Integer { .. } | AbiType::Boolean) => {
                 let value = parse_str_to_bigint(&string, arg_name)?;
-                InputValue::Field(scalar_to_field(&value, param_type, arg_name)?)
+                InputValue::Field(scalar_to_field(&value, param_type, arg_name, field)?)
             }
             (
                 JsonTypes::Integer(integer),
                 AbiType::Field | AbiType::Integer { .. } | AbiType::Boolean,
-            ) => InputValue::Field(scalar_to_field(&BigInt::from(integer), param_type, arg_name)?),
+            ) => InputValue::Field(scalar_to_field(
+                &BigInt::from(integer),
+                param_type,
+                arg_name,
+                field,
+            )?),
 
             (JsonTypes::Bool(boolean), AbiType::Boolean) => InputValue::Field(boolean.into()),
 
@@ -172,7 +194,7 @@ impl InputValue {
                 let mut index = 0;
                 let array_elements = try_vecmap(array, |value| {
                     let sub_name = format!("{arg_name}[{index}]");
-                    let value = InputValue::try_from_json(value, typ, &sub_name);
+                    let value = InputValue::from_json(value, typ, &sub_name, field);
                     index += 1;
                     value
                 })?;
@@ -186,7 +208,7 @@ impl InputValue {
                     let value = table
                         .get(field_name)
                         .ok_or_else(|| InputParserError::MissingArgument(field_id.clone()))?;
-                    InputValue::try_from_json(value.clone(), abi_type, &field_id)
+                    InputValue::from_json(value.clone(), abi_type, &field_id, field)
                         .map(|input_value| (field_name.clone(), input_value))
                 })?;
 
@@ -197,7 +219,7 @@ impl InputValue {
                 let mut index = 0;
                 let tuple_fields = try_vecmap(array.into_iter().zip(fields), |(value, typ)| {
                     let sub_name = format!("{arg_name}[{index}]");
-                    let value = InputValue::try_from_json(value, typ, &sub_name);
+                    let value = InputValue::from_json(value, typ, &sub_name, field);
                     index += 1;
                     value
                 })?;
@@ -218,7 +240,7 @@ impl InputValue {
 
 #[cfg(test)]
 mod tests {
-    use acvm::FieldElement;
+    use acvm::{FieldConfig, FieldElement};
     use proptest::prelude::*;
 
     use crate::{
@@ -233,7 +255,7 @@ mod tests {
         #[test]
         fn serializing_and_parsing_returns_original_input((abi, input_map) in arb_abi_and_input_map()) {
             let json = serialize_to_json(&input_map, &abi).expect("should be serializable");
-            let parsed_input_map = parse_json(&json, &abi).expect("should be parsable");
+            let parsed_input_map = parse_json(&json, &abi, FieldConfig::linked()).expect("should be parsable");
 
             prop_assert_eq!(parsed_input_map, input_map);
         }
@@ -241,7 +263,7 @@ mod tests {
         #[test]
         fn signed_integer_serialization_roundtrip((typ, value) in arb_signed_integer_type_and_value()) {
             let string_input = JsonTypes::String(value.to_string());
-            let input_value = InputValue::try_from_json(string_input, &typ, "foo").expect("should be parsable");
+            let input_value = InputValue::try_from_json(string_input, &typ, "foo", FieldConfig::linked()).expect("should be parsable");
             let JsonTypes::String(output_string) = JsonTypes::try_from_input_value(&input_value, &typ).expect("should be serializable") else {
                 panic!("wrong type output");
             };
@@ -254,22 +276,41 @@ mod tests {
         }
     }
 
+    /// The per-value entry refuses a field the linked element cannot hold, as `parse_json` does:
+    /// its values would otherwise be reduced into the linked field.
+    #[test]
+    fn try_from_json_refuses_a_field_the_linked_element_cannot_hold() {
+        use crate::errors::InputParserError;
+        use crate::scalar::uncarried_fields;
+
+        for field in uncarried_fields() {
+            let value = JsonTypes::String(FieldConfig::linked().modulus().to_string());
+            let result = InputValue::try_from_json(value, &AbiType::Field, "foo", field);
+            assert!(
+                matches!(result, Err(InputParserError::FieldNotCarried { .. })),
+                "{}: {result:?}",
+                field.name()
+            );
+        }
+    }
+
     #[test]
     fn errors_on_integer_to_signed_integer_overflow() {
         let typ = AbiType::Integer { sign: crate::Sign::Signed, width: 8 };
         let input = JsonTypes::Integer(128);
-        assert!(InputValue::try_from_json(input, &typ, "foo").is_err());
+        assert!(InputValue::try_from_json(input, &typ, "foo", FieldConfig::linked()).is_err());
 
         let typ = AbiType::Integer { sign: crate::Sign::Signed, width: 16 };
         let input = JsonTypes::Integer(32768);
-        assert!(InputValue::try_from_json(input, &typ, "foo").is_err());
+        assert!(InputValue::try_from_json(input, &typ, "foo", FieldConfig::linked()).is_err());
     }
 
     #[test]
     fn try_from_json_negative_integer() {
         let typ = AbiType::Integer { sign: crate::Sign::Signed, width: 8 };
         let input = JsonTypes::Integer(-1);
-        let InputValue::Field(field) = InputValue::try_from_json(input, &typ, "foo").unwrap()
+        let InputValue::Field(field) =
+            InputValue::try_from_json(input, &typ, "foo", FieldConfig::linked()).unwrap()
         else {
             panic!("Expected field");
         };
@@ -289,7 +330,7 @@ mod tests {
             error_types: Default::default(),
         };
         let json = r#"{"input": [0]}"#;
-        let input = parse_json(json, &abi).unwrap();
+        let input = parse_json(json, &abi, FieldConfig::linked()).unwrap();
         let value = &input["input"];
         assert!(matches!(value, InputValue::Vec(vec) if vec.len() == 1));
     }
