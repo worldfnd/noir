@@ -114,13 +114,11 @@ impl From<MonomorphizationError> for CustomDiagnostic {
                 return CustomDiagnostic::simple_error(message, secondary, *location);
             }
             MonomorphizationError::UnsupportedIntegerWidth { signedness, bits, location } => {
-                let message = format!(
-                    "`{}{bits}` is not a supported integer type",
-                    signedness.type_name_prefix()
+                return crate::hir::resolution::errors::unsupported_integer_width_diagnostic(
+                    *signedness,
+                    *bits,
+                    *location,
                 );
-                let secondary =
-                    format!("integer widths are {}", crate::shared::LEGAL_INTEGER_WIDTHS);
-                return CustomDiagnostic::simple_error(message, secondary, *location);
             }
             MonomorphizationError::UnknownConstant { .. } => {
                 "Could not resolve constant".to_string()

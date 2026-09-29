@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::rc::Rc;
 
 use itertools::Itertools;
 use noirc_errors::Location;
@@ -172,10 +173,24 @@ impl Type {
             (String(len_a), String(len_b)) => len_a.try_unify(len_b, bindings),
 
             (Integer(sign_a, width_a), Integer(sign_b, width_b)) => {
-                if sign_a == sign_b {
-                    width_a.try_unify(width_b, bindings)
-                } else {
-                    Err(UnificationError)
+                if sign_a != sign_b {
+                    return Err(UnificationError);
+                }
+                // Constant widths are shared, so two equal widths are usually one cell; two
+                // constants that are not are unequal, and only a width that is still a type
+                // variable or an expression needs the general unifier.
+                if Rc::ptr_eq(width_a, width_b) {
+                    return Ok(());
+                }
+                match (width_a.as_ref(), width_b.as_ref()) {
+                    (Constant(a), Constant(b)) => {
+                        if a == b {
+                            Ok(())
+                        } else {
+                            Err(UnificationError)
+                        }
+                    }
+                    _ => width_a.try_unify(width_b, bindings),
                 }
             }
 

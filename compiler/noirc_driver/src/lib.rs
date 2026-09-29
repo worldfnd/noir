@@ -1004,9 +1004,6 @@ pub fn compile_no_check(
     cached_program: Option<CompiledProgram>,
     force_compile: bool,
 ) -> Result<CompiledProgram, CompileError> {
-    // Check before the cache can return an artifact compiled for the linked field.
-    ensure_field_is_linked(options.field)?;
-
     let force_unconstrained = options.force_brillig || options.minimal_ssa;
 
     let program = if options.instrument_debug {
@@ -1031,6 +1028,7 @@ pub fn compile_no_check(
         println!("{program}");
     }
 
+    ensure_field_is_linked(options.field)?;
     ensure_integer_widths_are_lowerable(&program)?;
 
     // If user has specified that they want to see intermediate steps printed then we should

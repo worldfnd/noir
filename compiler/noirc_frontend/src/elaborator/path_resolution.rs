@@ -21,6 +21,7 @@ use crate::node_interner::{
     DefinitionId, FuncId, GlobalId, NodeInterner, TraitAssociatedTypeId, TraitId, TraitLookupMode,
     TypeAliasId, TypeId,
 };
+use crate::shared::{is_legal_integer_width, parse_integer_type_name};
 use crate::{Kind, Shared, Type, TypeAlias};
 
 use super::Elaborator;
@@ -1234,7 +1235,19 @@ impl Elaborator<'_> {
 
         let object_name = path.segments[0].ident.as_str();
         let turbofish = path.segments[0].turbofish();
-        let primitive_type = PrimitiveType::lookup_by_name(object_name)?;
+        let Some(primitive_type) = PrimitiveType::lookup_by_name(object_name) else {
+            // A name shaped like an integer type whose width the language does not have, such
+            // as `u16385::max_value()`, is reported as that rather than as unresolved, the way
+            // the type resolver reports it in a type position.
+            let (signedness, bits) = parse_integer_type_name(object_name)?;
+            debug_assert!(!is_legal_integer_width(bits), "a legal width has a primitive type");
+            let location = path.segments[0].ident.location();
+            return Some(Err(PathResolutionError::UnsupportedIntegerWidth {
+                signedness,
+                bits,
+                location,
+            }));
+        };
         let typ = primitive_type.to_type();
         let mut errors = Vec::new();
 

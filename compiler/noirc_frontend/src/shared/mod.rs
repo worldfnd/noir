@@ -9,8 +9,6 @@ mod signedness;
 mod visibility;
 
 pub use foreign_calls::ForeignCall;
-pub use integer_width::{
-    LEGAL_INTEGER_WIDTHS, MAX_INTEGER_WIDTH, is_legal_integer_width, parse_integer_type_name,
-};
+pub use integer_width::{MAX_INTEGER_WIDTH, is_legal_integer_width, parse_integer_type_name};
 pub use signedness::Signedness;
 pub use visibility::Visibility;

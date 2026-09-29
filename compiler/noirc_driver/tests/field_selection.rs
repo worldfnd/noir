@@ -2,7 +2,7 @@ use std::path::Path;
 
 use acvm::FieldId;
 use fm::FileManager;
-use noirc_driver::{CompileOptions, check_crate, compile_no_check, prepare_crate};
+use noirc_driver::{CompileError, CompileOptions, check_crate, compile_no_check, prepare_crate};
 use noirc_errors::CustomDiagnostic;
 use noirc_frontend::graph::CrateId;
 use noirc_frontend::hir::Context;
@@ -48,6 +48,27 @@ fn frontend_accepts_a_non_linked_field_and_backend_rejects_it() {
         message.contains(requested.name()) && message.contains(FieldId::linked().name()),
         "{message}"
     );
+}
+
+/// Monomorphization, and with it the hidden `--show-monomorphized` output, belongs to the front
+/// half: it runs under a non-linked field and reports its own error before the linked-field
+/// guard refuses the back half.
+#[test]
+fn monomorphization_reports_before_the_linked_field_guard() {
+    let requested = FieldId::ALL.into_iter().find(|id| *id != FieldId::linked()).unwrap();
+    let options = CompileOptions { field: requested, ..Default::default() };
+
+    let source = "
+        fn shifted<let N: u32>() -> u<N + 16384> { 0 }
+        fn main() { let _ = shifted::<1>(); }
+    ";
+    let (mut context, crate_id) = context_for(source);
+    check_crate(&mut context, crate_id, &options).expect("the front half runs under any field");
+
+    let main = context.get_main_function(&crate_id).expect("main is defined");
+    let error = compile_no_check(&mut context, &options, main, None, false)
+        .expect_err("a width bound past the cap is refused");
+    assert!(matches!(error, CompileError::MonomorphizationError(_)), "{error:?}");
 }
 
 #[test]
