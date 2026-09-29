@@ -58,12 +58,13 @@ fn named_and_parametric_widths_are_the_same_type_in_every_position() {
             let z: u34 = y;
             (z as u::<66>) as i66
         }
-        fn main(x: u34) -> pub u34 {
+        fn main(x: u32) -> pub u32 {
+            let x = x as u34;
             let wrapper = Wrapper::<34> { inner: x, named: x };
             assert(wrapper.inner == wrapper.named);
             assert(x.width() == 34);
             assert(annotated(x) == 1);
-            (widen(x) >> 34) as u34
+            ((widen(x) >> 34) as u34) as u32
         }
     ";
     for field in FieldId::ALL {
@@ -71,9 +72,10 @@ fn named_and_parametric_widths_are_the_same_type_in_every_position() {
         assert!(errors.is_empty(), "{field}: {errors:?}");
 
         let program = get_monomorphized_for_field(src, field).unwrap();
-        let main = &program.functions[0];
+        let annotated =
+            program.functions.iter().find(|function| function.name == "annotated").unwrap();
         assert_eq!(
-            main.parameters[0].3.as_ref(),
+            annotated.parameters[0].3.as_ref(),
             &MonomorphizedType::Integer(Signedness::Unsigned, 34)
         );
         let widen = program.functions.iter().find(|function| function.name == "widen").unwrap();

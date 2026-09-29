@@ -724,6 +724,8 @@ impl<'context> Elaborator<'context> {
         location: Location,
     ) {
         let local_module = self.local_module();
+        // Items generated at compile time have no field-generic twins.
+        let no_twins = dc_mod::Twins::default();
 
         match item.kind {
             ItemKind::Function(function) if impl_target.is_some() => {
@@ -745,6 +747,7 @@ impl<'context> Elaborator<'context> {
                     location.file,
                     module,
                     &mut self.errors,
+                    &no_twins,
                 );
             }
             ItemKind::Function(mut function) => {
@@ -758,6 +761,7 @@ impl<'context> Elaborator<'context> {
                     module_id,
                     item.doc_comments,
                     &mut self.errors,
+                    &no_twins,
                 ) {
                     let functions = vec![(local_module, id, function)];
                     generated_items.functions.push(UnresolvedFunctions {
@@ -769,7 +773,12 @@ impl<'context> Elaborator<'context> {
                 }
             }
             ItemKind::TraitImpl(mut trait_impl) => {
-                if dc_mod::is_gated_out(self.interner.field(), &trait_impl.attributes) {
+                if dc_mod::is_gated_out(
+                    self.interner.field_gates(),
+                    &no_twins,
+                    &dc_mod::trait_impl_key(&trait_impl),
+                    &trait_impl.attributes,
+                ) {
                     return;
                 }
 
@@ -829,6 +838,7 @@ impl<'context> Elaborator<'context> {
                     local_module,
                     self.crate_id,
                     &mut self.errors,
+                    &no_twins,
                 ) {
                     generated_items.structs.insert(type_id, the_struct);
                 }
@@ -843,6 +853,7 @@ impl<'context> Elaborator<'context> {
                     local_module,
                     self.crate_id,
                     &mut self.errors,
+                    &no_twins,
                 ) {
                     generated_items.enums.insert(type_id, the_enum);
                 }
@@ -856,6 +867,7 @@ impl<'context> Elaborator<'context> {
                     location.file,
                     module,
                     &mut self.errors,
+                    &no_twins,
                 );
             }
 

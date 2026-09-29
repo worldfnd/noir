@@ -2,6 +2,9 @@
 
 use acvm::{FieldConfig, FieldId};
 
+use crate::elaborator::FrontendOptions;
+use crate::hir::def_collector::dc_crate::CompilationError;
+use crate::test_utils::{GetProgramOptions, get_program_with_options};
 use crate::tests::{assert_no_errors, get_program_errors, get_program_errors_for_field};
 
 /// A modulus that is not any supported field, so it matches no configuration.
@@ -534,4 +537,258 @@ fn unknown_field_name_warns() {
     let errors = get_program_errors(src);
     assert_eq!(errors.len(), 1, "{errors:?}");
     assert!(errors[0].to_string().contains("bn245"), "{errors:?}");
+}
+
+// --- `--generic-builtins`: the benchmark mode prefers an item's field-generic twin. ---
+
+/// The errors of compiling `src` under the native field with `--generic-builtins`.
+fn generic_builtins_errors(src: &str) -> Vec<CompilationError> {
+    let options = GetProgramOptions {
+        frontend_options: FrontendOptions {
+            generic_builtins: true,
+            ..FrontendOptions::test_default()
+        },
+        ..Default::default()
+    };
+    get_program_with_options(src, options).2
+}
+
+/// Each kind of item pairs with a twin of the same kind and name in its module: with the option
+/// the `not(native)` half is the one compiled, without it the native half. A method pairs by
+/// its type and name, a trait impl by its trait and object type as written, and a twin's own
+/// `not(native)` helpers come along.
+#[test]
+fn generic_builtins_prefer_the_not_native_twin_of_every_item_kind() {
+    let native = native_field();
+    // The twins, and a `main` body that compiles and passes only with the generic twin.
+    let cases = [
+        (
+            format!(
+                "#[field({native})] fn value() -> u32 {{ 1 }}
+                 #[field(not({native}))] fn value() -> u32 {{ helper() }}
+                 #[field(not({native}))] fn helper() -> u32 {{ 2 }}"
+            ),
+            "comptime { assert(value() == 2); }",
+        ),
+        (
+            format!(
+                "struct Foo {{}}
+                 struct Bar {{}}
+                 impl Foo {{
+                     #[field({native})] fn value() -> u32 {{ 1 }}
+                     #[field(not({native}))] fn value() -> u32 {{ 2 }}
+                 }}
+                 impl Bar {{ #[field({native})] fn value() -> u32 {{ 1 }} }}"
+            ),
+            "comptime { assert(Foo::value() == 2); assert(Bar::value() == 1); }",
+        ),
+        (
+            format!(
+                "struct Foo<T> {{ x: T }}
+                 trait Value {{ fn value(self) -> u32; }}
+                 #[field({native})] impl<T> Value for Foo<T> {{ fn value(self) -> u32 {{ 1 }} }}
+                 #[field(not({native}))] impl<T> Value for Foo<T> {{ fn value(self) -> u32 {{ 2 }} }}"
+            ),
+            "comptime { assert(Foo { x: 1 }.value() == 2); }",
+        ),
+        (
+            format!(
+                "#[field({native})] global VALUE: u32 = 1;
+                 #[field(not({native}))] global VALUE: u32 = 2;"
+            ),
+            "comptime { assert(VALUE == 2); }",
+        ),
+        (
+            format!(
+                "#[field({native})] type Word = u32;
+                 #[field(not({native}))] type Word = u64;"
+            ),
+            "let word: Word = 1u64; assert(word == 1);",
+        ),
+        (
+            format!(
+                "#[field({native})] enum Kind {{ Narrow(u32) }}
+                 #[field(not({native}))] enum Kind {{ Wide(u64) }}"
+            ),
+            "let _ = Kind::Wide(1);",
+        ),
+        (
+            format!(
+                "#[field({native})] trait Value {{ fn value(self) -> u32; }}
+                 #[field(not({native}))] trait Value {{ fn value(self) -> u64; }}
+                 impl Value for Field {{ fn value(self) -> u64 {{ 2 }} }}"
+            ),
+            "let one: Field = 1; assert(one.value() == 2);",
+        ),
+        (
+            format!(
+                "#[field({native})] mod m {{ pub fn value() -> u32 {{ 1 }} }}
+                 #[field(not({native}))] mod m {{ pub fn value() -> u32 {{ 2 }} }}"
+            ),
+            "comptime { assert(m::value() == 2); }",
+        ),
+    ];
+    for (twins, body) in cases {
+        let src = format!("{twins}\nfn main() {{ {body} }}");
+        let errors = generic_builtins_errors(&src);
+        assert!(errors.is_empty(), "with the option, the generic twin: `{src}`: {errors:?}");
+        assert!(
+            !get_program_errors(&src).is_empty(),
+            "without the option, the native half: `{src}`"
+        );
+    }
+}
+
+#[test]
+fn generic_builtins_prefer_the_not_native_twin_of_a_whole_impl_and_of_a_struct() {
+    let native = native_field();
+    let src = format!(
+        "#[field({native})]
+        struct Foo {{ x: u32 }}
+
+        #[field(not({native}))]
+        struct Foo {{ x: u64 }}
+
+        #[field({native})]
+        impl Foo {{ fn value(self) -> u64 {{ self.x as u64 }} }}
+
+        #[field(not({native}))]
+        impl Foo {{ fn value(self) -> u64 {{ self.x + 1 }} }}
+
+        fn main() {{
+            let foo = Foo {{ x: 1 }};
+            let wide: u64 = foo.x;
+            assert(wide == 1);
+            comptime {{ assert(Foo {{ x: 1 }}.value() == 2); }}
+        }}"
+    );
+    assert!(generic_builtins_errors(&src).is_empty(), "the generic twins are compiled");
+    assert!(!get_program_errors(&src).is_empty(), "without the option, `x` is a `u32`");
+}
+
+/// An item gated to the native field with no `not(native)` twin in its module stays: the
+/// option changes nothing the standard library has only one definition of.
+#[test]
+fn generic_builtins_keep_an_untwinned_native_item() {
+    let native = native_field();
+    let src = format!(
+        "#[field({native})]
+        fn only_native() -> u32 {{ 1 }}
+
+        #[field({native})]
+        struct OnlyNative {{ x: u32 }}
+
+        fn main() {{
+            let _ = OnlyNative {{ x: only_native() }};
+            comptime {{ assert(only_native() == 1); }}
+        }}"
+    );
+    assert!(generic_builtins_errors(&src).is_empty(), "untwinned native items are kept");
+}
+
+/// Twins are paired within a module: a `not(native)` item elsewhere does not drop a native one.
+#[test]
+fn generic_builtins_pair_twins_within_a_module() {
+    let native = native_field();
+    let src = format!(
+        "mod other {{
+            #[field(not({native}))]
+            pub fn value() -> u32 {{ 2 }}
+        }}
+
+        #[field({native})]
+        fn value() -> u32 {{ 1 }}
+
+        fn main() {{
+            comptime {{
+                assert(value() == 1);
+                assert(other::value() == 2);
+            }}
+        }}"
+    );
+    assert!(generic_builtins_errors(&src).is_empty(), "each module pairs its own twins");
+}
+
+/// Gates naming another field are evaluated as always: the option only reads the native field's.
+#[test]
+fn generic_builtins_leave_gates_on_other_fields_alone() {
+    let kept = format!(
+        "#[field(not({FOREIGN_FIELD}))]
+        fn kept() -> u32 {{ 2 }}
+
+        fn main() {{
+            comptime {{ assert(kept() == 2); }}
+        }}"
+    );
+    assert!(generic_builtins_errors(&kept).is_empty(), "a `not(foreign)` item is kept");
+
+    let gone = format!(
+        "#[field({FOREIGN_FIELD})]
+        fn gone() -> u32 {{ 1 }}
+
+        fn main() {{
+            let _ = gone();
+        }}"
+    );
+    assert!(!generic_builtins_errors(&gone).is_empty(), "a `foreign` item is still gated out");
+
+    let twinned = format!(
+        "#[field({native})]
+        #[field(not({FOREIGN_FIELD}))]
+        fn value() -> u32 {{ 1 }}
+
+        #[field(not({native}))]
+        fn value() -> u32 {{ 2 }}
+
+        fn main() {{
+            comptime {{ assert(value() == 2); }}
+        }}",
+        native = native_field()
+    );
+    let errors = generic_builtins_errors(&twinned);
+    assert!(
+        errors.is_empty(),
+        "a native item's other gates still admit it; its twin is compiled: {errors:?}"
+    );
+}
+
+/// A `not(native)` item that another gate excludes is no twin: the native half stays, whether
+/// the item carries the other gate itself or sits in an impl that does.
+#[test]
+fn generic_builtins_ignore_a_twin_that_another_gate_excludes() {
+    let native = native_field();
+    let excluded_function = format!(
+        "#[field({native})]
+        fn value() -> u32 {{ 1 }}
+
+        #[field(not({native}))]
+        #[field({FOREIGN_FIELD})]
+        fn value() -> u32 {{ 2 }}
+
+        fn main() {{
+            comptime {{ assert(value() == 1); }}
+        }}"
+    );
+    let method_in_excluded_impl = format!(
+        "struct Foo {{}}
+
+        impl Foo {{
+            #[field({native})]
+            fn value() -> u32 {{ 1 }}
+        }}
+
+        #[field({FOREIGN_FIELD})]
+        impl Foo {{
+            #[field(not({native}))]
+            fn value() -> u32 {{ 2 }}
+        }}
+
+        fn main() {{
+            comptime {{ assert(Foo::value() == 1); }}
+        }}"
+    );
+    for src in [excluded_function, method_in_excluded_impl] {
+        let errors = generic_builtins_errors(&src);
+        assert!(errors.is_empty(), "the excluded twin leaves the native half in place: {errors:?}");
+    }
 }
