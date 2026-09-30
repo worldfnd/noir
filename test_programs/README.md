@@ -10,7 +10,6 @@ Integration tests for the Noir compiler are broken down into the following direc
     + Each have a corresponding open issue 
     + Be moved into another test folder once the stack overflow is addressed
     + NOTE: these tests are not currently run, either locally or CI
-- `fork_excluded`: upstream programs this fork does not support because they observe reference counts, which are not observable from Noir here (see `design/reference_counts.md`). Their sources are kept commented out and they are not run, either locally or CI.
 
 The current testing flow can be thought of as shown:
 ```mermaid

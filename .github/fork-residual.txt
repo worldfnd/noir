@@ -174,7 +174,6 @@ noir_stdlib/src/meta/typ.nr
 noir_stdlib/src/ops/arith.nr
 noir_stdlib/src/ops/bit.nr
 scripts/gather_benchmark_data.sh
-test_programs/README.md
 test_programs/compile_failure/entry_point_width_u24/Nargo.toml
 test_programs/compile_failure/entry_point_width_u24/src/main.nr
 test_programs/compile_failure/mem_refcount_builtins_unavailable/Nargo.toml
@@ -191,18 +190,6 @@ test_programs/execution_success/reference_counts_inliner_min/src/main.nr
 test_programs/execution_success/reference_counts_vectors_inliner_0/Nargo.toml
 test_programs/execution_success/reference_counts_vectors_inliner_0/Prover.toml
 test_programs/execution_success/reference_counts_vectors_inliner_0/src/main.nr
-test_programs/fork_excluded/reference_counts_inliner_0/Nargo.toml
-test_programs/fork_excluded/reference_counts_inliner_0/Prover.toml
-test_programs/fork_excluded/reference_counts_inliner_0/src/main.nr
-test_programs/fork_excluded/reference_counts_inliner_max/Nargo.toml
-test_programs/fork_excluded/reference_counts_inliner_max/Prover.toml
-test_programs/fork_excluded/reference_counts_inliner_max/src/main.nr
-test_programs/fork_excluded/reference_counts_inliner_min/Nargo.toml
-test_programs/fork_excluded/reference_counts_inliner_min/Prover.toml
-test_programs/fork_excluded/reference_counts_inliner_min/src/main.nr
-test_programs/fork_excluded/reference_counts_vectors_inliner_0/Nargo.toml
-test_programs/fork_excluded/reference_counts_vectors_inliner_0/Prover.toml
-test_programs/fork_excluded/reference_counts_vectors_inliner_0/src/main.nr
 test_programs/gates_report_brillig_execution.sh
 tooling/artifact_cli/src/fs/inputs.rs
 tooling/ast_fuzzer/fuzz/src/targets/orig_vs_morph.rs

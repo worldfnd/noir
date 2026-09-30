@@ -1559,10 +1559,6 @@ impl<'f> Context<'f> {
             | Intrinsic::AsWitness
             | Intrinsic::IsUnconstrained
             | Intrinsic::DerivePedersenGenerators
-            // Reference counts are not observable from Noir in this fork (see design/reference_counts.md);
-            // the upstream `ArrayRefCount`/`VectorRefCount` handling is kept here commented out.
-            // | Intrinsic::ArrayRefCount
-            // | Intrinsic::VectorRefCount
             | Intrinsic::FieldLessThan => arguments,
         }
     }

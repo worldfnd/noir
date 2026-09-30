@@ -14,15 +14,6 @@ excluded_dirs=(
   "is_unconstrained"
   # This test utilizes enums which are experimental
   "regression_7323"
-  # Reference counts are not observable from Noir in this fork (see design/reference_counts.md),
-  # so the upstream `reference_counts_*` programs live in `test_programs/fork_excluded` and
-  # their entries are kept here commented out.
-  # # These tests fail with different inliner settings, while this script
-  # # assumes that a test can pass with all inliner settings.
-  # "reference_counts_inliner_min"
-  # "reference_counts_inliner_0"
-  # "reference_counts_inliner_max"
-  # "reference_counts_vectors_inliner_0"
 )
 
 current_dir=$(pwd)

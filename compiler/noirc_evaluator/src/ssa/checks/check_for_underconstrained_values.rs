@@ -249,9 +249,6 @@ impl Context {
                             | Intrinsic::IsUnconstrained => {}
                             Intrinsic::ArrayLen
                             | Intrinsic::ArrayAsStrUnchecked
-                            // Reference counts are not observable from Noir in this fork (see design/reference_counts.md);
-                            // the upstream `ArrayRefCount`/`VectorRefCount` handling is kept here commented out.
-                            // | Intrinsic::ArrayRefCount
                             | Intrinsic::AsVector
                             | Intrinsic::BlackBox(..)
                             | Intrinsic::Hint(Hint::BlackBox)
@@ -261,9 +258,6 @@ impl Context {
                             | Intrinsic::VectorPushFront
                             | Intrinsic::VectorPopBack
                             | Intrinsic::VectorPopFront
-                            // Reference counts are not observable from Noir in this fork (see design/reference_counts.md);
-                            // the upstream `VectorRefCount` handling is kept here commented out.
-                            // | Intrinsic::VectorRefCount
                             | Intrinsic::VectorRemove
                             | Intrinsic::StaticAssert
                             | Intrinsic::StrAsBytes

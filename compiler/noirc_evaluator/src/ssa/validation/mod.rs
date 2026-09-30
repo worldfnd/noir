@@ -748,26 +748,6 @@ impl<'f> Validator<'f> {
                 let result_type = self.assert_one_result(instruction, "FieldLessThan");
                 assert_u1(&result_type, "FieldLessThan result");
             }
-            // Reference counts are not observable from Noir in this fork (see design/reference_counts.md);
-            // the upstream `ArrayRefCount`/`VectorRefCount` handling is kept here commented out.
-            // Intrinsic::ArrayRefCount => {
-            //     // fn array_refcount<T, let N: u32>(array: [T; N]) -> u32 {}
-            //     let array_type = self.assert_one_argument(arguments, "ArrayRefCount");
-            //     assert_array(&array_type, "ArrayRefCount array");
-            //
-            //     let result_type = self.assert_one_result(instruction, "ArrayRefCount");
-            //     assert_u32(&result_type, "ArrayRefCount result");
-            // }
-            // Intrinsic::VectorRefCount => {
-            //     // fn vector_refcount<T>(vector: [T]) -> u32 {}
-            //     let (vector_length_type, vector_type) =
-            //         self.assert_two_arguments(arguments, "VectorRefCount");
-            //     assert_u32(&vector_length_type, "VectorRefCount length");
-            //     assert_vector(&vector_type, "VectorRefCount vector");
-            //
-            //     let result_type = self.assert_one_result(instruction, "VectorRefCount");
-            //     assert_u32(&result_type, "VectorRefCount result");
-            // }
             Intrinsic::BlackBox(blackbox) => {
                 self.type_check_black_box(instruction, arguments, blackbox);
             }
