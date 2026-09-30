@@ -1,0 +1,19 @@
+---
+source: tooling/nargo_cli/tests/execute.rs
+expression: stderr
+---
+error: Could not resolve 'array_refcount' in path
+  ┌─ src/main.nr:3:23
+  │
+3 │     let _ = std::mem::array_refcount(array);
+  │                       --------------
+  │
+
+error: Could not resolve 'vector_refcount' in path
+  ┌─ src/main.nr:4:23
+  │
+4 │     let _ = std::mem::vector_refcount(array.as_vector());
+  │                       ---------------
+  │
+
+Aborting due to 2 previous errors

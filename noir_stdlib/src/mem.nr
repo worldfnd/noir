@@ -16,16 +16,19 @@ pub fn zeroed<T>() -> T {}
 #[builtin(checked_transmute)]
 pub fn checked_transmute<T, U>(value: T) -> U {}
 
-/// Returns the internal reference count of an array value in unconstrained code.
-///
-/// Arrays only have reference count in unconstrained code - using this anywhere
-/// else will return zero.
-#[builtin(array_refcount)]
-pub fn array_refcount<T, let N: u32>(array: [T; N]) -> u32 {}
-
-/// Returns the internal reference count of a vector value in unconstrained code.
-///
-/// Lists only have reference count in unconstrained code - using this anywhere
-/// else will return zero.
-#[builtin(vector_refcount)]
-pub fn vector_refcount<T>(vector: [T]) -> u32 {}
+// Reference counts are not observable from Noir in this fork (see design/reference_counts.md);
+// the upstream `array_refcount`/`vector_refcount` builtins are kept here commented out.
+//
+// /// Returns the internal reference count of an array value in unconstrained code.
+// ///
+// /// Arrays only have reference count in unconstrained code - using this anywhere
+// /// else will return zero.
+// #[builtin(array_refcount)]
+// pub fn array_refcount<T, let N: u32>(array: [T; N]) -> u32 {}
+//
+// /// Returns the internal reference count of a vector value in unconstrained code.
+// ///
+// /// Lists only have reference count in unconstrained code - using this anywhere
+// /// else will return zero.
+// #[builtin(vector_refcount)]
+// pub fn vector_refcount<T>(vector: [T]) -> u32 {}
