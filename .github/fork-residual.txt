@@ -2,6 +2,7 @@
 .github/fork-residual.txt
 .github/workflows/fork-residual.yml
 .github/workflows/goldilocks.yml
+.github/workflows/pull-request-title.yml
 .github/workflows/reports.yml
 .github/workflows/test-js-packages.yml
 Cargo.lock
