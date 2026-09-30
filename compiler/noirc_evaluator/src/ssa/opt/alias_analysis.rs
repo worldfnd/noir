@@ -1304,10 +1304,6 @@ impl AliasAnalysisContext {
             | Intrinsic::DerivePedersenGenerators
             | Intrinsic::IsUnconstrained
             | Intrinsic::FieldLessThan
-            // Reference counts are not observable from Noir in this fork (see design/reference_counts.md);
-            // the upstream `ArrayRefCount`/`VectorRefCount` handling is kept here commented out.
-            // | Intrinsic::ArrayRefCount
-            // | Intrinsic::VectorRefCount
             | Intrinsic::AssertConstant
             // BlackBox are dedicated to ACIR and are pure numerical computations.
             // They cannot alias, and will likely never alias.

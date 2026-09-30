@@ -154,10 +154,6 @@ impl Context<'_> {
             | Intrinsic::ArrayAsStrUnchecked
             | Intrinsic::StrAsBytes
             | Intrinsic::StaticAssert
-            // Reference counts are not observable from Noir in this fork (see design/reference_counts.md);
-            // the upstream `ArrayRefCount`/`VectorRefCount` handling is kept here commented out.
-            // | Intrinsic::ArrayRefCount
-            // | Intrinsic::VectorRefCount
             | Intrinsic::AssertConstant => {
                 unreachable!("Expected {intrinsic} to have been removing during SSA optimizations")
             }
