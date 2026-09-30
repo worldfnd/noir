@@ -477,8 +477,10 @@ impl Context {
             | Intrinsic::DerivePedersenGenerators
             | Intrinsic::ToBits(_)
             | Intrinsic::ToRadix(_)
-            | Intrinsic::ArrayRefCount
-            | Intrinsic::VectorRefCount
+            // Reference counts are not observable from Noir in this fork (see design/reference_counts.md);
+            // the upstream `ArrayRefCount`/`VectorRefCount` handling is kept here commented out.
+            // | Intrinsic::ArrayRefCount
+            // | Intrinsic::VectorRefCount
             | Intrinsic::FieldLessThan => SizeChange::None,
         }
     }

@@ -2699,7 +2699,7 @@ mod tests {
     }
 
     #[test]
-    fn does_not_hoist_array_refcount_from_loop_call_with_purity() {
+    fn does_not_hoist_impure_intrinsic_call_from_loop() {
         let src = "
         acir(inline) fn main f0 {
           b0(v0: [Field; 3]):
@@ -2708,7 +2708,11 @@ mod tests {
             v2 = lt v1, u32 1
             jmpif v2 then: b2(), else: b3()
           b2():
-            v3 = call array_refcount(v0) -> u32
+            // Reference counts are not observable from Noir in this fork (see design/reference_counts.md),
+            // so the upstream impure `array_refcount` call is kept here commented out; `black_box` is
+            // the impure intrinsic under test.
+            // v3 = call array_refcount(v0) -> u32
+            v3 = call black_box(v0) -> [Field; 3]
             v4 = unchecked_add v1, u32 1
             jmp b1(v4)
           b3():
