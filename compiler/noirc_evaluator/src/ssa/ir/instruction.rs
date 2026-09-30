@@ -133,16 +133,6 @@ pub enum Intrinsic {
     /// arguments: lhs, rhs. Field elements
     /// result: true if `lhs` mod p < `rhs` mod p (p being the field characteristic), false else
     FieldLessThan,
-    /// `ArrayRefCount` - Gives the reference count of the array
-    /// argument: array (value id)
-    /// result: reference count of `array`. In unconstrained context, the reference count is stored alongside the array.
-    /// in constrained context, it will be 0.
-    ArrayRefCount,
-    /// `VectorRefCount` - Gives the reference count of the vector
-    /// arguments: vector length, vector contents (value id)
-    /// result: reference count of `vector`. In unconstrained context, the reference count is stored alongside the vector.
-    /// in constrained context, it will be 0.
-    VectorRefCount,
 }
 
 impl std::fmt::Display for Intrinsic {
@@ -171,8 +161,6 @@ impl std::fmt::Display for Intrinsic {
             Intrinsic::IsUnconstrained => write!(f, "is_unconstrained"),
             Intrinsic::DerivePedersenGenerators => write!(f, "derive_pedersen_generators"),
             Intrinsic::FieldLessThan => write!(f, "field_less_than"),
-            Intrinsic::ArrayRefCount => write!(f, "array_refcount"),
-            Intrinsic::VectorRefCount => write!(f, "vector_refcount"),
         }
     }
 }
@@ -182,17 +170,13 @@ impl Intrinsic {
     ///
     /// If there are no side effects then the `Intrinsic` can be removed if the result is unused.
     ///
-    /// An example of a side effect is increasing the reference count of an array, but functions
-    /// which can fail due to implicit constraints are also considered to have a side effect.
+    /// An example of a side effect is the `black_box` hint, which must survive optimization, but
+    /// functions which can fail due to implicit constraints are also considered to have a side effect.
     pub(crate) fn has_side_effects(&self) -> bool {
         match self {
             Intrinsic::AssertConstant
             | Intrinsic::StaticAssert
             | Intrinsic::ApplyRangeConstraint
-            // Array & vector ref counts are treated as having side effects since they operate
-            // on hidden variables on otherwise identical array values.
-            | Intrinsic::ArrayRefCount
-            | Intrinsic::VectorRefCount
             | Intrinsic::AsWitness => true,
 
             // These apply a constraint that the input must fit into a specified number of limbs.
@@ -301,8 +285,6 @@ impl Intrinsic {
             "derive_pedersen_generators" => Some(Intrinsic::DerivePedersenGenerators),
             "field_less_than" => Some(Intrinsic::FieldLessThan),
             "black_box" => Some(Intrinsic::Hint(Hint::BlackBox)),
-            "array_refcount" => Some(Intrinsic::ArrayRefCount),
-            "vector_refcount" => Some(Intrinsic::VectorRefCount),
 
             other => BlackBoxFunc::lookup(other).map(Intrinsic::BlackBox),
         }

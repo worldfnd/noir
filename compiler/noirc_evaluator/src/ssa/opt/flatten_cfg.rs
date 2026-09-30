@@ -1559,9 +1559,7 @@ impl<'f> Context<'f> {
             | Intrinsic::AsWitness
             | Intrinsic::IsUnconstrained
             | Intrinsic::DerivePedersenGenerators
-            | Intrinsic::FieldLessThan
-            | Intrinsic::ArrayRefCount
-            | Intrinsic::VectorRefCount => arguments,
+            | Intrinsic::FieldLessThan => arguments,
         }
     }
 

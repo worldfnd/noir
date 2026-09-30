@@ -154,9 +154,7 @@ impl Context<'_> {
             | Intrinsic::ArrayAsStrUnchecked
             | Intrinsic::StrAsBytes
             | Intrinsic::StaticAssert
-            | Intrinsic::AssertConstant
-            | Intrinsic::ArrayRefCount
-            | Intrinsic::VectorRefCount => {
+            | Intrinsic::AssertConstant => {
                 unreachable!("Expected {intrinsic} to have been removing during SSA optimizations")
             }
         }

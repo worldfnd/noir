@@ -249,7 +249,6 @@ impl Context {
                             | Intrinsic::IsUnconstrained => {}
                             Intrinsic::ArrayLen
                             | Intrinsic::ArrayAsStrUnchecked
-                            | Intrinsic::ArrayRefCount
                             | Intrinsic::AsVector
                             | Intrinsic::BlackBox(..)
                             | Intrinsic::Hint(Hint::BlackBox)
@@ -259,7 +258,6 @@ impl Context {
                             | Intrinsic::VectorPushFront
                             | Intrinsic::VectorPopBack
                             | Intrinsic::VectorPopFront
-                            | Intrinsic::VectorRefCount
                             | Intrinsic::VectorRemove
                             | Intrinsic::StaticAssert
                             | Intrinsic::StrAsBytes
