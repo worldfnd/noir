@@ -51,6 +51,10 @@ by checking this equality once `N`, `A`, `B` are fully resolved.
 Note that since this safety check is performed after type checking rather than during, no error is issued if the function
 containing `checked_transmute` is never called.
 
+<!--
+Reference counts are not observable from Noir in this fork (see design/reference_counts.md);
+the upstream `array_refcount`/`vector_refcount` sections are kept here commented out.
+
 # `std::mem::array_refcount`
 
 ```rust
@@ -80,3 +84,4 @@ else will return zero.
 This function is mostly intended for debugging compiler optimizations but can also be used
 to find where vector copies may be happening in unconstrained code by placing it before vector
 mutations.
+-->
