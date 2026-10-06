@@ -164,6 +164,7 @@ impl<'context> Elaborator<'context> {
             self.def_maps,
             self.usage_tracker,
             self.crate_graph,
+            self.debug_crate_id,
             self.files,
             self.interpreter_output,
             self.evaluation_tracker.as_deref_mut(),

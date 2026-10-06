@@ -56,7 +56,6 @@ export default {
         { type: 'doc', id: 'language/ops', label: 'Logical Operations' },
         { type: 'doc', id: 'language/assert', label: 'Assert Function' },
         { type: 'doc', id: 'language/unconstrained', label: 'Unconstrained Functions' },
-        { type: 'doc', id: 'language/oracles', label: 'Oracles' },
         { type: 'doc', id: 'language/generics', label: 'Generics' },
         { type: 'doc', id: 'language/globals', label: 'Global Variables' },
         { type: 'doc', id: 'language/mutability', label: 'Mutability' },
@@ -160,7 +159,6 @@ export default {
           label: 'Noir and Barretenberg on the Browser',
           href: 'https://barretenberg.aztec.network/docs/how_to_guides/on-the-browser',
         },
-        { type: 'doc', id: 'guides/how_to_use_oracles', label: 'How to use Oracles' },
         {
           type: 'category',
           label: 'Debugging',
@@ -170,7 +168,6 @@ export default {
           ],
         },
         { type: 'doc', id: 'guides/thinking_in_circuits', label: 'Thinking in Circuits' },
-        { type: 'doc', id: 'guides/oracles', label: 'Oracles' },
         { type: 'doc', id: 'guides/building_a_web_app', label: 'Building a web app with Noir and Barretenberg' },
       ],
     },

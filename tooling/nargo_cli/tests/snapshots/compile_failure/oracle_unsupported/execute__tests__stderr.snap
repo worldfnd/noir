@@ -1,0 +1,12 @@
+---
+source: tooling/nargo_cli/tests/execute.rs
+expression: stderr
+---
+error: Oracle `get_value` is not supported
+  ┌─ src/main.nr:4:9
+  │
+4 │         get_value()
+  │         --------- Only the standard library's `print` oracle (used by `print` and `println`) is available
+  │
+
+Aborting due to 1 previous error

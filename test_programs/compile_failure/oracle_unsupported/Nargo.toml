@@ -1,0 +1,6 @@
+[package]
+name = "oracle_unsupported"
+type = "bin"
+authors = [""]
+
+[dependencies]

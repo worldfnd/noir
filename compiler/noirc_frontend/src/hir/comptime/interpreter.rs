@@ -318,7 +318,7 @@ impl<'local, 'interner> Interpreter<'local, 'interner> {
 
     /// Calls a builtin, foreign, or oracle function (not all oracles are supported).
     ///
-    /// This will ignore any oracles starting with "__debug"
+    /// Ignores oracles defined in the debugger's instrumentation crate.
     fn call_special(
         &mut self,
         function: FuncId,
@@ -337,12 +337,12 @@ impl<'local, 'interner> Interpreter<'local, 'interner> {
         } else if let Some(oracle) = func_attrs.oracle() {
             if let Some(ForeignCall::Print) = ForeignCall::lookup(oracle) {
                 self.print_oracle(&arguments)
-            // Ignore debugger functions
-            } else if oracle.starts_with("__debug") {
+            } else if self.elaborator.debug_crate_id.is_some_and(|debug_crate_id| {
+                self.elaborator.interner.function_meta(&function).source_crate == debug_crate_id
+            }) {
                 Ok(Value::Unit)
             } else {
-                let item = format!("Comptime evaluation for oracle functions like '{oracle}'");
-                Err(InterpreterError::Unimplemented { item, location })
+                Err(InterpreterError::UnsupportedOracle { name: oracle.clone(), location })
             }
         } else {
             let name = self.elaborator.interner.function_name(&function);

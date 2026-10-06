@@ -14,7 +14,7 @@ The Noir Fuzzer is a tool that allows you to fuzz your Noir programs. It is a ty
 - Can explore failing programs and detect only specific failure conditions
 - Includes performance metrics and pretty printing of progress
 - Supports corpus minimization (finding a smaller set of inputs that maintain coverage), although for now only the lazy approach is implemented
-- Can be used with an oracle to perform differential fuzzing against a known good implementation in another language
+- Supports differential fuzzing by asserting that two Noir implementations of the same function agree
 
 ## Usage
 
@@ -78,7 +78,7 @@ Additional fuzzing-specific options include:
       --max-executions <MAX_EXECUTIONS>
           Maximum number of executions of ACIR and Brillig per harness (default: no limit)
 
-`--show-output` and `--oracle-resolver` can be used in the same way as with regular execution and testing.
+`--show-output` can be used in the same way as with regular execution and testing.
 It is recommended to use `--skip-underconstrained-check` to increase compilation speed.
 
 
@@ -142,56 +142,6 @@ Now, when we run the fuzzer, we'll see the following output:
 
 ![Fuzzing failure output showing the failing test case and its inputs](@site/static/img/tooling/fuzzer/only-fail-with-example.png)
 
-### Using an oracle
+### Differential fuzzing
 
-You can use an oracle to perform differential fuzzing against a known good implementation in another language. To do this you need to specify an oracle in the code, and run the fuzzer with the `--oracle-resolver <ORACLE_RESOLVER_URL>` option.
-
-For this example, we'll use the following noir program:
-```rust
-#[oracle(check_addition)]
-unconstrained fn check_addition(a: u32, b: u32, c: u32) -> bool {}
-unconstrained fn check_addition_wrapper(a: u32, b: u32, c: u32) -> bool {
-    check_addition(a, b, c)
-}
-
-#[fuzz(only_fail_with = "addition incorrect")]
-fn main(a: u32, b: u32) {
-    let c = a + b + ((b - a == 49)  as u32);
-    // Safety: this is for fuzzing purposes only
-    assert(unsafe { check_addition_wrapper(a, b, c) }, "addition incorrect");
-}
-```
-You can create a simple python server to resolve the oracle (you'll have to install `werkzeug` and `jsonrpc` through your chosen package manager):
-
-```python
-from werkzeug.serving import run_simple
-from werkzeug.wrappers import Response, Request
-
-from jsonrpc import JSONRPCResponseManager, dispatcher
-
-@dispatcher.add_method
-def resolve_foreign_call(arg):
-    assert arg["function"]=="check_addition"
-    a=int(arg["inputs"][0],16)
-    b=int(arg["inputs"][1],16)
-    c=int(arg["inputs"][2],16)
-    success=(a+b==c)
-    result=dict()
-    result['values']=["1" if success else "0"]
-    return result
-
-
-@Request.application
-def application(request):
-    response = JSONRPCResponseManager.handle(
-        request.data, dispatcher)
-    return Response(response.json, mimetype='application/json')
-
-if __name__ == '__main__':
-    run_simple('localhost', 40000, application)
-```
-You need to run this server before running the fuzzer.
-
-Now if you run the fuzzer, you can see the following output:
-
-![Fuzzing failure output showing oracle-checked failure](@site/static/img/tooling/fuzzer/oracle-fuzzing.png)
+Custom oracles are not supported, so the fuzzer cannot call an external reference implementation through `--oracle-resolver`. To compare implementations, write both versions in Noir and assert that their results agree inside a `#[fuzz]` function.

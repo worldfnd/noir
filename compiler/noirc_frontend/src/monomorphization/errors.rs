@@ -34,9 +34,7 @@ pub enum MonomorphizationError {
     UnconstrainedVectorReturnToConstrained { typ: String, location: Location },
     UnconstrainedFunctionReturnToConstrained { typ: String, location: Location },
     UnconstrainedEnumReturnToConstrained { typ: String, location: Location },
-    ReferenceReturnedFromOracle { typ: String, location: Location },
-    ReferenceParameterToOracle { typ: String, location: Location },
-    VectorWithNestedArrayReturnedFromOracle { typ: String, location: Location },
+    UnsupportedOracle { name: String, location: Location },
     InvalidTypeForEntryPoint { invalid_type: InvalidType, location: Location },
     InputLimitExceeded { num_elements: u64, max_elements: u64, location: Location },
     ReturnLimitExceeded { num_elements: u64, max_elements: u64, location: Location },
@@ -80,9 +78,7 @@ impl MonomorphizationError {
                 location, ..
             }
             | MonomorphizationError::UnconstrainedEnumReturnToConstrained { location, .. }
-            | MonomorphizationError::ReferenceReturnedFromOracle { location, .. }
-            | MonomorphizationError::ReferenceParameterToOracle { location, .. }
-            | MonomorphizationError::VectorWithNestedArrayReturnedFromOracle { location, .. }
+            | MonomorphizationError::UnsupportedOracle { location, .. }
             | MonomorphizationError::InvalidTypeForEntryPoint { location, .. }
             | MonomorphizationError::InputLimitExceeded { location, .. }
             | MonomorphizationError::ReturnLimitExceeded { location, .. }
@@ -229,16 +225,8 @@ impl From<MonomorphizationError> for CustomDiagnostic {
                     "Enum `{typ}` cannot be returned from an unconstrained runtime to a constrained runtime"
                 )
             }
-            MonomorphizationError::ReferenceReturnedFromOracle { typ, .. } => {
-                format!("Reference `{typ}` cannot be returned from an oracle function")
-            }
-            MonomorphizationError::ReferenceParameterToOracle { typ, .. } => {
-                format!("Reference `{typ}` cannot be passed to an oracle function")
-            }
-            MonomorphizationError::VectorWithNestedArrayReturnedFromOracle { typ, .. } => {
-                format!(
-                    "Vector with nested array `{typ}` cannot be returned from an oracle function"
-                )
+            MonomorphizationError::UnsupportedOracle { name, location } => {
+                return unsupported_oracle_diagnostic(name, *location);
             }
             MonomorphizationError::InvalidTypeForEntryPoint { invalid_type, location } => {
                 let primary_message =
@@ -296,4 +284,15 @@ impl From<MonomorphizationError> for CustomDiagnostic {
         let location = error.location();
         CustomDiagnostic::simple_error(message, String::new(), location)
     }
+}
+
+/// The diagnostic for reaching an oracle other than `print`, shared by monomorphization and the
+/// comptime interpreter.
+pub(crate) fn unsupported_oracle_diagnostic(name: &str, location: Location) -> CustomDiagnostic {
+    CustomDiagnostic::simple_error(
+        format!("Oracle `{name}` is not supported"),
+        "Only the standard library's `print` oracle (used by `print` and `println`) is available"
+            .to_string(),
+        location,
+    )
 }

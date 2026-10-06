@@ -234,48 +234,6 @@ fn calling_mutable_reference_to_lambda_output_from_trait_impl() {
 }
 
 #[test]
-fn reference_behind_generics_returned_from_oracle() {
-    let src = r#"
-    unconstrained fn main() {
-        let y = &mut 10;
-        let add = |x: Field| { *y = *y + x; };
-        let mul = |x: Field| { *y = *y * x; };
-
-        let f = choose_func(add, mul);
-                ^^^^^^^^^^^ Reference `fn[(&mut Field,)](Field) -> ()` cannot be returned from an oracle function
-
-        f(20);
-    }
-
-    #[oracle(choose_func)]
-    unconstrained fn choose_func<Env>(
-        f: fn[Env](Field) -> (),
-        g: fn[Env](Field) -> (),
-    ) -> fn[Env](Field) -> () {}
-    "#;
-    check_monomorphization_error(src);
-}
-
-#[test]
-fn reference_behind_generics_returned_from_indirect_oracle() {
-    let src = r#"
-    unconstrained fn main() {
-        foo::<&[(u8, u8); 3]>();
-    }
-
-    unconstrained fn foo<T>() {
-        let f = get_array::<T>;
-                ^^^^^^^^^ Reference `[&[(u8, u8); 3]]` cannot be returned from an oracle function
-        let _result = f();
-    }
-
-    #[oracle(get_array)]
-    unconstrained fn get_array<T>() -> [T] {}
-    "#;
-    check_monomorphization_error(src);
-}
-
-#[test]
 fn method_with_immutable_self_reference_does_not_require_mutable_variable() {
     let src = r#"
     struct S { inner: Field }
