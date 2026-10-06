@@ -13,16 +13,6 @@ excluded_dirs=(
     "databus_two_calldata"
     "databus_two_calldata_simple"
     "regression_claude_1124"
-    # For circuits which use #[fold]: circuit_buf_to_acir_format: expected single function in ACIR program
-    "fold_2_to_17"
-    "fold_after_inlined_calls"
-    "fold_basic"
-    "fold_basic_nested_call"
-    "fold_call_witness_condition"
-    "fold_complex_outputs"
-    "fold_distinct_return"
-    "fold_fibonacci"
-    "fold_numeric_generic_poseidon"
     "regression_7143"
     "regression_7612"
 )

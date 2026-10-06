@@ -88,18 +88,9 @@ const IGNORED_BRILLIG_SMALL_STACK_TESTS: [&str; 1] = [
 
 /// Some tests are explicitly ignored in brillig due to them failing.
 /// These should be fixed and removed from this list.
-const IGNORED_BRILLIG_TESTS: [&str; 11] = [
+const IGNORED_BRILLIG_TESTS: [&str; 3] = [
     // bit sizes for bigint operation doesn't match up.
     "bigint",
-    // ICE due to looking for function which doesn't exist.
-    "fold_after_inlined_calls",
-    "fold_basic",
-    "fold_basic_nested_call",
-    "fold_call_witness_condition",
-    "fold_complex_outputs",
-    "fold_distinct_return",
-    "fold_fibonacci",
-    "fold_numeric_generic_poseidon",
     // Expected to fail as test asserts on which runtime it is in.
     "is_unconstrained",
     // The output depends on function IDs of lambdas, and with --force-brillig we only get one kind.

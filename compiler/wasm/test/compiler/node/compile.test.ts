@@ -107,8 +107,6 @@ describe('noir-compiler/node', () => {
     'match_struct_pattern_field_order', // Requires the 'enums' unstable feature.
     // These depend on the external poseidon library which currently doesn't compile.
     'bench_2_to_17',
-    'fold_2_to_17',
-    'fold_numeric_generic_poseidon',
     'no_predicates_numeric_generic_poseidon',
     'poseidon_bn254_hash_width_3',
     'poseidonsponge_x5_254',

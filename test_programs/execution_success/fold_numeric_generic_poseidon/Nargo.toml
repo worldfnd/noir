@@ -1,8 +1,0 @@
-[package]
-name = "fold_numeric_generic_poseidon"
-type = "bin"
-authors = [""]
-compiler_version = ">=0.27.0"
-
-[dependencies]
-poseidon = { git = "https://github.com/noir-lang/poseidon", tag = "v0.3.0" }

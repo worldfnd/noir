@@ -1,6 +1,5 @@
 import assert_lt_json from '../noir_compiled_examples/assert_lt/target/assert_lt.json' assert { type: 'json' };
 import assert_msg_json from '../noir_compiled_examples/assert_msg_runtime/target/assert_msg_runtime.json' assert { type: 'json' };
-import fold_fibonacci_json from '../noir_compiled_examples/fold_fibonacci/target/fold_fibonacci.json' assert { type: 'json' };
 import assert_raw_payload_json from '../noir_compiled_examples/assert_raw_payload/target/assert_raw_payload.json' assert { type: 'json' };
 import databus_json from '../noir_compiled_examples/databus/target/databus.json' assert { type: 'json' };
 import assert_inside_brillig_nested_json from '../noir_compiled_examples/assert_inside_brillig_nested/target/assert_inside_brillig_nested.json' assert { type: 'json' };
@@ -11,7 +10,6 @@ import { expect } from 'chai';
 
 const assert_lt_program = assert_lt_json as CompiledCircuit;
 const assert_msg_runtime = assert_msg_json as CompiledCircuit;
-const fold_fibonacci_program = fold_fibonacci_json as CompiledCircuit;
 const assert_raw_payload = assert_raw_payload_json as CompiledCircuit;
 const databus_program = databus_json as CompiledCircuit;
 const assert_inside_brillig_nested = assert_inside_brillig_nested_json as CompiledCircuit;
@@ -24,13 +22,6 @@ it('executes a single-ACIR program correctly', async () => {
   const { returnValue } = await new Noir(assert_lt_program).execute(inputs);
 
   expect(returnValue).to.be.eq('0x05');
-});
-
-it('successfully executes a program with multiple acir circuits', async () => {
-  const inputs = {
-    x: '10',
-  };
-  expect(() => new Noir(fold_fibonacci_program).execute(inputs)).to.not.throw();
 });
 
 it('circuit with a fmt string assert message should fail with the resolved assertion information', async () => {
