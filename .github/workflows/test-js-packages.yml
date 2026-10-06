@@ -707,6 +707,8 @@ jobs:
 
   compile-noir-contracts:
     name: Compile `noir-contracts` zero inliner aggressiveness
+    # Disabled: Aztec contracts call oracles other than `print`, which this compiler rejects.
+    if: false
     needs: [build-binaries]
     runs-on: ubuntu-22.04
     timeout-minutes: 30
@@ -842,7 +844,7 @@ jobs:
       #- test-integration-browser
       - test-nargo-doc
       - test-examples
-      - compile-noir-contracts
+      #- compile-noir-contracts
     permissions:
       contents: read
 
