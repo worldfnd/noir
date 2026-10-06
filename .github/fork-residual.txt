@@ -1,3 +1,4 @@
+.github/benchmark_projects.yml
 .github/fork-base.txt
 .github/fork-residual.txt
 .github/workflows/fork-residual.yml
