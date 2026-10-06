@@ -41,8 +41,9 @@ pub(super) fn deprecated_function(interner: &NodeInterner, expr: ExprId) -> Opti
 }
 
 /// Validate inline-related attributes based on whether the function is constrained or unconstrained.
+/// - All functions: disallow `#[fold]`, which is not supported
 /// - Constrained functions: disallow `#[inline_never]`
-/// - Unconstrained functions: disallow `#[no_predicates]` and `#[fold]`
+/// - Unconstrained functions: disallow `#[no_predicates]`
 pub(super) fn inlining_attributes(
     func: &FuncMeta,
     modifiers: &FunctionModifiers,
@@ -56,8 +57,8 @@ pub(super) fn inlining_attributes(
         FunctionAttributeKind::NoPredicates if is_unconstrained => {
             Some(ResolverError::NoPredicatesAttributeOnUnconstrained { ident, location })
         }
-        FunctionAttributeKind::Fold if is_unconstrained => {
-            Some(ResolverError::FoldAttributeOnUnconstrained { ident, location })
+        FunctionAttributeKind::Fold => {
+            Some(ResolverError::FoldAttributeUnsupported { ident, location })
         }
         FunctionAttributeKind::InlineNever if !is_unconstrained => {
             Some(ResolverError::InlineNeverAttributeOnConstrained { ident, location })

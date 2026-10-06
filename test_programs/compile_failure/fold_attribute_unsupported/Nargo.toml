@@ -1,0 +1,6 @@
+[package]
+name = "fold_attribute_unsupported"
+type = "bin"
+authors = [""]
+
+[dependencies]

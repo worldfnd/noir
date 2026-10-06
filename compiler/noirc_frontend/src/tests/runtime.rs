@@ -296,13 +296,30 @@ fn deny_inline_attribute_on_unconstrained_trait_method() {
 }
 
 #[test]
-fn deny_fold_attribute_on_unconstrained() {
+fn fold_attribute_is_refused_on_unconstrained_functions() {
     let src = r#"
         #[fold]
-        ^^^^^^^ misplaced #[fold] attribute on unconstrained function foo. Only allowed on constrained functions
-        ~~~~~~~ misplaced #[fold] attribute
+        ^^^^^^^ #[fold] attribute on function foo is not supported
+        ~~~~~~~ unsupported #[fold] attribute
         unconstrained pub fn foo(x: Field, y: Field) {
             assert(x != y);
+        }
+    "#;
+    check_errors(src);
+}
+
+#[test]
+fn fold_attribute_is_refused_on_constrained_functions() {
+    let src = r#"
+        fn main(x: Field) -> pub Field {
+            foo(x)
+        }
+
+        #[fold]
+        ^^^^^^^ #[fold] attribute on function foo is not supported
+        ~~~~~~~ unsupported #[fold] attribute
+        fn foo(x: Field) -> Field {
+            x + 1
         }
     "#;
     check_errors(src);
@@ -542,6 +559,8 @@ fn regression_10413() {
     }
 
     #[fold]
+    ^^^^^^^ #[fold] attribute on function foo is not supported
+    ~~~~~~~ unsupported #[fold] attribute
     fn foo(_: ()) {}
               ^^ Invalid type found in the entry point to a program
               ~~ Unit is not a valid entry point type

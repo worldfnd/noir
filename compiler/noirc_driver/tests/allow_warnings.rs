@@ -78,54 +78,6 @@ fn allow_constant_return_on_main_silences_a_constant_from_an_inlined_helper() {
 }
 
 #[test]
-fn fold_function_with_constant_return_warns() {
-    let source = r#"
-    #[fold]
-    fn folded() -> Field { 1 }
-
-    fn main(x: Field) -> pub Field { folded() + x }
-    "#;
-    let warnings = compile_warnings(source);
-    assert!(
-        warnings.iter().any(|warning| warning.message.contains("constant")),
-        "expected a constant_return warning from the fold function, got {warnings:?}"
-    );
-}
-
-#[test]
-fn allow_constant_return_on_fold_function_silences_its_warning() {
-    // `#[fold]` functions are separate ACIR entry points and warn independently of `main`,
-    // so the attribute must silence the warning when placed on the fold function itself.
-    let source = r#"
-    #[fold]
-    #[allow(constant_return)]
-    fn folded() -> Field { 1 }
-
-    fn main(x: Field) -> pub Field { folded() + x }
-    "#;
-    let warnings = compile_warnings(source);
-    assert!(warnings.is_empty(), "expected no warnings, got {warnings:?}");
-}
-
-#[test]
-fn allow_constant_return_on_main_does_not_silence_a_fold_function() {
-    // The attribute is scoped to the annotated function, so annotating `main` must not
-    // leak into the fold function's own entry point.
-    let source = r#"
-    #[fold]
-    fn folded() -> Field { 1 }
-
-    #[allow(constant_return)]
-    fn main(x: Field) -> pub Field { folded() + x }
-    "#;
-    let warnings = compile_warnings(source);
-    assert!(
-        warnings.iter().any(|warning| warning.message.contains("constant")),
-        "expected the fold function's constant_return warning to survive, got {warnings:?}"
-    );
-}
-
-#[test]
 fn allow_constant_return_on_another_function_does_not_silence_main() {
     // The attribute is scoped to the annotated function's body, so annotating `helper`
     // must not leak into `main`'s constant return.
