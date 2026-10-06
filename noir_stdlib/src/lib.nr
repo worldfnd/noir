@@ -12,7 +12,6 @@ pub mod compat;
 pub mod convert;
 pub mod option;
 pub mod string;
-pub mod test;
 pub mod cmp;
 pub mod ops;
 pub mod default;
