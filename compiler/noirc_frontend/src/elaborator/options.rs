@@ -2,7 +2,9 @@
 
 use std::str::FromStr;
 
-use acvm::FieldConfig;
+use acvm::{FieldConfig, FieldId};
+
+use crate::node_interner::FieldGates;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum UnstableFeature {
@@ -48,6 +50,10 @@ pub struct GenericOptions<'a, T> {
 
     /// The field the compilation runs under.
     pub field: FieldConfig,
+
+    /// Benchmark mode for bn254 builds: where a module keeps an item gated `bn254` and a twin
+    /// of the same kind and name gated `not(bn254)`, compile the twin. Off by default.
+    pub generic_builtins: bool,
 }
 
 /// Options from `nargo_cli` that need to be passed down to the elaborator
@@ -65,6 +71,16 @@ impl<T> GenericOptions<'_, T> {
             enabled_unstable_features: &[UnstableFeature::Enums],
             disable_required_unstable_features: true,
             field: FieldConfig::linked(),
+            generic_builtins: false,
         }
+    }
+
+    /// How `#[field(..)]` gates are decided under these options. `generic_builtins` acts in a
+    /// bn254 build only: there `not(bn254)` marks a field-generic twin or its helper, while under
+    /// another field `not(<field>)` marks an item the field's range excludes, which no benchmark
+    /// may bring back.
+    pub fn field_gates(&self) -> FieldGates {
+        let generic_builtins = self.generic_builtins && self.field.id() == FieldId::Bn254;
+        FieldGates { field: self.field, generic_builtins }
     }
 }

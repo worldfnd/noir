@@ -1,0 +1,21 @@
+---
+source: tooling/nargo_cli/tests/execute.rs
+expression: stderr
+---
+error: Invalid type found in the entry point to a program
+  ┌─ src/main.nr:3:12
+  │
+3 │ fn main(x: u24) -> pub u24 {
+  │            --- Integers the circuit backend does not lower are not valid entry point types. Found: u24
+  │
+  = Note: main and contract functions take and return only the integer types the circuit backend lowers: u8, u16, u32, u64, u128, i8, i16, i32 and i64. Widen or narrow the value inside the program.
+
+error: Invalid type found in the entry point to a program
+  ┌─ src/main.nr:3:24
+  │
+3 │ fn main(x: u24) -> pub u24 {
+  │                        --- Integers the circuit backend does not lower are not valid entry point types. Found: u24
+  │
+  = Note: main and contract functions take and return only the integer types the circuit backend lowers: u8, u16, u32, u64, u128, i8, i16, i32 and i64. Widen or narrow the value inside the program.
+
+Aborting due to 2 previous errors

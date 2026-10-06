@@ -12,6 +12,21 @@ pub fn is_legal_integer_width(bits: u32) -> bool {
     (2..=MAX_INTEGER_WIDTH).contains(&bits)
 }
 
+/// The integer types the circuit backend lowers, in words, for diagnostics.
+pub const LOWERABLE_INTEGER_TYPES: &str = "u8, u16, u32, u64, u128, i8, i16, i32 and i64";
+
+/// Whether ACIR and Brillig have a lowering for an integer type, which is also the set an entry
+/// point takes or returns. The front half and every other consumer of the monomorphized output
+/// admit each width the language has inside a program. The signed set stops at 64 bits because
+/// the ACIR lowering of signed comparison, and of the truncation after signed arithmetic,
+/// carries one bit more than the operand.
+pub fn is_lowerable_integer_width(signedness: Signedness, bits: u32) -> bool {
+    match signedness {
+        Signedness::Unsigned => matches!(bits, 8 | 16 | 32 | 64 | 128),
+        Signedness::Signed => matches!(bits, 8 | 16 | 32 | 64),
+    }
+}
+
 /// Reads a name of the form `u<digits>` or `i<digits>` as a signedness and a width, without
 /// asking whether that width is legal: `u0` and `u1` parse, and the legality rule refuses them.
 /// The digits must be plain decimal with no leading zero, so `u00`, `u007` and `u8_` are not
@@ -43,6 +58,21 @@ mod tests {
         }
         for bits in [0, 1, 16385, u32::MAX] {
             assert!(!is_legal_integer_width(bits), "{bits}");
+        }
+    }
+
+    #[test]
+    fn the_lowerable_types_are_the_five_unsigned_and_four_signed_powers_of_two() {
+        for bits in [8, 16, 32, 64, 128] {
+            assert!(is_lowerable_integer_width(Signedness::Unsigned, bits), "u{bits}");
+        }
+        for bits in [8, 16, 32, 64] {
+            assert!(is_lowerable_integer_width(Signedness::Signed, bits), "i{bits}");
+        }
+        assert!(!is_lowerable_integer_width(Signedness::Signed, 128), "i128");
+        for bits in [2, 3, 24, 34, 66, 253, 256, MAX_INTEGER_WIDTH] {
+            assert!(!is_lowerable_integer_width(Signedness::Unsigned, bits), "u{bits}");
+            assert!(!is_lowerable_integer_width(Signedness::Signed, bits), "i{bits}");
         }
     }
 

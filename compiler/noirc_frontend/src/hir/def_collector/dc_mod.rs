@@ -3,7 +3,6 @@ use std::path::Path;
 use std::rc::Rc;
 use std::vec;
 
-use acvm::FieldConfig;
 use fm::{FILE_EXTENSION, FileId, FileManager};
 use iter_extended::vecmap;
 use noirc_errors::{Location, Span};
@@ -19,8 +18,10 @@ use crate::elaborator::PrimitiveType;
 use crate::hir::def_collector::dc_crate::CompilationErrors;
 use crate::hir::resolution::errors::ResolverError;
 use crate::lint::Lint;
-use crate::node_interner::{DefinitionKind, ModuleAttributes, NodeInterner, ReferenceId, TypeId};
-use crate::token::{SecondaryAttribute, SecondaryAttributeKind, TestScope};
+use crate::node_interner::{
+    DefinitionKind, FieldGates, ModuleAttributes, NodeInterner, ReferenceId, TypeId,
+};
+use crate::token::{FieldPredicate, SecondaryAttribute, SecondaryAttributeKind, TestScope};
 use crate::usage_tracker::{UnusedItem, UsageTracker};
 use crate::{Kind, ResolvedGeneric, ResolvedGenerics, Type, TypeVariable};
 use crate::{
@@ -51,6 +52,8 @@ struct ModCollector<'a> {
     pub(crate) module_id: LocalModuleId,
     /// Local struct and enum names excluded by `#[field(..)]`.
     gated_out_types: HashSet<String>,
+    /// The module's field-generic twins, which `--generic-builtins` prefers; see [`generic_twins`].
+    twins: Twins,
 }
 
 /// Walk a module and collect its definitions.
@@ -71,8 +74,9 @@ pub fn collect_defs(
     context: &mut Context,
     reuse_existing_module_declarations: bool,
 ) -> CompilationErrors {
+    let twins = generic_twins(&ast, context.def_interner.field_gates());
     let mut collector =
-        ModCollector { def_collector, file_id, module_id, gated_out_types: HashSet::new() };
+        ModCollector { def_collector, file_id, module_id, gated_out_types: HashSet::new(), twins };
     let mut errors = CompilationErrors::default();
 
     // First resolve the module declarations
@@ -136,6 +140,16 @@ pub fn collect_defs(
 }
 
 impl ModCollector<'_> {
+    /// Whether `#[field(..)]` keeps the item `key` with `attributes` out of this build.
+    fn gated_out(
+        &self,
+        interner: &NodeInterner,
+        key: &TwinKey,
+        attributes: &[SecondaryAttribute],
+    ) -> bool {
+        is_gated_out(interner.field_gates(), &self.twins, key, attributes)
+    }
+
     fn collect_attributes(
         &mut self,
         attributes: Vec<SecondaryAttribute>,
@@ -165,7 +179,8 @@ impl ModCollector<'_> {
     ) -> CompilationErrors {
         let mut errors = CompilationErrors::default();
         for (global, visibility) in globals {
-            if is_gated_out(context.def_interner.field(), &global.item.attributes) {
+            let key = global_key(&global.item);
+            if self.gated_out(&context.def_interner, &key, &global.item.attributes) {
                 continue;
             }
 
@@ -226,6 +241,7 @@ impl ModCollector<'_> {
                 self.file_id,
                 module_id,
                 &mut errors,
+                &self.twins,
             );
         }
 
@@ -241,7 +257,8 @@ impl ModCollector<'_> {
         let mut errors = CompilationErrors::default();
 
         for mut trait_impl in impls {
-            if is_gated_out(context.def_interner.field(), &trait_impl.attributes)
+            let key = trait_impl_key(&trait_impl);
+            if self.gated_out(&context.def_interner, &key, &trait_impl.attributes)
                 || self.type_is_gated_out(&trait_impl.object_type)
             {
                 continue;
@@ -332,6 +349,7 @@ impl ModCollector<'_> {
                 module,
                 function.doc_comments,
                 &mut errors,
+                &self.twins,
             ) else {
                 continue;
             };
@@ -360,7 +378,8 @@ impl ModCollector<'_> {
     ) -> CompilationErrors {
         let mut definition_errors = CompilationErrors::default();
         for struct_definition in types {
-            if is_gated_out(context.def_interner.field(), &struct_definition.item.attributes) {
+            let key = TwinKey::Type(struct_definition.item.name.to_string());
+            if self.gated_out(&context.def_interner, &key, &struct_definition.item.attributes) {
                 self.gated_out_types.insert(struct_definition.item.name.to_string());
                 continue;
             }
@@ -373,6 +392,7 @@ impl ModCollector<'_> {
                 self.module_id,
                 krate,
                 &mut definition_errors,
+                &self.twins,
             ) {
                 self.def_collector.items.structs.insert(id, the_struct);
             }
@@ -391,7 +411,8 @@ impl ModCollector<'_> {
     ) -> CompilationErrors {
         let mut definition_errors = CompilationErrors::default();
         for enum_definition in types {
-            if is_gated_out(context.def_interner.field(), &enum_definition.item.attributes) {
+            let key = TwinKey::Type(enum_definition.item.name.to_string());
+            if self.gated_out(&context.def_interner, &key, &enum_definition.item.attributes) {
                 self.gated_out_types.insert(enum_definition.item.name.to_string());
                 continue;
             }
@@ -405,6 +426,7 @@ impl ModCollector<'_> {
                 self.module_id,
                 krate,
                 &mut definition_errors,
+                &self.twins,
             ) {
                 self.def_collector.items.enums.insert(id, the_enum);
             }
@@ -422,7 +444,8 @@ impl ModCollector<'_> {
     ) -> CompilationErrors {
         let mut errors = CompilationErrors::default();
         for type_alias in type_aliases {
-            if is_gated_out(context.def_interner.field(), &type_alias.item.attributes) {
+            let key = TwinKey::Type(type_alias.item.name.to_string());
+            if self.gated_out(&context.def_interner, &key, &type_alias.item.attributes) {
                 continue;
             }
 
@@ -495,7 +518,8 @@ impl ModCollector<'_> {
     ) -> CompilationErrors {
         let mut errors = CompilationErrors::default();
         for trait_definition in traits {
-            if is_gated_out(context.def_interner.field(), &trait_definition.item.attributes) {
+            let key = TwinKey::Trait(trait_definition.item.name.to_string());
+            if self.gated_out(&context.def_interner, &key, &trait_definition.item.attributes) {
                 continue;
             }
 
@@ -820,7 +844,8 @@ impl ModCollector<'_> {
             let mut doc_comments = submodule.doc_comments;
             let submodule = submodule.item;
 
-            if is_gated_out(context.def_interner.field(), &submodule.outer_attributes) {
+            let key = TwinKey::Module(submodule.name.to_string());
+            if self.gated_out(&context.def_interner, &key, &submodule.outer_attributes) {
                 continue;
             }
 
@@ -908,7 +933,8 @@ impl ModCollector<'_> {
         let mut errors = CompilationErrors::default();
 
         // Gated out before `find_module`, so the file need not exist.
-        if is_gated_out(context.def_interner.field(), &mod_decl.outer_attributes) {
+        let key = TwinKey::Module(mod_decl.ident.to_string());
+        if self.gated_out(&context.def_interner, &key, &mod_decl.outer_attributes) {
             return errors;
         }
 
@@ -1189,13 +1215,15 @@ pub fn collect_function(
     module: ModuleId,
     doc_comments: Vec<DocComment>,
     errors: &mut CompilationErrors,
+    twins: &Twins,
 ) -> Option<crate::node_interner::FuncId> {
     desugar_generic_trait_bounds_and_reorder_where_clause(
         &mut function.def.generics,
         &mut function.def.where_clause,
     );
 
-    if is_gated_out(interner.field(), function.secondary_attributes()) {
+    let key = TwinKey::Function(function.name().to_string());
+    if is_gated_out(interner.field_gates(), twins, &key, function.secondary_attributes()) {
         return None;
     }
 
@@ -1279,8 +1307,10 @@ pub fn collect_struct(
     module_id: LocalModuleId,
     krate: CrateId,
     definition_errors: &mut CompilationErrors,
+    twins: &Twins,
 ) -> Option<(TypeId, UnresolvedStruct)> {
-    if is_gated_out(interner.field(), &struct_definition.item.attributes) {
+    let key = TwinKey::Type(struct_definition.item.name.to_string());
+    if is_gated_out(interner.field_gates(), twins, &key, &struct_definition.item.attributes) {
         return None;
     }
     let doc_comments = struct_definition.doc_comments;
@@ -1401,8 +1431,10 @@ pub fn collect_enum(
     module_id: LocalModuleId,
     krate: CrateId,
     definition_errors: &mut CompilationErrors,
+    twins: &Twins,
 ) -> Option<(TypeId, UnresolvedEnum)> {
-    if is_gated_out(interner.field(), &enum_def.item.attributes) {
+    let key = TwinKey::Type(enum_def.item.name.to_string());
+    if is_gated_out(interner.field_gates(), twins, &key, &enum_def.item.attributes) {
         return None;
     }
     let doc_comments = enum_def.doc_comments;
@@ -1509,8 +1541,11 @@ pub fn collect_impl(
     file_id: FileId,
     module_id: ModuleId,
     errors: &mut CompilationErrors,
+    twins: &Twins,
 ) {
-    if is_gated_out(interner.field(), &r#impl.attributes) {
+    let gates = interner.field_gates();
+    let object_type = r#impl.object_type.to_string();
+    if is_gated_out(gates, twins, &TwinKey::Impl(object_type.clone()), &r#impl.attributes) {
         return;
     }
 
@@ -1527,7 +1562,8 @@ pub fn collect_impl(
         let mut method = method.item;
 
         // Skip before `push_empty_fn`, so a gated-out method never gets a `FuncId`.
-        if is_gated_out(interner.field(), method.secondary_attributes()) {
+        let key = TwinKey::Method(object_type.clone(), method.name().to_string());
+        if is_gated_out(gates, twins, &key, method.secondary_attributes()) {
             continue;
         }
 
@@ -1640,10 +1676,130 @@ fn should_check_siblings_for_module(module_path: &Path, parent_path: &Path) -> b
     }
 }
 
+/// What `--generic-builtins` pairs an item with: an item of the same kind and name in the same
+/// module. An inherent impl is named by its object type as written, a method by that and its
+/// name, a trait impl by its trait and object type as written.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum TwinKey {
+    Function(String),
+    Global(String),
+    /// A struct, enum or type alias; the three share a namespace.
+    Type(String),
+    Trait(String),
+    Module(String),
+    Impl(String),
+    Method(String, String),
+    TraitImpl(String, String),
+}
+
+/// The keys of a module's items gated `not(<this build's field>)`: the field-generic twins that
+/// `--generic-builtins` compiles in place of the items gated to the field.
+pub type Twins = HashSet<TwinKey>;
+
+fn global_key(global: &LetStatement) -> TwinKey {
+    TwinKey::Global(global.pattern.to_string())
+}
+
+pub(crate) fn trait_impl_key(trait_impl: &NoirTraitImpl) -> TwinKey {
+    TwinKey::TraitImpl(trait_impl.r#trait.to_string(), trait_impl.object_type.to_string())
+}
+
+/// Whether the item `key` with `attributes` is a field-generic twin `--generic-builtins` can
+/// compile: gated `not(<field>)`, and admitted by every other gate it carries.
+fn is_generic_twin(gates: FieldGates, key: &TwinKey, attributes: &[SecondaryAttribute]) -> bool {
+    let negates_this_field = attributes.iter().any(|attribute| match &attribute.kind {
+        SecondaryAttributeKind::Field(predicate) => {
+            predicate.negated && predicate.names(gates.field)
+        }
+        _ => false,
+    });
+    negates_this_field && !is_gated_out(gates, &Twins::new(), key, attributes)
+}
+
+/// The field-generic twins of a module, empty unless `--generic-builtins` is on: the pre-pass
+/// that lets a `#[field(<field>)]` item know whether a `#[field(not(<field>))]` twin exists.
+/// Items generated at compile time are collected without one (`comptime.rs` passes no twins).
+fn generic_twins(ast: &SortedModule, gates: FieldGates) -> Twins {
+    let mut twins = Twins::new();
+    if !gates.generic_builtins {
+        return twins;
+    }
+    let mut twin = |key: TwinKey, attributes: &[SecondaryAttribute]| {
+        if is_generic_twin(gates, &key, attributes) {
+            twins.insert(key);
+        }
+    };
+    for function in &ast.functions {
+        let key = TwinKey::Function(function.item.name().to_string());
+        twin(key, function.item.secondary_attributes());
+    }
+    for (global, _) in &ast.globals {
+        twin(global_key(&global.item), &global.item.attributes);
+    }
+    for the_struct in &ast.structs {
+        twin(TwinKey::Type(the_struct.item.name.to_string()), &the_struct.item.attributes);
+    }
+    for the_enum in &ast.enums {
+        twin(TwinKey::Type(the_enum.item.name.to_string()), &the_enum.item.attributes);
+    }
+    for alias in &ast.type_aliases {
+        twin(TwinKey::Type(alias.item.name.to_string()), &alias.item.attributes);
+    }
+    for the_trait in &ast.traits {
+        twin(TwinKey::Trait(the_trait.item.name.to_string()), &the_trait.item.attributes);
+    }
+    for trait_impl in &ast.trait_impls {
+        twin(trait_impl_key(trait_impl), &trait_impl.attributes);
+    }
+    for r#impl in &ast.impls {
+        let object_type = r#impl.object_type.to_string();
+        let key = TwinKey::Impl(object_type.clone());
+        // The methods of an impl another gate excludes go with it.
+        if is_gated_out(gates, &Twins::new(), &key, &r#impl.attributes) {
+            continue;
+        }
+        twin(key, &r#impl.attributes);
+        for (method, _) in &r#impl.methods {
+            let key = TwinKey::Method(object_type.clone(), method.item.name().to_string());
+            twin(key, method.item.secondary_attributes());
+        }
+    }
+    for submodule in &ast.submodules {
+        twin(TwinKey::Module(submodule.item.name.to_string()), &submodule.item.outer_attributes);
+    }
+    for decl in &ast.module_decls {
+        twin(TwinKey::Module(decl.item.ident.to_string()), &decl.item.outer_attributes);
+    }
+    twins
+}
+
+/// Whether one `#[field(..)]` predicate keeps the item `key` out of this build. Under
+/// `--generic-builtins` a predicate naming the build's own field reads the other way round:
+/// `not(field)` admits, and `field` excludes exactly the items whose twin the module keeps.
+fn predicate_gates_out(
+    gates: FieldGates,
+    twins: &Twins,
+    key: &TwinKey,
+    predicate: &FieldPredicate,
+) -> bool {
+    if gates.generic_builtins && predicate.names(gates.field) {
+        !predicate.negated && twins.contains(key)
+    } else {
+        !predicate.admits(gates.field)
+    }
+}
+
 /// Whether a `#[field(..)]` attribute keeps its item out of this build; such an item is dropped before anything about it is interned.
-pub(crate) fn is_gated_out(field: FieldConfig, attributes: &[SecondaryAttribute]) -> bool {
+pub(crate) fn is_gated_out(
+    gates: FieldGates,
+    twins: &Twins,
+    key: &TwinKey,
+    attributes: &[SecondaryAttribute],
+) -> bool {
     attributes.iter().any(|attribute| match &attribute.kind {
-        SecondaryAttributeKind::Field(predicate) => !predicate.admits(field),
+        SecondaryAttributeKind::Field(predicate) => {
+            predicate_gates_out(gates, twins, key, predicate)
+        }
         _ => false,
     })
 }

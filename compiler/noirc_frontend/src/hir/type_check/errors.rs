@@ -18,7 +18,7 @@ use crate::hir::resolution::errors::ResolverError;
 use crate::hir_def::traits::TraitConstraint;
 use crate::hir_def::types::{BinaryTypeOperator, Type};
 use crate::node_interner::NodeInterner;
-use crate::shared::Signedness;
+use crate::shared::{LOWERABLE_INTEGER_TYPES, Signedness};
 use crate::validity::InvalidType;
 
 /// Rust also only shows 3 maximum, even for short patterns.
@@ -775,11 +775,15 @@ impl<'a> From<&'a TypeCheckError> for Diagnostic {
                     diagnostic.add_secondary("This type has an invalid entry point type inside it".to_string(), *location);
                 }
 
-                let note = if let InvalidType::IntegerExceedsField { field, .. } = invalid_type.innermost() {
-                    let widest = FieldConfig::new(*field).num_bits() - 1;
-                    format!("Note: under {field}, an integer that main or a contract function takes or returns must be at most {widest} bits wide, so that each of its values is below the field modulus. Split a wider integer into narrower ones.")
-                } else {
-                    "Note: vectors, references, empty arrays, empty strings, or any type containing them may not be used in main, contract functions, test functions, fuzz functions or foldable functions.".to_string()
+                let note = match invalid_type.innermost() {
+                    InvalidType::IntegerExceedsField { field, .. } => {
+                        let widest = FieldConfig::new(*field).num_bits() - 1;
+                        format!("Note: under {field}, an integer that main or a contract function takes or returns must be at most {widest} bits wide, so that each of its values is below the field modulus. Split a wider integer into narrower ones.")
+                    }
+                    InvalidType::IntegerNotLowerable { .. } => {
+                        format!("Note: main and contract functions take and return only the integer types the circuit backend lowers: {LOWERABLE_INTEGER_TYPES}. Widen or narrow the value inside the program.")
+                    }
+                    _ => "Note: vectors, references, empty arrays, empty strings, or any type containing them may not be used in main, contract functions, test functions, fuzz functions or foldable functions.".to_string(),
                 };
                 diagnostic.add_note(note);
                 invalid_type.add_to_diagnostic(*location, &mut diagnostic);

@@ -45,7 +45,7 @@ use noirc_frontend::monomorphization::{
     errors::MonomorphizationError, monomorphize, monomorphize_debug,
 };
 use noirc_frontend::node_interner::{FuncId, GlobalId, GlobalValue, TypeId};
-use noirc_frontend::shared::Signedness;
+use noirc_frontend::shared::{LOWERABLE_INTEGER_TYPES, is_lowerable_integer_width};
 use noirc_frontend::token::SecondaryAttributeKind;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
@@ -306,6 +306,14 @@ pub struct CompileOptions {
     /// Field to compile for: bn254, goldilocks or bls12_381. Defaults to the field this compiler is built with; lowering to a circuit needs a build for that field.
     #[arg(long, value_name = "FIELD", default_value_t = FieldId::linked())]
     pub field: FieldId,
+
+    /// Benchmark mode for bn254 builds: where the standard library keeps an item written for
+    /// bn254 and a field-generic twin (`Field::lt`, `Hash` for `u64`, `u128` and `i64`, and the
+    /// wrapping arithmetic for `u64` and `u128`), compile the twin, so the two can be measured
+    /// on one backend. Hashes of those types then differ from a normal build's. Under another
+    /// field the option changes nothing.
+    #[arg(long, hide = true)]
+    pub generic_builtins: bool,
 }
 
 impl Default for CompileOptions {
@@ -354,6 +362,7 @@ impl Default for CompileOptions {
             no_unstable_features: false,
             disable_comptime_printing: false,
             field: FieldId::linked(),
+            generic_builtins: false,
         }
     }
 }
@@ -409,6 +418,7 @@ impl CompileOptions {
             enabled_unstable_features: &self.unstable_features,
             disable_required_unstable_features: self.no_unstable_features,
             field: FieldConfig::new(self.field),
+            generic_builtins: self.generic_builtins,
         }
     }
 }
@@ -473,26 +483,11 @@ pub fn ensure_field_is_linked(field: FieldId) -> Result<(), CompileError> {
     }
 }
 
-/// The integer types the circuit backend lowers, in words, for the diagnostic.
-const LOWERABLE_INTEGER_TYPES: &str = "u8, u16, u32, u64, u128, i8, i16, i32 and i64";
-
-/// Whether ACIR and Brillig have a lowering for an integer type. Only the circuit path is bounded
-/// by this; the front half and every other consumer of the monomorphized output admit each width
-/// the language has. The signed set stops at 64 bits because the ACIR lowering of signed
-/// comparison, and of the truncation after signed arithmetic, carries one bit more than the
-/// operand.
-fn backend_lowers_integer(sign: Signedness, bits: u32) -> bool {
-    match sign {
-        Signedness::Unsigned => matches!(bits, 8 | 16 | 32 | 64 | 128),
-        Signedness::Signed => matches!(bits, 8 | 16 | 32 | 64),
-    }
-}
-
 /// The first integer type in `typ`, or nested in it, that the backend cannot lower.
 fn first_unlowerable_integer(typ: &MonomorphizedType) -> Option<&MonomorphizedType> {
     use MonomorphizedType as Type;
     match typ {
-        Type::Integer(sign, bits) if !backend_lowers_integer(*sign, *bits) => Some(typ),
+        Type::Integer(sign, bits) if !is_lowerable_integer_width(*sign, *bits) => Some(typ),
         Type::Array(_, element) | Type::Vector(element) | Type::Reference(element, _) => {
             first_unlowerable_integer(element)
         }
