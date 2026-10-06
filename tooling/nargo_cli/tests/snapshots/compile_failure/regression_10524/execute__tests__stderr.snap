@@ -3,9 +3,9 @@ source: tooling/nargo_cli/tests/execute.rs
 expression: stderr
 ---
 error: The return value has 4294967294 elements which exceeds the limit of 16777216
-   ┌─ src/main.nr:12:18
+   ┌─ src/main.nr:10:18
    │
-12 │ fn main() -> pub BigArray {
+10 │ fn main() -> pub BigArray {
    │                  --------
    │
 

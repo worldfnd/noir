@@ -1,7 +1,0 @@
-[package]
-name = "oracle_proxy_name_collision"
-type = "bin"
-authors = [""]
-compiler_version = ">=0.23.0"
-
-[dependencies]

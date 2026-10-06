@@ -1,5 +1,3 @@
-use std::test::OracleMock;
-
 type BigArray = [Field; 4294967294];
 
 #[oracle(void_to_array)]
