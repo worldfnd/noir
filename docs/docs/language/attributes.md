@@ -124,23 +124,11 @@ Marks the functions for fuzzing. See [Fuzzer](../tooling/fuzzer.md) for more det
 
 ### `oracle`
 
-Mark a function as _oracle_; meaning it is an external unconstrained function, implemented in noir_js. See [Unconstrained](./unconstrained.md) for more details.
+Mark an unconstrained function as _oracle_: its result comes from outside the program instead of a function body. An oracle can be declared, but a program that calls one during comptime evaluation, or calls or references one in runtime code, fails to compile unless it is the standard library's `print` (used by `print` and `println`). An oracle can be used as a value during comptime evaluation if it is never called and does not appear in runtime code.
 
 ### `fold`
 
-Marks a function for ACIR fold optimization. The compiler will generate a separate circuit for this function which is then recursively verified at runtime. This can reduce total circuit size when a function is called multiple times or contains a large number of constraints.
-
-Note that this requires the backend supports folding multiple circuits.
-
-Example:
-
-```rust
-#[fold]
-fn expensive_computation(x: Field) -> Field {
-    // ... many constraints ...
-    x
-}
-```
+The `#[fold]` attribute is not supported. A function carrying this attribute fails to compile, whether it is constrained or unconstrained.
 
 ### `inline_always`
 

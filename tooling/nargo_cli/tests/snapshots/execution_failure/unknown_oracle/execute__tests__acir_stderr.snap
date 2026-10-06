@@ -1,5 +1,0 @@
----
-source: tooling/nargo_cli/tests/execute.rs
-expression: stderr
----
-No handler could be found for foreign call `foobar`

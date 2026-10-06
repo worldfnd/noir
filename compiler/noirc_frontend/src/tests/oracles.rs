@@ -1,6 +1,9 @@
-use crate::tests::{
-    assert_no_errors, check_errors, check_errors_using_features, check_errors_with_stdlib,
-    check_monomorphization_error,
+use crate::{
+    test_utils::{get_monomorphized, get_monomorphized_with_stdlib, stdlib_src},
+    tests::{
+        assert_no_errors, check_errors, check_errors_using_features, check_errors_with_stdlib,
+        check_monomorphization_error,
+    },
 };
 
 #[test]
@@ -215,36 +218,6 @@ fn errors_if_oracle_has_reference_parameter_in_struct() {
 }
 
 #[test]
-fn errors_if_oracle_has_reference_parameter_behind_generics() {
-    let src = r#"
-    unconstrained fn main() {
-        let mut x = 10;
-        pass_ref(&mut x);
-        ^^^^^^^^ Reference `&mut Field` cannot be passed to an oracle function
-    }
-
-    #[oracle(pass_ref)]
-    unconstrained fn pass_ref<T>(x: T) {}
-    "#;
-    check_monomorphization_error(src);
-}
-
-#[test]
-fn errors_if_oracle_has_reference_parameter_nested_in_container_behind_generics() {
-    let src = r#"
-    unconstrained fn main() {
-        let mut x = 10;
-        pass_ref((1, &mut x));
-        ^^^^^^^^ Reference `(Field, &mut Field)` cannot be passed to an oracle function
-    }
-
-    #[oracle(pass_ref)]
-    unconstrained fn pass_ref<T>(x: (Field, T)) {}
-    "#;
-    check_monomorphization_error(src);
-}
-
-#[test]
 fn errors_if_oracle_returns_vector_with_nested_array() {
     let src = r#"
     #[oracle(oracle_call)]
@@ -253,20 +226,6 @@ fn errors_if_oracle_returns_vector_with_nested_array() {
                          ~~~~~~~~~~~ Vectors with nested arrays are not yet supported for foreign call returns
     "#;
     check_errors(src);
-}
-
-#[test]
-fn vector_with_nested_array_behind_generics_returned_from_oracle() {
-    let src = r#"
-    unconstrained fn main() {
-        let _result: [[(u8, u8); 3]] = get_array();
-                                       ^^^^^^^^^ Vector with nested array `[[(u8, u8); 3]]` cannot be returned from an oracle function
-    }
-
-    #[oracle(get_array)]
-    unconstrained fn get_array<T>() -> [T] {}
-    "#;
-    check_monomorphization_error(src);
 }
 
 #[test]
@@ -528,4 +487,128 @@ fn errors_if_oracle_defined_in_regular_impl() {
     }
     "#;
     check_errors(src);
+}
+
+#[test]
+fn errors_if_non_print_oracle_is_called() {
+    let src = r#"
+    fn main() {
+        // Safety: test
+        let _ = unsafe { foo() };
+                         ^^^ Oracle `foo` is not supported
+                         ~~~ Only the standard library's `print` oracle (used by `print` and `println`) is available
+    }
+
+    #[oracle(foo)]
+    unconstrained fn foo() -> Field {}
+    "#;
+    check_monomorphization_error(src);
+}
+
+#[test]
+fn errors_if_non_print_oracle_is_used_as_value() {
+    let src = r#"
+    unconstrained fn main() {
+        let f = foo;
+                ^^^ Oracle `foo` is not supported
+                ~~~ Only the standard library's `print` oracle (used by `print` and `println`) is available
+        let _ = f();
+    }
+
+    #[oracle(foo)]
+    unconstrained fn foo() -> Field {}
+    "#;
+    check_monomorphization_error(src);
+}
+
+#[test]
+fn errors_if_oracle_is_reached_through_a_generic_wrapper() {
+    let src = r#"
+    unconstrained fn main() {
+        let _ = wrapper::<Field>();
+    }
+
+    unconstrained fn wrapper<T>() -> T {
+        get_value::<T>()
+        ^^^^^^^^^ Oracle `get_value` is not supported
+        ~~~~~~~~~ Only the standard library's `print` oracle (used by `print` and `println`) is available
+    }
+
+    #[oracle(get_value)]
+    unconstrained fn get_value<T>() -> T {}
+    "#;
+    check_monomorphization_error(src);
+}
+
+#[test]
+fn errors_if_user_oracle_uses_the_debugger_prefix() {
+    // Only the oracles of the `__debug` crate are exempt; the name prefix alone is not.
+    let src = r#"
+    unconstrained fn main() {
+        __debug_spoof(1);
+        ^^^^^^^^^^^^^ Oracle `__debug_spoof` is not supported
+        ~~~~~~~~~~~~~ Only the standard library's `print` oracle (used by `print` and `println`) is available
+    }
+
+    #[oracle(__debug_spoof)]
+    unconstrained fn __debug_spoof(_x: Field) {}
+    "#;
+    check_monomorphization_error(src);
+}
+
+#[test]
+fn errors_if_non_print_oracle_is_evaluated_at_comptime() {
+    let src = r#"
+    fn main() {
+        comptime {
+            let _ = foo();
+                    ^^^^^ Oracle `foo` is not supported
+                    ~~~~~ Only the standard library's `print` oracle (used by `print` and `println`) is available
+        }
+    }
+
+    #[oracle(foo)]
+    unconstrained fn foo() -> Field {}
+    "#;
+    check_errors(src);
+}
+
+#[test]
+fn errors_if_user_oracle_with_the_debugger_prefix_is_evaluated_at_comptime() {
+    // Comptime exempts only the oracles of the `__debug` crate, not every `__debug` name.
+    let src = r#"
+    fn main() {
+        comptime {
+            __debug_spoof(1);
+            ^^^^^^^^^^^^^^^^ Oracle `__debug_spoof` is not supported
+            ~~~~~~~~~~~~~~~~ Only the standard library's `print` oracle (used by `print` and `println`) is available
+        }
+    }
+
+    #[oracle(__debug_spoof)]
+    unconstrained fn __debug_spoof(_x: Field) {}
+    "#;
+    check_errors(src);
+}
+
+#[test]
+fn does_not_error_if_unused_oracle_is_declared() {
+    let src = r#"
+    fn main() {}
+
+    #[oracle(foo)]
+    pub unconstrained fn foo() -> Field {}
+    "#;
+    get_monomorphized(src).expect("an oracle that is never reached should not be an error");
+}
+
+#[test]
+fn println_still_compiles() {
+    let src = r#"
+    unconstrained fn main() {
+        println(1);
+    }
+    "#;
+    get_monomorphized_with_stdlib(src, &[stdlib_src::PRINT])
+        .expect("`println` reaches the `print` oracle, which stays supported");
 }

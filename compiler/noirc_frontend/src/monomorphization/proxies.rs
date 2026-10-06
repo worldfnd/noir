@@ -286,67 +286,7 @@ fn make_proxy(id: FuncId, ident: Ident, unconstrained: bool) -> Function {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_utils::{GetProgramOptions, get_monomorphized, get_monomorphized_with_options};
-
-    #[test]
-    fn creates_proxies_for_acir_to_oracle_calls() {
-        let src = "
-        fn main() {
-            // safety: still needed as the bar_proxy is unconstrained
-            unsafe {
-                bar(0);
-            }
-        }
-
-        #[oracle(my_oracle)]
-        unconstrained fn bar(f: Field) {
-        }
-        ";
-
-        let program = get_monomorphized(src).unwrap();
-        insta::assert_snapshot!(program, @r"
-        fn main$f0() -> () {
-            {
-                bar$f1(0);
-            }
-        }
-        #[inline_always]
-        unconstrained fn bar_proxy$f1(p0$l0: Field) -> () {
-            bar$my_oracle(p0$l0)
-        }
-        ");
-    }
-
-    #[test]
-    fn creates_proxies_for_oracle_values() {
-        let src = "
-        unconstrained fn main() {
-            foo(bar);
-        }
-
-        unconstrained fn foo(f: unconstrained fn(Field) -> ()) {
-          f(0);
-        }
-
-        #[oracle(my_oracle)]
-        unconstrained fn bar(f: Field) {
-        }
-        ";
-
-        let program = get_monomorphized(src).unwrap();
-        insta::assert_snapshot!(program, @r"
-        unconstrained fn main$f0() -> () {
-            foo$f1((bar$f2, bar$f2));
-        }
-        unconstrained fn foo$f1(f$l0: (fn(Field) -> (), unconstrained fn(Field) -> ())) -> () {
-            f$l0.1(0);
-        }
-        #[inline_always]
-        unconstrained fn bar_proxy$f2(p0$l0: Field) -> () {
-            bar$my_oracle(p0$l0)
-        }
-        ");
-    }
+    use crate::test_utils::{GetProgramOptions, get_monomorphized_with_options};
 
     #[test]
     fn creates_separate_proxies_for_different_foreign_instantiations() {

@@ -475,15 +475,12 @@ fn the_entry_point_rule_looks_through_every_aggregate() {
 }
 
 /// Only values that cross the entry point are carried in one field element and spelled as a
-/// lowerable type: helpers, folded functions, test and fuzz functions and values computed
-/// inside the circuit keep every width.
+/// lowerable type: helpers, test and fuzz functions and values computed inside the circuit keep
+/// every width.
 #[test]
 fn the_entry_point_rule_leaves_other_functions_alone() {
     let src = "
         fn helper(x: u64, y: u24) -> u64 { x + y as u64 }
-
-        #[fold]
-        fn folded(x: u64, y: u24) -> u64 { x * 2 + y as u64 }
 
         #[test]
         fn tested(x: u64, y: u24) { assert(x == x); assert(y == y); }
@@ -493,7 +490,7 @@ fn the_entry_point_rule_leaves_other_functions_alone() {
 
         fn main(x: u32, y: Field, z: bool) -> pub u32 {
             let wide: u128 = (x as u128) << 64;
-            let sum = helper(x as u64, x as u24) + folded(x as u64, x as u24) + ((wide >> 64) as u64);
+            let sum = helper(x as u64, x as u24) + ((wide >> 64) as u64);
             assert(y == y);
             assert(z == z);
             sum as u32

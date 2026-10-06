@@ -1,5 +1,0 @@
----
-source: tooling/nargo_cli/tests/execute.rs
-expression: stderr
----
-Attempted to call disabled foreign call `create_mock`

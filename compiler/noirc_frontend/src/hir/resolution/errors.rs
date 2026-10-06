@@ -145,8 +145,8 @@ pub enum ResolverError {
     NoPredicatesAttributeOnUnconstrained { ident: Ident, location: Location },
     #[error("#[no_predicates] attribute is not allowed on entry point functions")]
     NoPredicatesAttributeOnEntryPoint { ident: Ident, location: Location },
-    #[error("#[fold] attribute is only allowed on constrained functions")]
-    FoldAttributeOnUnconstrained { ident: Ident, location: Location },
+    #[error("#[fold] attribute is not supported")]
+    FoldAttributeUnsupported { ident: Ident, location: Location },
     #[error("#[inline_never] attribute is only allowed on unconstrained functions")]
     InlineNeverAttributeOnConstrained { ident: Ident, location: Location },
     #[error("The unquote operator '$' can only be used within a quote expression")]
@@ -339,7 +339,7 @@ impl ResolverError {
             ResolverError::NonU32Index { location }
             | ResolverError::NoPredicatesAttributeOnUnconstrained { location, .. }
             | ResolverError::NoPredicatesAttributeOnEntryPoint { location, .. }
-            | ResolverError::FoldAttributeOnUnconstrained { location, .. }
+            | ResolverError::FoldAttributeUnsupported { location, .. }
             | ResolverError::InlineNeverAttributeOnConstrained { location, .. }
             | ResolverError::OracleNameClashesWithStdlib { location, .. }
             | ResolverError::OracleMarkedAsConstrained { location, .. }
@@ -824,14 +824,14 @@ impl<'a> From<&'a ResolverError> for Diagnostic {
                 diag.add_note("The `#[no_predicates]` attribute is used to prevent inlining of a function into the entry point, but applying it to the entry point itself has no effect".to_owned());
                 diag
             }
-            ResolverError::FoldAttributeOnUnconstrained { ident, location } => {
+            ResolverError::FoldAttributeUnsupported { ident, location } => {
                 let mut diag = Diagnostic::simple_error(
-                    format!("misplaced #[fold] attribute on unconstrained function {ident}. Only allowed on constrained functions"),
-                    "misplaced #[fold] attribute".to_string(),
+                    format!("#[fold] attribute on function {ident} is not supported"),
+                    "unsupported #[fold] attribute".to_string(),
                     *location,
                 );
 
-                diag.add_note("The `#[fold]` attribute specifies whether a constrained function should be treated as a separate circuit rather than inlined into the program entry point".to_owned());
+                diag.add_note("The compiler proves one whole circuit at a time, so a function cannot be compiled to a separate circuit".to_owned());
                 diag
             }
             ResolverError::InlineNeverAttributeOnConstrained { ident, location } => {

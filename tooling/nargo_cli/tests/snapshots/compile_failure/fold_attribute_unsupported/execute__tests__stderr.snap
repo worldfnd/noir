@@ -1,0 +1,13 @@
+---
+source: tooling/nargo_cli/tests/execute.rs
+expression: stderr
+---
+error: #[fold] attribute on function double is not supported
+  ┌─ src/main.nr:5:1
+  │
+5 │ #[fold]
+  │ ------- unsupported #[fold] attribute
+  │
+  = The compiler proves one whole circuit at a time, so a function cannot be compiled to a separate circuit
+
+Aborting due to 1 previous error

@@ -1304,8 +1304,6 @@ impl AliasAnalysisContext {
             | Intrinsic::DerivePedersenGenerators
             | Intrinsic::IsUnconstrained
             | Intrinsic::FieldLessThan
-            | Intrinsic::ArrayRefCount
-            | Intrinsic::VectorRefCount
             | Intrinsic::AssertConstant
             // BlackBox are dedicated to ACIR and are pure numerical computations.
             // They cannot alias, and will likely never alias.

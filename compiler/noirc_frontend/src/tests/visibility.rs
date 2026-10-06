@@ -951,6 +951,8 @@ fn unnecessary_pub_on_fold_function_parameter() {
     }
 
     #[fold]
+    ^^^^^^^ #[fold] attribute on function foo is not supported
+    ~~~~~~~ unsupported #[fold] attribute
     fn foo(x: pub Field) -> Field {
               ^^^ unnecessary pub keyword on parameter for function foo
               ~~~ unnecessary pub parameter
@@ -968,6 +970,8 @@ fn unnecessary_pub_on_fold_function_return_type() {
     }
 
     #[fold]
+    ^^^^^^^ #[fold] attribute on function foo is not supported
+    ~~~~~~~ unsupported #[fold] attribute
     fn foo(x: Field) -> pub Field {
                         ^^^ unnecessary pub keyword on return type for function foo
                         ~~~ unnecessary pub return type

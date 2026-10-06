@@ -1,7 +1,0 @@
-[package]
-name = "oracle_call_in_assert_message"
-type = "bin"
-authors = [""]
-compiler_version = ">=0.31.0"
-
-[dependencies]

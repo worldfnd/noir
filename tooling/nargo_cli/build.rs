@@ -80,29 +80,17 @@ fn main() -> Result<(), String> {
 /// Tests expected to fail with `--force-brillig --max-stack-frame-size 64`
 /// because they need register spilling (not yet implemented).
 /// Remove tests from this list as spilling is implemented.
-const IGNORED_BRILLIG_SMALL_STACK_TESTS: [&str; 2] = [
+const IGNORED_BRILLIG_SMALL_STACK_TESTS: [&str; 1] = [
     // TODO: Enabling this would require an indirect call convention. We are returning more args than allowed in the stack.
     // To enable this code we would need to pass/return call args through a pointer.
     "brillig_block_parameter_liveness",
-    // This test relies on a specific inliner setting, while we only run
-    // the small stack tests with the default maximally aggressive inliner.
-    "reference_counts_vectors_inliner_0",
 ];
 
 /// Some tests are explicitly ignored in brillig due to them failing.
 /// These should be fixed and removed from this list.
-const IGNORED_BRILLIG_TESTS: [&str; 11] = [
+const IGNORED_BRILLIG_TESTS: [&str; 3] = [
     // bit sizes for bigint operation doesn't match up.
     "bigint",
-    // ICE due to looking for function which doesn't exist.
-    "fold_after_inlined_calls",
-    "fold_basic",
-    "fold_basic_nested_call",
-    "fold_call_witness_condition",
-    "fold_complex_outputs",
-    "fold_distinct_return",
-    "fold_fibonacci",
-    "fold_numeric_generic_poseidon",
     // Expected to fail as test asserts on which runtime it is in.
     "is_unconstrained",
     // The output depends on function IDs of lambdas, and with --force-brillig we only get one kind.
@@ -117,14 +105,6 @@ const INLINER_MIN_OVERRIDES: [(&str, i64); 1] = [
 
 /// Tests which aren't expected to work with the default maximum inliner cases.
 const INLINER_MAX_OVERRIDES: [(&str, i64); 0] = [];
-
-/// These tests should only be run on exactly 1 inliner setting (the one given here)
-const INLINER_OVERRIDES: [(&str, i64); 4] = [
-    ("reference_counts_inliner_0", 0),
-    ("reference_counts_inliner_min", i64::MIN),
-    ("reference_counts_inliner_max", i64::MAX),
-    ("reference_counts_vectors_inliner_0", 0),
-];
 
 /// Some tests are expected to have warnings
 /// These should be fixed and removed from this list.
@@ -144,24 +124,16 @@ const TESTS_WITH_EXPECTED_WARNINGS: [&str; 6] = [
 
 /// `nargo interpret` ignored tests, either because they don't currently work or
 /// because they are too slow to run.
-const IGNORED_INTERPRET_EXECUTION_TESTS: [&str; 2] = [
+const IGNORED_INTERPRET_EXECUTION_TESTS: [&str; 1] = [
     // slow
     "regression_4709",
-    // Doesn't match Brillig, but the expected ref-count of 5 has comments which
-    // suggest it's not exactly clear why we get that exact value anyway.
-    "reference_counts_inliner_max",
 ];
 
 const IGNORED_COMPTIME_INTERPRET_EXECUTION_TESTS: [&str; 0] = [];
 
 /// `nargo execute --force-comptime` ignored tests because of bugs or because some
-/// programs don't behave the same way in comptime (for example: reference counting).
-const PANICKING_COMPTIME_INTERPRET_EXECUTION_TESTS: [&str; 6] = [
-    // These check reference counts, which aren't tracked in comptime code
-    "reference_counts_inliner_0",
-    "reference_counts_inliner_max",
-    "reference_counts_inliner_min",
-    "reference_counts_vectors_inliner_0",
+/// programs don't behave the same way in comptime.
+const PANICKING_COMPTIME_INTERPRET_EXECUTION_TESTS: [&str; 2] = [
     // Enums (and `match`) are currently unsupported in comptime code
     "regression_7323",
     "match_struct_pattern_field_order",
@@ -184,7 +156,7 @@ const IGNORED_COMPTIME_INTERPRET_NOIR_TESTS: [&str; 1] = [
 ];
 
 /// `nargo execute --minimal-ssa` ignored tests
-const IGNORED_MINIMAL_EXECUTION_TESTS: [&str; 18] = [
+const IGNORED_MINIMAL_EXECUTION_TESTS: [&str; 15] = [
     // internal error: entered unreachable code: unsupported function call type Intrinsic(AssertConstant)
     // These tests contain calls to `assert_constant`, which are evaluated and removed in the full SSA
     // pipeline, but in the minimal they are untouched, and trying to remove them causes a failure because
@@ -206,10 +178,6 @@ const IGNORED_MINIMAL_EXECUTION_TESTS: [&str; 18] = [
     "regression_10156",
     // The constrained foreign-function proxy can't run in the Brillig-only minimal pipeline.
     "regression_foreign_proxy_generic",
-    // This relies on maximum inliner setting
-    "reference_counts_inliner_max",
-    "reference_counts_inliner_min",
-    "reference_counts_inliner_0",
 ];
 
 /// These tests are ignored because making them work involves a more complex test code that
@@ -503,19 +471,11 @@ fn generate_execution_success_tests(test_file: &mut File, test_data_dir: &Path) 
 }
 
 fn max_inliner(test_name: &str) -> i64 {
-    INLINER_MAX_OVERRIDES
-        .iter()
-        .chain(&INLINER_OVERRIDES)
-        .find(|(n, _)| *n == test_name)
-        .map_or(i64::MAX, |(_, i)| *i)
+    INLINER_MAX_OVERRIDES.iter().find(|(n, _)| *n == test_name).map_or(i64::MAX, |(_, i)| *i)
 }
 
 fn min_inliner(test_name: &str) -> i64 {
-    INLINER_MIN_OVERRIDES
-        .iter()
-        .chain(&INLINER_OVERRIDES)
-        .find(|(n, _)| *n == test_name)
-        .map_or(i64::MIN, |(_, i)| *i)
+    INLINER_MIN_OVERRIDES.iter().find(|(n, _)| *n == test_name).map_or(i64::MIN, |(_, i)| *i)
 }
 
 fn generate_execution_failure_tests(test_file: &mut File, test_data_dir: &Path) {

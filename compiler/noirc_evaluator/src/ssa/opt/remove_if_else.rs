@@ -477,8 +477,6 @@ impl Context {
             | Intrinsic::DerivePedersenGenerators
             | Intrinsic::ToBits(_)
             | Intrinsic::ToRadix(_)
-            | Intrinsic::ArrayRefCount
-            | Intrinsic::VectorRefCount
             | Intrinsic::FieldLessThan => SizeChange::None,
         }
     }

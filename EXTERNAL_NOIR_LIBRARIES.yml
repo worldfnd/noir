@@ -63,36 +63,37 @@ libraries:
     repo: noir-lang/poseidon
     timeout: 8
     critical: true
-  aztec_nr:
-    repo: AztecProtocol/aztec-packages
-    ref: *AZ_COMMIT
-    path: noir-projects/aztec-nr
-    timeout: 950
-    critical: false
-  noir_contracts:
-    repo: AztecProtocol/aztec-packages
-    ref: *AZ_COMMIT
-    path: noir-projects/noir-contracts
-    timeout: 550
-    critical: false
-  blob:
-    repo: AztecProtocol/aztec-packages
-    ref: *AZ_COMMIT
-    path: noir-projects/noir-protocol-circuits/crates/blob
-    timeout: 800
-    critical: false
-  protocol_circuits_private_kernel_lib:
-    repo: AztecProtocol/aztec-packages
-    ref: *AZ_COMMIT
-    path: noir-projects/noir-protocol-circuits/crates/private-kernel-lib
-    timeout: 1300
-    critical: false
-  protocol_circuits_types:
-    repo: AztecProtocol/aztec-packages
-    ref: *AZ_COMMIT
-    path: noir-projects/noir-protocol-circuits/crates/types
-    timeout: 180
-    critical: false
+  # The Aztec libraries call oracles other than `print`, which this compiler rejects.
+  # aztec_nr:
+  #   repo: AztecProtocol/aztec-packages
+  #   ref: *AZ_COMMIT
+  #   path: noir-projects/aztec-nr
+  #   timeout: 950
+  #   critical: false
+  # noir_contracts:
+  #   repo: AztecProtocol/aztec-packages
+  #   ref: *AZ_COMMIT
+  #   path: noir-projects/noir-contracts
+  #   timeout: 550
+  #   critical: false
+  # blob:
+  #   repo: AztecProtocol/aztec-packages
+  #   ref: *AZ_COMMIT
+  #   path: noir-projects/noir-protocol-circuits/crates/blob
+  #   timeout: 800
+  #   critical: false
+  # protocol_circuits_private_kernel_lib:
+  #   repo: AztecProtocol/aztec-packages
+  #   ref: *AZ_COMMIT
+  #   path: noir-projects/noir-protocol-circuits/crates/private-kernel-lib
+  #   timeout: 1300
+  #   critical: false
+  # protocol_circuits_types:
+  #   repo: AztecProtocol/aztec-packages
+  #   ref: *AZ_COMMIT
+  #   path: noir-projects/noir-protocol-circuits/crates/types
+  #   timeout: 180
+  #   critical: false
   # protocol_circuits_rollup_lib:
   #   repo: AztecProtocol/aztec-packages
   #   ref: *AZ_COMMIT

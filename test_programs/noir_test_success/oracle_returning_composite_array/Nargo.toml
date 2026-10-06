@@ -1,7 +1,0 @@
-[package]
-name = "oracle_returning_composite_array"
-type = "bin"
-authors = [""]
-compiler_version = ">=0.23.0"
-
-[dependencies]

@@ -8,6 +8,7 @@ use crate::{
         def_collector::dc_crate::CompilationError,
         type_check::{ExpectingOtherError, NoMatchingImplFoundError, TypeCheckError},
     },
+    monomorphization::errors::unsupported_oracle_diagnostic,
     parser::ParserError,
     token::Token,
 };
@@ -233,6 +234,10 @@ pub enum InterpreterError {
         item: String,
         location: Location,
     },
+    UnsupportedOracle {
+        name: String,
+        location: Location,
+    },
     InvalidInComptimeContext {
         item: String,
         location: Location,
@@ -408,6 +413,7 @@ impl InterpreterError {
             | InterpreterError::UnsupportedTopLevelItemUnquote { location, .. }
             | InterpreterError::ComptimeDependencyCycle { location, .. }
             | InterpreterError::Unimplemented { location, .. }
+            | InterpreterError::UnsupportedOracle { location, .. }
             | InterpreterError::InvalidInComptimeContext { location, .. }
             | InterpreterError::NoImpl { location, .. }
             | InterpreterError::NoTraitItemInImpl { location, .. }
@@ -723,6 +729,9 @@ impl<'a> From<&'a InterpreterError> for CustomDiagnostic {
             InterpreterError::Unimplemented { item, location } => {
                 let msg = format!("{item} is currently unimplemented");
                 CustomDiagnostic::simple_error(msg, String::new(), *location)
+            }
+            InterpreterError::UnsupportedOracle { name, location } => {
+                unsupported_oracle_diagnostic(name, *location)
             }
             InterpreterError::InvalidInComptimeContext { item, location, explanation } => {
                 let msg = format!("{item} is invalid in comptime context");

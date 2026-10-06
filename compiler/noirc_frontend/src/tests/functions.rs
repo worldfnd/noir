@@ -1,4 +1,4 @@
-use crate::tests::{assert_no_errors, check_errors, check_monomorphization_error};
+use crate::tests::{assert_no_errors, check_errors, check_monomorphization_error_using_features};
 
 #[test]
 fn resolve_empty_function() {
@@ -425,11 +425,13 @@ fn invalid_generic_fold_entry_point_input_type() {
     }
 
     #[fold]
+    ^^^^^^^ #[fold] attribute on function foo is not supported
+    ~~~~~~~ unsupported #[fold] attribute
     fn foo<T>(_: T) {}
               ^ Invalid type found in the entry point to a program
               ~ Vector is not a valid entry point type. Found: [Field]
     "#;
-    check_monomorphization_error(src);
+    check_monomorphization_error_using_features(src, &[], true);
 }
 
 #[test]
@@ -665,13 +667,15 @@ fn error_on_fold_returning_array_of_references() {
     }
 
     #[fold]
+    ^^^^^^^ #[fold] attribute on function foo is not supported
+    ~~~~~~~ unsupported #[fold] attribute
     fn foo<T>() -> [T; 0] {
                    ^^^^^^ Invalid type found in the entry point to a program
                    ~~~~~~ Reference is not a valid entry point type. Found: &mut Field
         []
     }
     "#;
-    check_monomorphization_error(src);
+    check_monomorphization_error_using_features(src, &[], true);
 }
 
 #[test]

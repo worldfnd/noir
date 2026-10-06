@@ -80,7 +80,6 @@ impl Interpreter<'_, '_> {
             "apply_range_constraint" => apply_range_constraint(arguments, location, call_stack),
             "array_as_str_unchecked" => array_as_str_unchecked(arguments, location),
             "array_len" => array_len(arguments, location),
-            "array_refcount" => Ok(Value::u32(0)),
             "assert_constant" => Ok(Value::Unit),
             "as_vector" => as_vector(arguments, location),
             "as_witness" => as_witness(arguments, location),
@@ -218,7 +217,6 @@ impl Interpreter<'_, '_> {
             "vector_pop_front" => vector_pop_front(arguments, location, call_stack),
             "vector_push_back" => vector_push_back(arguments, location),
             "vector_push_front" => vector_push_front(arguments, location),
-            "vector_refcount" => Ok(Value::u32(0)),
             "vector_remove" => vector_remove(arguments, location, call_stack),
             "static_assert" => {
                 static_assert(interner, self.elaborator.files, arguments, location, call_stack)

@@ -383,24 +383,6 @@ impl<Registers: RegisterAllocator> BrilligBlock<'_, Registers> {
                     Intrinsic::FieldLessThan => {
                         self.convert_ssa_field_less_than(arguments, instruction_id, dfg);
                     }
-                    Intrinsic::ArrayRefCount => {
-                        let array = self.convert_ssa_value(arguments[0], dfg);
-                        let [result] = dfg.instruction_result(instruction_id);
-
-                        let destination = self.define_variable(result, dfg);
-                        let destination = destination.extract_register();
-                        let array = array.extract_register();
-                        self.brillig_context.load_instruction(destination, array);
-                    }
-                    Intrinsic::VectorRefCount => {
-                        let array = self.convert_ssa_value(arguments[1], dfg);
-                        let [result] = dfg.instruction_result(instruction_id);
-
-                        let destination = self.define_variable(result, dfg);
-                        let destination = destination.extract_register();
-                        let array = array.extract_register();
-                        self.brillig_context.load_instruction(destination, array);
-                    }
                     Intrinsic::ApplyRangeConstraint => {
                         unreachable!(
                             "ICE: `Intrinsic::ApplyRangeConstraint` calls should be transformed into an `Instruction::RangeCheck`"

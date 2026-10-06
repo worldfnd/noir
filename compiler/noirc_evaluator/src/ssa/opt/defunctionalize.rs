@@ -2634,7 +2634,7 @@ mod tests {
     }
 
     #[test]
-    fn foreign_and_oracle_function_value_proxies() {
+    fn foreign_function_value_proxies() {
         let src = r#"
         mod std {
             pub mod hash {
@@ -2646,9 +2646,6 @@ mod tests {
         unconstrained fn encrypt_me(encryption_fn: unconstrained fn([u8; 4]) -> [u8; 32], input: [u8; 4]) -> [u8; 32] {
             encryption_fn(input)
         }
-
-        #[oracle(oracle_hash)]
-        unconstrained fn oracle_hash(input: [u8; 4]) -> [u8; 32] {}
 
         unconstrained fn another_hash(_input: [u8; 4]) -> [u8; 32] { [0; 32] }
 
@@ -2662,8 +2659,6 @@ mod tests {
             // Safety: calling unconstrained functions.
             unsafe {
                 let output = encrypt_me(std::hash::blake2s, input);
-                assert_output(output);
-                let output = encrypt_me(oracle_hash, input);
                 assert_output(output);
                 let output = encrypt_me(another_hash, input);
                 assert_output(output);
@@ -2687,10 +2682,10 @@ mod tests {
         );
 
         assert!(caller_runtime.is_brillig());
-        assert_eq!(variants.len(), 4); // blake2s_proxy (acir + brillig) + oracle_hash_proxy + another_hash
+        assert_eq!(variants.len(), 3); // blake2s_proxy (acir + brillig) + another_hash
 
         let variants = filter_apply_function_variants(&signature, caller_runtime, &variants);
-        assert_eq!(variants.len(), 3); // blake2s_proxy + oracle_hash_proxy + another_hash
+        assert_eq!(variants.len(), 2); // blake2s_proxy + another_hash
         assert!(variants.iter().all(|(_, runtime)| runtime.is_brillig()));
     }
 
