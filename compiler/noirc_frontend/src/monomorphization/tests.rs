@@ -1876,14 +1876,13 @@ fn zeroed_array_of_references_does_not_alias() {
     ");
 }
 
-/// The output names the field the program was compiled under and the files it drew code from.
+/// The output names the field the program was compiled under.
 #[test]
 fn output_is_labeled_with_the_configured_field() {
     let src = "fn main() {}";
     for field in [FieldId::Bn254, FieldId::Goldilocks] {
         let output = get_monomorphization_output(src, GetProgramOptions::for_field(field)).unwrap();
         assert_eq!(output.field_id, field);
-        assert_eq!(output.monomorphized_source_files.len(), 1, "the file holding `main`");
         assert!(output.program.to_string().contains("main"));
     }
 }

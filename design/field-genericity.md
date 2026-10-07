@@ -61,7 +61,7 @@ A multi-element encoding for integers wider than the field is a separate, versio
 
 The configuration is seeded once per compilation. It travels from `--field` on [`CompileOptions`](../compiler/noirc_driver/src/lib.rs) through `FrontendOptions` into the [`NodeInterner`](../compiler/noirc_frontend/src/node_interner/mod.rs), the one object every pass from definition collection to monomorphization holds, at the first elaboration entry point (`collect_defs_and_elaborate` and `Elaborator::new`); a query before that, or a second seed with a different field, is an internal error. Definition collection, the literal lint, the cast rules, the comptime and monomorphization `modulus_*` builtins and the comptime cast widths all read `interner.field()`, and frontend tests compile and execute comptime code under any row in one build (`GetProgramOptions::for_field`).
 
-The monomorphizer's `into_output` returns a `MonomorphizationOutput`: the program, the `FieldId` it was compiled under, and the source files it drew code from. The label travels beside the program, never inside it, and consumers must check it before lowering (`output_is_labeled_with_the_configured_field`).
+The monomorphizer's `into_output` returns a `MonomorphizationOutput`: the program and the `FieldId` it was compiled under. The label travels beside the program, never inside it, and consumers must check it before lowering (`output_is_labeled_with_the_configured_field`).
 
 # Comptime values carry their field
 
