@@ -387,6 +387,61 @@ fn a_generic_impl_on_an_integer_family_binds_the_width() {
 }
 
 #[test]
+fn primitive_documentation_lists_only_applicable_integer_families() {
+    use crate::hir::printer::{crate_to_module, items::Item};
+
+    let src = "
+        impl<let N: u32> u<N> { fn all(self) -> Self { self } }
+        impl<let N: u32> u<2 * N> { fn even(self) -> Self { self } }
+        impl<let N: u32> u<2 * N + 1> { fn odd(self) -> Self { self } }
+        impl<let N: u32> u<N + 16> { fn at_least_sixteen(self) -> Self { self } }
+        impl<let N: u32> i<N> { fn signed(self) -> Self { self } }
+        trait Even {}
+        impl<let N: u32> Even for u<2 * N> {}
+        trait Odd {}
+        impl<let N: u32> Odd for u<2 * N + 1> {}
+        fn main() {}
+    ";
+    let options = GetProgramOptions { root_and_stdlib: true, ..Default::default() };
+    let (_, context, errors) = get_program_with_options(src, options);
+    assert!(errors.is_empty(), "{errors:?}");
+    let module =
+        crate_to_module(*context.root_crate_id(), &context.def_maps, &context.def_interner, false);
+    let mut integer_pages = 0;
+    for (_, item) in module.items {
+        let Item::PrimitiveType(primitive) = item else { continue };
+        let crate::Type::Integer(sign, width) = &primitive.typ else { continue };
+        integer_pages += 1;
+        let mut methods: Vec<_> = primitive
+            .impls
+            .iter()
+            .flat_map(|impl_| &impl_.methods)
+            .map(|(_, id)| context.def_interner.function_name(id))
+            .collect();
+        methods.sort();
+        let expected = if sign.is_signed() {
+            vec!["signed"]
+        } else if width.constant_width().unwrap() < 16 {
+            vec!["all", "even"]
+        } else {
+            vec!["all", "at_least_sixteen", "even"]
+        };
+        assert_eq!(methods, expected, "{}", primitive.typ);
+        let traits: Vec<_> = primitive
+            .trait_impls
+            .iter()
+            .map(|impl_| {
+                let impl_ = context.def_interner.get_trait_implementation(impl_.id);
+                let impl_ = impl_.borrow();
+                context.def_interner.get_trait(impl_.trait_id).name.to_string()
+            })
+            .collect();
+        assert_eq!(traits, if sign.is_signed() { vec![] } else { vec!["Even"] });
+    }
+    assert_eq!(integer_pages, 9);
+}
+
+#[test]
 fn as_integer_reports_the_width_as_a_u32() {
     let src = "
         struct Option<T> { _is_some: bool, _value: T }
