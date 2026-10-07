@@ -2255,18 +2255,27 @@ fn expr_as_integer(
     location: Location,
 ) -> IResult<Value> {
     let field = interner.field().id();
-    expr_as(interner, arguments, return_type, location, |expr| match expr {
-        ExprValue::Expression(ExpressionKind::Literal(Literal::Integer(value, _suffix))) => {
-            FieldValue::try_from_bigint(&value, field).map(Value::field)
-        }
-        ExprValue::Expression(ExpressionKind::Resolved(id)) => {
-            if let HirExpression::Literal(HirLiteral::Integer(value)) = interner.expression(&id) {
-                FieldValue::try_from_bigint(&value, field).map(Value::field)
-            } else {
-                None
+    try_expr_as(interner, arguments, return_type, location, |expr| {
+        let literal = match expr {
+            ExprValue::Expression(ExpressionKind::Literal(Literal::Integer(value, _suffix))) => {
+                value
             }
-        }
-        _ => None,
+            ExprValue::Expression(ExpressionKind::Resolved(id)) => match interner.expression(&id) {
+                HirExpression::Literal(HirLiteral::Integer(value)) => value,
+                _ => return Ok(None),
+            },
+            _ => return Ok(None),
+        };
+        // The literal is read into a `Field`, so it must be canonical in the configured field: a
+        // literal the field cannot hold is an error, not "not an integer".
+        let value = FieldValue::try_from_bigint(&literal, field).ok_or_else(|| {
+            InterpreterError::IntegerOutOfRangeForType {
+                value: literal,
+                typ: Type::FieldElement,
+                location,
+            }
+        })?;
+        Ok(Some(Value::field(value)))
     })
 }
 
@@ -2589,12 +2598,27 @@ fn expr_as<F>(
 where
     F: FnOnce(ExprValue) -> Option<Value>,
 {
+    try_expr_as(interner, arguments, return_type, location, |expr| Ok(f(expr)))
+}
+
+// Helper function for implementing the `expr_as_...` functions whose reading of the
+// expression can itself fail: `f` returns `None` when the expression is not of the asked shape.
+fn try_expr_as<F>(
+    interner: &NodeInterner,
+    arguments: Vec<(Value, Location)>,
+    return_type: Type,
+    location: Location,
+    f: F,
+) -> IResult<Value>
+where
+    F: FnOnce(ExprValue) -> IResult<Option<Value>>,
+{
     let field = interner.field().id();
     let self_argument = check_one_argument(arguments, location)?;
     let expr_value = get_expr(interner, self_argument)?;
     let expr_value = unwrap_expr_value(interner, expr_value);
 
-    let option_value = f(expr_value);
+    let option_value = f(expr_value)?;
     Ok(option(return_type, option_value, location, field))
 }
 
