@@ -66,21 +66,23 @@ fn the_front_half_takes_every_width_and_the_circuit_path_stops_at_the_backend() 
             program.functions.iter().find(|function| function.name == "increment").unwrap();
         assert_eq!(increment.return_type, Type::Integer(signedness, bits), "{typ}");
 
-        // Arithmetic on a lowerable width wider than the linked field meets the backend's own
-        // limits, which are not the width boundary this test is about.
-        if lowerable && !FieldConfig::linked().fits_unsigned(bits) {
-            continue;
-        }
+        // The backend carries an integer in one field element, so a lowerable width is lowered
+        // only when every value of its type lies below the linked field's modulus.
+        let linked = FieldConfig::linked();
+        let fits = linked.fits_unsigned(bits);
         let (mut context, crate_id) = context_for(&source);
         check_crate(&mut context, crate_id, &CompileOptions::default()).unwrap();
         let main = context.get_main_function(&crate_id).expect("main is defined");
         let result = compile_no_check(&mut context, &CompileOptions::default(), main, None, false);
         match result {
-            Ok(_) => assert!(lowerable, "{typ} reached the backend"),
+            Ok(_) => assert!(lowerable && fits, "{typ} reached the backend"),
             Err(error) => {
                 let message = CustomDiagnostic::from(error).message;
-                assert!(!lowerable, "{typ}: {message}");
+                assert!(!(lowerable && fits), "{typ}: {message}");
                 assert!(message.contains(&format!("uses `{typ}`")), "{message}");
+                if lowerable {
+                    assert!(message.contains(linked.name()), "{typ}: {message}");
+                }
             }
         }
     }

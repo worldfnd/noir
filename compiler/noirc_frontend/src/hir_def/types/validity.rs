@@ -1,7 +1,7 @@
 use acvm::{FieldConfig, FieldId};
 use noirc_errors::{CustomDiagnostic, Location};
 
-use crate::shared::is_lowerable_integer_width;
+use crate::shared::{UnlowerableInteger, unlowerable_integer};
 use crate::{NamedGeneric, Type, TypeBinding, ast::Ident, recursion::TypeRecursionContext};
 
 /// An type incorrectly used as a program input.
@@ -159,9 +159,10 @@ impl Type {
     /// panic in that function instead of a user-facing compiler error message.
     ///
     /// With a `field`, an integer type is also invalid unless the circuit backend lowers it
-    /// (`is_lowerable_integer_width`) and every value it can hold is below that field's modulus:
-    /// `main` and contract functions pass one, since each of their integers crosses the entry
-    /// point in one field element and is spelled in `Prover.toml` as one of a fixed list of types.
+    /// (`unlowerable_integer`): it has a lowering and every value it can hold is below that
+    /// field's modulus. `main` and contract functions pass one, since each of their integers
+    /// crosses the entry point in one field element and is spelled in `Prover.toml` as one of a
+    /// fixed list of types.
     ///
     /// Returns `None` if this type and its nested types are all valid program inputs.
     pub(crate) fn program_validity(
@@ -194,15 +195,16 @@ impl Type {
                     match width.evaluate_to_u32(Location::dummy()) {
                         Err(_) => Some(InvalidType::Primitive(this.clone())),
                         Ok(bits) => field_config.and_then(|config| {
-                            if !is_lowerable_integer_width(*signedness, bits) {
-                                Some(InvalidType::IntegerNotLowerable { typ: this.clone() })
-                            } else if !config.fits_unsigned(bits) {
-                                Some(InvalidType::IntegerExceedsField {
-                                    typ: this.clone(),
-                                    field: config.id(),
-                                })
-                            } else {
-                                None
+                            match unlowerable_integer(*signedness, bits, config)? {
+                                UnlowerableInteger::Width => {
+                                    Some(InvalidType::IntegerNotLowerable { typ: this.clone() })
+                                }
+                                UnlowerableInteger::ExceedsField => {
+                                    Some(InvalidType::IntegerExceedsField {
+                                        typ: this.clone(),
+                                        field: config.id(),
+                                    })
+                                }
                             }
                         }),
                     }
