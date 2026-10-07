@@ -1,3 +1,5 @@
+use acvm::FieldConfig;
+
 use super::Signedness;
 
 /// The widest integer type: `u16384` and `i16384` are the last legal widths. The cap is the one
@@ -24,6 +26,34 @@ pub fn is_lowerable_integer_width(signedness: Signedness, bits: u32) -> bool {
     match signedness {
         Signedness::Unsigned => matches!(bits, 8 | 16 | 32 | 64 | 128),
         Signedness::Signed => matches!(bits, 8 | 16 | 32 | 64),
+    }
+}
+
+/// Why the circuit backend does not lower an integer type under a field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnlowerableInteger {
+    /// ACIR and Brillig have no lowering for the width.
+    Width,
+    /// A value of the type can reach the field's modulus, and the backend carries each integer
+    /// in one field element.
+    ExceedsField,
+}
+
+/// Why the circuit backend does not lower a `bits`-wide integer of `signedness` under `field`,
+/// or `None` when it does: the width needs a lowering (`is_lowerable_integer_width`), and every
+/// value of the type must lie below the modulus (`FieldConfig::fits_unsigned`), since the backend
+/// carries the value in one field element. A type is refused by the first rule it fails.
+pub fn unlowerable_integer(
+    signedness: Signedness,
+    bits: u32,
+    field: FieldConfig,
+) -> Option<UnlowerableInteger> {
+    if !is_lowerable_integer_width(signedness, bits) {
+        Some(UnlowerableInteger::Width)
+    } else if !field.fits_unsigned(bits) {
+        Some(UnlowerableInteger::ExceedsField)
+    } else {
+        None
     }
 }
 
@@ -74,6 +104,32 @@ mod tests {
             assert!(!is_lowerable_integer_width(Signedness::Unsigned, bits), "u{bits}");
             assert!(!is_lowerable_integer_width(Signedness::Signed, bits), "i{bits}");
         }
+    }
+
+    #[test]
+    fn an_integer_is_refused_by_the_first_lowering_rule_it_fails() {
+        use acvm::FieldId;
+        let goldilocks = FieldConfig::new(FieldId::Goldilocks);
+        let bn254 = FieldConfig::new(FieldId::Bn254);
+        assert_eq!(unlowerable_integer(Signedness::Unsigned, 32, goldilocks), None);
+        assert_eq!(unlowerable_integer(Signedness::Unsigned, 128, bn254), None);
+        assert_eq!(
+            unlowerable_integer(Signedness::Unsigned, 64, goldilocks),
+            Some(UnlowerableInteger::ExceedsField)
+        );
+        assert_eq!(
+            unlowerable_integer(Signedness::Signed, 64, goldilocks),
+            Some(UnlowerableInteger::ExceedsField)
+        );
+        assert_eq!(
+            unlowerable_integer(Signedness::Signed, 128, bn254),
+            Some(UnlowerableInteger::Width)
+        );
+        // A width without a lowering fails that rule first, even where it would not fit either.
+        assert_eq!(
+            unlowerable_integer(Signedness::Unsigned, 66, goldilocks),
+            Some(UnlowerableInteger::Width)
+        );
     }
 
     #[test]

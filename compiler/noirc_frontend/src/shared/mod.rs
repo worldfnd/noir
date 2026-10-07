@@ -10,8 +10,8 @@ mod visibility;
 
 pub use foreign_calls::ForeignCall;
 pub use integer_width::{
-    LOWERABLE_INTEGER_TYPES, MAX_INTEGER_WIDTH, is_legal_integer_width, is_lowerable_integer_width,
-    parse_integer_type_name,
+    LOWERABLE_INTEGER_TYPES, MAX_INTEGER_WIDTH, UnlowerableInteger, is_legal_integer_width,
+    is_lowerable_integer_width, parse_integer_type_name, unlowerable_integer,
 };
 pub use signedness::Signedness;
 pub use visibility::Visibility;

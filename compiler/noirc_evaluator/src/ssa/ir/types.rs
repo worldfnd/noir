@@ -65,20 +65,25 @@ impl NumericType {
     /// Returns None if the given Field value is within the numeric limits
     /// for the current `NumericType`. Otherwise returns a string describing
     /// the limits, as a range.
+    ///
+    /// The limits are compared on the value's bit width rather than against a field element
+    /// built from the type's maximum, since that maximum may lie at or above the modulus of the
+    /// field this compiler is built for, where it would be reduced.
     pub(crate) fn value_is_outside_limits(self, value: FieldElement) -> Option<String> {
         match self {
             NumericType::Unsigned { bit_size } => {
                 let max = if bit_size == 128 { u128::MAX } else { 2u128.pow(bit_size) - 1 };
-                if value > max.into() { Some(format!("0..={max}")) } else { None }
+                if value.num_bits() > bit_size { Some(format!("0..={max}")) } else { None }
             }
             NumericType::Signed { bit_size } => {
-                let min = 2u128.pow(bit_size - 1);
-                let max = 2u128.pow(bit_size - 1) - 1;
-                if value > max.into() && value < -FieldElement::from(min) {
-                    Some(format!("-{min}..={max}"))
-                } else {
-                    None
-                }
+                let magnitude_bits = bit_size - 1;
+                let min = 2u128.pow(magnitude_bits);
+                let max = min - 1;
+                // A non-negative value fits in the magnitude bits. A negative value `-m` is
+                // encoded as `p - m`, and `m <= min` exactly when `m - 1` fits in them.
+                let non_negative = value.num_bits() <= magnitude_bits;
+                let negative = (-value - FieldElement::one()).num_bits() <= magnitude_bits;
+                if non_negative || negative { None } else { Some(format!("-{min}..={max}")) }
             }
             NumericType::NativeField => None,
         }
@@ -481,6 +486,30 @@ mod tests {
         assert!(u8.value_is_outside_limits(0_i128.into()).is_none());
         assert!(u8.value_is_outside_limits(255_i128.into()).is_none());
         assert!(u8.value_is_outside_limits(256_i128.into()).is_some());
+    }
+
+    #[test]
+    fn the_widest_type_a_field_holds_takes_its_largest_element() {
+        let u64 = NumericType::Unsigned { bit_size: 64 };
+        let i64 = NumericType::Signed { bit_size: 64 };
+        // `p - 1` is a `u64` exactly when the field has 64 bits; a wider field puts it far above.
+        let largest = -FieldElement::one();
+        assert_eq!(
+            u64.value_is_outside_limits(largest).is_some(),
+            FieldElement::max_num_bits() > 64
+        );
+        // Read as a signed value it is `-1` under every field.
+        assert!(i64.value_is_outside_limits(largest).is_none());
+        assert!(i64.value_is_outside_limits(-FieldElement::from(1u128 << 63)).is_none());
+        // `2^63` and `-(2^63 + 1)` lie outside `i64` under a wide field. A 64-bit field has
+        // no element outside it: `2^63` is `-(p - 2^63)` there, and `p - 2^63 - 1` is a 63-bit
+        // non-negative value.
+        let wide = FieldElement::max_num_bits() > 64;
+        assert_eq!(i64.value_is_outside_limits(FieldElement::from(1u128 << 63)).is_some(), wide);
+        assert_eq!(
+            i64.value_is_outside_limits(-FieldElement::from((1u128 << 63) + 1)).is_some(),
+            wide
+        );
     }
 
     #[test]

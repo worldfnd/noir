@@ -6,10 +6,12 @@ use crate::{
     ast::{Ident, TraitBound},
     hir::{
         def_collector::dc_crate::CompilationError,
+        resolution::errors::unsupported_integer_width_diagnostic,
         type_check::{ExpectingOtherError, NoMatchingImplFoundError, TypeCheckError},
     },
     monomorphization::errors::unsupported_oracle_diagnostic,
     parser::ParserError,
+    shared::Signedness,
     token::Token,
 };
 use acvm::BlackBoxResolutionError;
@@ -43,6 +45,11 @@ pub enum InterpreterError {
     IntegerOutOfRangeForType {
         value: BigInt,
         typ: Type,
+        location: Location,
+    },
+    UnsupportedIntegerWidth {
+        signedness: Signedness,
+        bits: u32,
         location: Location,
     },
     ErrorNodeEncountered {
@@ -381,6 +388,7 @@ impl InterpreterError {
             | InterpreterError::NonComptimeVarReferenced { location, .. }
             | InterpreterError::VariableNotInScope { location, .. }
             | InterpreterError::IntegerOutOfRangeForType { location, .. }
+            | InterpreterError::UnsupportedIntegerWidth { location, .. }
             | InterpreterError::ErrorNodeEncountered { location, .. }
             | InterpreterError::NonFunctionCalled { location, .. }
             | InterpreterError::NonBoolUsedInIf { location, .. }
@@ -529,6 +537,9 @@ impl<'a> From<&'a InterpreterError> for CustomDiagnostic {
             InterpreterError::IntegerOutOfRangeForType { value, typ, location } => {
                 let msg = format!("{value} is outside the range of the {typ} type");
                 CustomDiagnostic::simple_error(msg, String::new(), *location)
+            }
+            InterpreterError::UnsupportedIntegerWidth { signedness, bits, location } => {
+                unsupported_integer_width_diagnostic(*signedness, *bits, *location)
             }
             InterpreterError::ErrorNodeEncountered { location } => {
                 let msg = "Internal Compiler Error: Error node encountered".to_string();

@@ -45,7 +45,7 @@ use noirc_frontend::monomorphization::{
     errors::MonomorphizationError, monomorphize, monomorphize_debug,
 };
 use noirc_frontend::node_interner::{FuncId, GlobalId, GlobalValue, TypeId};
-use noirc_frontend::shared::{LOWERABLE_INTEGER_TYPES, is_lowerable_integer_width};
+use noirc_frontend::shared::{LOWERABLE_INTEGER_TYPES, UnlowerableInteger, unlowerable_integer};
 use noirc_frontend::token::SecondaryAttributeKind;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
@@ -438,6 +438,13 @@ pub enum CompileError {
         function: String,
         typ: String,
     },
+    /// A compilation reached an integer type with values at or above the linked field's modulus,
+    /// which the circuit backend carries in one field element.
+    IntegerExceedsLinkedField {
+        function: String,
+        typ: String,
+        linked: FieldId,
+    },
 }
 
 impl From<MonomorphizationError> for CompileError {
@@ -470,6 +477,14 @@ impl From<CompileError> for CustomDiagnostic {
                 );
                 CustomDiagnostic::from_message(&message, FileId::default())
             }
+            CompileError::IntegerExceedsLinkedField { function, typ, linked } => {
+                let message = format!(
+                    "function `{function}` uses `{typ}`, whose values can reach the {linked} \
+                     modulus: the circuit backend carries an integer in one field element, so \
+                     this compiler lowers only integer types narrower than the {linked} modulus"
+                );
+                CustomDiagnostic::from_message(&message, FileId::default())
+            }
         }
     }
 }
@@ -483,11 +498,16 @@ pub fn ensure_field_is_linked(field: FieldId) -> Result<(), CompileError> {
     }
 }
 
-/// The first integer type in `typ`, or nested in it, that the backend cannot lower.
-fn first_unlowerable_integer(typ: &MonomorphizedType) -> Option<&MonomorphizedType> {
+/// The first integer type in `typ`, or nested in it, that the backend does not lower, with the
+/// rule it fails.
+fn first_unlowerable_integer(
+    typ: &MonomorphizedType,
+) -> Option<(&MonomorphizedType, UnlowerableInteger)> {
     use MonomorphizedType as Type;
     match typ {
-        Type::Integer(sign, bits) if !is_lowerable_integer_width(*sign, *bits) => Some(typ),
+        Type::Integer(sign, bits) => {
+            unlowerable_integer(*sign, *bits, FieldConfig::linked()).map(|rule| (typ, rule))
+        }
         Type::Array(_, element) | Type::Vector(element) | Type::Reference(element, _) => {
             first_unlowerable_integer(element)
         }
@@ -498,22 +518,29 @@ fn first_unlowerable_integer(typ: &MonomorphizedType) -> Option<&MonomorphizedTy
             .find_map(first_unlowerable_integer)
             .or_else(|| first_unlowerable_integer(return_type))
             .or_else(|| first_unlowerable_integer(environment)),
-        Type::Integer(..) | Type::Field | Type::Bool | Type::String(_) | Type::Unit => None,
+        Type::Field | Type::Bool | Type::String(_) | Type::Unit => None,
     }
 }
 
 /// Reject a monomorphized program that mentions an integer type the circuit backend cannot
-/// lower. Call between monomorphization and circuit generation; `check_crate` and consumers of
-/// the monomorphized output accept every width the language has.
+/// lower: one it has no lowering for, or one whose values can reach the linked field's modulus.
+/// Call between monomorphization and circuit generation; `check_crate` and consumers of the
+/// monomorphized output accept every width the language has.
 pub fn ensure_integer_widths_are_lowerable(
     program: &MonomorphizedProgram,
 ) -> Result<(), CompileError> {
     use noirc_frontend::monomorphization::ast::Expression;
     use noirc_frontend::monomorphization::visitor::visit_expr;
 
-    let refuse = |function: &str, typ: &MonomorphizedType| CompileError::UnsupportedIntegerWidth {
-        function: function.to_string(),
-        typ: typ.to_string(),
+    let refuse = |function: &str, typ: &MonomorphizedType, rule: UnlowerableInteger| {
+        let function = function.to_string();
+        let typ = typ.to_string();
+        match rule {
+            UnlowerableInteger::Width => CompileError::UnsupportedIntegerWidth { function, typ },
+            UnlowerableInteger::ExceedsField => {
+                CompileError::IntegerExceedsLinkedField { function, typ, linked: FieldId::linked() }
+            }
+        }
     };
 
     for function in &program.functions {
@@ -523,8 +550,8 @@ pub fn ensure_integer_widths_are_lowerable(
             .map(|(_, _, _, typ, _)| typ.as_ref())
             .chain(std::iter::once(&function.return_type));
         for typ in signature_types {
-            if let Some(typ) = first_unlowerable_integer(typ) {
-                return Err(refuse(&function.name, typ));
+            if let Some((typ, rule)) = first_unlowerable_integer(typ) {
+                return Err(refuse(&function.name, typ, rule));
             }
         }
 
@@ -540,21 +567,21 @@ pub fn ensure_integer_widths_are_lowerable(
                 _ => None,
             };
             for typ in index_type.into_iter().chain(expr.return_type().as_deref()) {
-                if let Some(typ) = first_unlowerable_integer(typ) {
-                    found = Some(typ.clone());
+                if let Some((typ, rule)) = first_unlowerable_integer(typ) {
+                    found = Some((typ.clone(), rule));
                     return false;
                 }
             }
             true
         });
-        if let Some(typ) = found {
-            return Err(refuse(&function.name, &typ));
+        if let Some((typ, rule)) = found {
+            return Err(refuse(&function.name, &typ, rule));
         }
     }
 
     for (name, typ, _) in program.globals.values() {
-        if let Some(typ) = first_unlowerable_integer(typ) {
-            return Err(refuse(name, typ));
+        if let Some((typ, rule)) = first_unlowerable_integer(typ) {
+            return Err(refuse(name, typ, rule));
         }
     }
 

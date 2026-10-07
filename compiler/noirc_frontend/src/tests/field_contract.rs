@@ -586,3 +586,45 @@ fn the_entry_point_diagnostic_names_the_field_and_the_widest_width() {
         ]
     );
 }
+
+/// `Expr::as_integer` reads a literal into a `Field`, which must be canonical in the configured
+/// field: a literal at or above the modulus is an error, never "not an integer".
+#[test]
+fn expr_as_integer_refuses_a_literal_at_or_above_the_modulus() {
+    for field in FieldId::ALL {
+        let modulus = FieldConfig::new(field).modulus();
+        let src = format!(
+            "
+            struct Option<T> {{ _is_some: bool, _value: T }}
+            impl Quoted {{
+                #[builtin(quoted_as_expr)]
+                comptime fn as_expr(self) -> Option<Expr> {{}}
+            }}
+            impl Expr {{
+                #[builtin(expr_as_integer)]
+                comptime fn as_integer(self) -> Option<Field> {{}}
+            }}
+            fn main() {{
+                comptime {{
+                    let largest = quote {{ {} }}.as_expr()._value.as_integer();
+                    assert(largest._is_some);
+                    assert(largest._value == -1);
+                    let _ = quote {{ {modulus} }}.as_expr()._value.as_integer();
+                }}
+            }}",
+            modulus - 1u8
+        );
+        let options =
+            GetProgramOptions { root_and_stdlib: true, ..GetProgramOptions::for_field(field) };
+        let errors = get_program_with_options(&src, options).2;
+        assert!(
+            errors.iter().any(|error| matches!(
+                error,
+                CompilationError::InterpreterError(
+                    crate::hir::comptime::InterpreterError::IntegerOutOfRangeForType { value, .. }
+                ) if value == &num_bigint::BigInt::from(modulus.clone())
+            )),
+            "{field}: {errors:?}"
+        );
+    }
+}

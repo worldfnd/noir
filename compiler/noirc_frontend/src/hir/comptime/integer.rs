@@ -24,7 +24,7 @@ pub(crate) fn field_to_bigint(value: &FieldElement) -> BigInt {
 /// `-7` becomes `-FieldElement::from(7)`.
 ///
 /// Returns `None` if the magnitude is at or above the linked field's modulus.
-fn try_bigint_to_field(value: &BigInt) -> Option<FieldElement> {
+pub fn try_bigint_to_field(value: &BigInt) -> Option<FieldElement> {
     if *value.magnitude() >= FieldElement::modulus() {
         return None;
     }
@@ -48,6 +48,13 @@ pub fn field_to_signed_bigint(value: &FieldElement) -> BigInt {
     let positive = field_to_bigint(value);
     let negated = field_to_bigint(&-*value);
     if negated.to_string().len() < positive.to_string().len() { -negated } else { positive }
+}
+
+/// The two's complement pattern of `value` at `bits` bits: the low `bits` bits of `value`, as a
+/// non-negative integer.
+pub(crate) fn twos_complement_pattern(value: &BigInt, bits: u32) -> BigInt {
+    let modulus = BigInt::one() << bits;
+    ((value % &modulus) + &modulus) % &modulus
 }
 
 /// A comptime field element or integer.
@@ -123,10 +130,9 @@ impl Integer {
 
     /// Keeps the low `bits` bits, interpreted as two's complement when signed.
     pub(crate) fn wrapping_int(signed: bool, bits: u32, value: BigInt) -> Integer {
-        let modulus = BigInt::one() << bits;
-        let mut value = ((value % &modulus) + &modulus) % &modulus;
+        let mut value = twos_complement_pattern(&value, bits);
         if signed && value >= (BigInt::one() << (bits - 1)) {
-            value -= modulus;
+            value -= BigInt::one() << bits;
         }
         Integer::Int { signed, bits, value }
     }

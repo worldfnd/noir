@@ -24,6 +24,8 @@ use noirc_errors::Location;
 use rustc_hash::FxHashMap as HashMap;
 
 use crate::hir::comptime::Integer;
+use crate::hir::comptime::interpreter::ensure_integer_width_is_legal;
+use crate::recursion::TypeRecursionContext;
 use crate::{
     Kind, QuotedType, Shared, Type, TypeBindings,
     ast::{
@@ -320,6 +322,7 @@ impl Interpreter<'_, '_> {
                 // instead of an opaque `Value::Zeroed` placeholder when called
                 // before the post-attribute drain.
                 self.elaborator.define_deferred_data_types_in(&return_type);
+                ensure_integer_widths_are_legal(&return_type, location)?;
                 Ok(zeroed(return_type, location, field))
             }
             _ => {
@@ -1694,6 +1697,46 @@ where
     Ok(option(return_type, option_value, location, field))
 }
 
+/// Refuses a type holding an integer whose bound width the language does not have, wherever
+/// the integer sits in it.
+fn ensure_integer_widths_are_legal(typ: &Type, location: Location) -> IResult<()> {
+    fn check(typ: &Type, location: Location, context: TypeRecursionContext) -> IResult<()> {
+        let mut result = Ok(());
+        typ.follow_bindings().visit(&mut |typ| {
+            if result.is_err() {
+                return false;
+            }
+            match typ {
+                Type::Integer(signedness, width) => {
+                    if let Some(bits) = width.constant_width() {
+                        result = ensure_integer_width_is_legal(*signedness, bits, location);
+                    }
+                }
+                Type::DataType(data_type, generics) => {
+                    let data_type = data_type.borrow();
+                    let mut context = context.clone();
+                    if context.insert_data_type(data_type.id, generics.clone()) {
+                        if let Some(fields) = data_type.get_fields(generics) {
+                            result = fields.iter().try_for_each(|(_, typ, _)| {
+                                check(typ, location, context.clone().recur())
+                            });
+                        } else if let Some(variants) = data_type.get_variants(generics) {
+                            result = variants
+                                .iter()
+                                .flat_map(|(_, params)| params)
+                                .try_for_each(|typ| check(typ, location, context.clone().recur()));
+                        }
+                    }
+                }
+                _ => {}
+            }
+            result.is_ok()
+        });
+        result
+    }
+    check(typ, location, TypeRecursionContext::default())
+}
+
 // fn zeroed<T>() -> T
 fn zeroed(return_type: Type, location: Location, field: FieldId) -> Value {
     match return_type {
@@ -2212,18 +2255,27 @@ fn expr_as_integer(
     location: Location,
 ) -> IResult<Value> {
     let field = interner.field().id();
-    expr_as(interner, arguments, return_type, location, |expr| match expr {
-        ExprValue::Expression(ExpressionKind::Literal(Literal::Integer(value, _suffix))) => {
-            FieldValue::try_from_bigint(&value, field).map(Value::field)
-        }
-        ExprValue::Expression(ExpressionKind::Resolved(id)) => {
-            if let HirExpression::Literal(HirLiteral::Integer(value)) = interner.expression(&id) {
-                FieldValue::try_from_bigint(&value, field).map(Value::field)
-            } else {
-                None
+    try_expr_as(interner, arguments, return_type, location, |expr| {
+        let literal = match expr {
+            ExprValue::Expression(ExpressionKind::Literal(Literal::Integer(value, _suffix))) => {
+                value
             }
-        }
-        _ => None,
+            ExprValue::Expression(ExpressionKind::Resolved(id)) => match interner.expression(&id) {
+                HirExpression::Literal(HirLiteral::Integer(value)) => value,
+                _ => return Ok(None),
+            },
+            _ => return Ok(None),
+        };
+        // The literal is read into a `Field`, so it must be canonical in the configured field: a
+        // literal the field cannot hold is an error, not "not an integer".
+        let value = FieldValue::try_from_bigint(&literal, field).ok_or_else(|| {
+            InterpreterError::IntegerOutOfRangeForType {
+                value: literal,
+                typ: Type::FieldElement,
+                location,
+            }
+        })?;
+        Ok(Some(Value::field(value)))
     })
 }
 
@@ -2546,12 +2598,27 @@ fn expr_as<F>(
 where
     F: FnOnce(ExprValue) -> Option<Value>,
 {
+    try_expr_as(interner, arguments, return_type, location, |expr| Ok(f(expr)))
+}
+
+// Helper function for implementing the `expr_as_...` functions whose reading of the
+// expression can itself fail: `f` returns `None` when the expression is not of the asked shape.
+fn try_expr_as<F>(
+    interner: &NodeInterner,
+    arguments: Vec<(Value, Location)>,
+    return_type: Type,
+    location: Location,
+    f: F,
+) -> IResult<Value>
+where
+    F: FnOnce(ExprValue) -> IResult<Option<Value>>,
+{
     let field = interner.field().id();
     let self_argument = check_one_argument(arguments, location)?;
     let expr_value = get_expr(interner, self_argument)?;
     let expr_value = unwrap_expr_value(interner, expr_value);
 
-    let option_value = f(expr_value);
+    let option_value = f(expr_value)?;
     Ok(option(return_type, option_value, location, field))
 }
 

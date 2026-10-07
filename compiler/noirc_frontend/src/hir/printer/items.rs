@@ -7,7 +7,7 @@ mod hir_def;
 mod types;
 
 use crate::{
-    Kind, NamedGeneric, QuotedType, ResolvedGenerics, Type,
+    Kind, NamedGeneric, QuotedType, ResolvedGenerics, Type, TypeBindings,
     ast::{DocComment, ItemVisibility},
     hir::def_map::ModuleId,
     hir_def::traits::TraitConstraint,
@@ -747,10 +747,27 @@ fn type_mentions_data_type(typ: &Type, data_type: &crate::DataType) -> bool {
     }
 }
 
+/// Whether an impl on `typ` applies to the primitive `target_type`, including generic widths.
 fn matches_primitive_type(typ: &Type, target_type: &Type) -> bool {
-    typ == target_type
-        || matches!((typ, target_type), (Type::Integer(sign, width), Type::Integer(target_sign, _))
-            if sign == target_sign && matches!(width.as_ref(), Type::NamedGeneric(_)))
+    if typ == target_type {
+        return true;
+    }
+    let (Type::Integer(sign, width), Type::Integer(target_sign, target_width)) = (typ, target_type)
+    else {
+        return false;
+    };
+    if sign != target_sign {
+        return false;
+    }
+    let Some(target_bits) = target_width.constant_width() else {
+        return false;
+    };
+    let mut width = width.as_ref().clone();
+    width.replace_named_generics_with_type_variables();
+    let mut bindings = TypeBindings::default();
+    // Inverse arithmetic can truncate. Check the inferred width without committing bindings.
+    width.try_unify(target_width, &mut bindings).is_ok()
+        && width.substitute(&bindings).evaluate_to_u32(Location::dummy()).ok() == Some(target_bits)
 }
 
 fn type_mentions_primitive_type(typ: &Type, target_type: &Type) -> bool {

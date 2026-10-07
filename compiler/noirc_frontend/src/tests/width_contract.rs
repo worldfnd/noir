@@ -13,7 +13,8 @@ use crate::monomorphization::errors::MonomorphizationError;
 use crate::shared::{MAX_INTEGER_WIDTH, Signedness};
 use crate::test_utils::{GetProgramOptions, get_monomorphized_for_field, get_program_with_options};
 use crate::tests::{
-    check_errors, check_monomorphization_error, get_program_errors, get_program_errors_for_field,
+    check_errors, check_errors_with_options, check_monomorphization_error, get_program_errors,
+    get_program_errors_for_field,
 };
 
 /// Widths the circuit backend does not lower, from the narrowest the language has to the widest.
@@ -387,6 +388,61 @@ fn a_generic_impl_on_an_integer_family_binds_the_width() {
 }
 
 #[test]
+fn primitive_documentation_lists_only_applicable_integer_families() {
+    use crate::hir::printer::{crate_to_module, items::Item};
+
+    let src = "
+        impl<let N: u32> u<N> { fn all(self) -> Self { self } }
+        impl<let N: u32> u<2 * N> { fn even(self) -> Self { self } }
+        impl<let N: u32> u<2 * N + 1> { fn odd(self) -> Self { self } }
+        impl<let N: u32> u<N + 16> { fn at_least_sixteen(self) -> Self { self } }
+        impl<let N: u32> i<N> { fn signed(self) -> Self { self } }
+        trait Even {}
+        impl<let N: u32> Even for u<2 * N> {}
+        trait Odd {}
+        impl<let N: u32> Odd for u<2 * N + 1> {}
+        fn main() {}
+    ";
+    let options = GetProgramOptions { root_and_stdlib: true, ..Default::default() };
+    let (_, context, errors) = get_program_with_options(src, options);
+    assert!(errors.is_empty(), "{errors:?}");
+    let module =
+        crate_to_module(*context.root_crate_id(), &context.def_maps, &context.def_interner, false);
+    let mut integer_pages = 0;
+    for (_, item) in module.items {
+        let Item::PrimitiveType(primitive) = item else { continue };
+        let crate::Type::Integer(sign, width) = &primitive.typ else { continue };
+        integer_pages += 1;
+        let mut methods: Vec<_> = primitive
+            .impls
+            .iter()
+            .flat_map(|impl_| &impl_.methods)
+            .map(|(_, id)| context.def_interner.function_name(id))
+            .collect();
+        methods.sort();
+        let expected = if sign.is_signed() {
+            vec!["signed"]
+        } else if width.constant_width().unwrap() < 16 {
+            vec!["all", "even"]
+        } else {
+            vec!["all", "at_least_sixteen", "even"]
+        };
+        assert_eq!(methods, expected, "{}", primitive.typ);
+        let traits: Vec<_> = primitive
+            .trait_impls
+            .iter()
+            .map(|impl_| {
+                let impl_ = context.def_interner.get_trait_implementation(impl_.id);
+                let impl_ = impl_.borrow();
+                context.def_interner.get_trait(impl_.trait_id).name.to_string()
+            })
+            .collect();
+        assert_eq!(traits, if sign.is_signed() { vec![] } else { vec!["Even"] });
+    }
+    assert_eq!(integer_pages, 9);
+}
+
+#[test]
 fn as_integer_reports_the_width_as_a_u32() {
     let src = "
         struct Option<T> { _is_some: bool, _value: T }
@@ -602,4 +658,87 @@ fn the_integer_families_come_after_the_programs_own_items() {
     ";
     let errors = get_program_errors(src);
     assert!(errors.is_empty(), "{errors:?}");
+}
+
+/// Comptime checks bound widths when creating scalar or aggregate values.
+#[test]
+fn a_generic_width_is_checked_at_comptime_too() {
+    check_errors(
+        r#"
+        fn narrow<let N: u32>(x: u8) -> i<N> { x as i::<N> }
+                                               ^^^^^^^^^^^ `i0` is not a supported integer type
+                                               ~~~~~~~~~~~ integer widths are every width from 2 to 16384
+        fn main() {
+            comptime {
+                let _ = narrow::<0>(1);
+            }
+        }
+        "#,
+    );
+    check_errors(
+        r#"
+        fn one<let N: u32>() -> u<N> { 1 }
+                                       ^ `u1` is not a supported integer type
+                                       ~ `u1` has been removed, use `bool` instead
+        fn main() {
+            comptime {
+                let _ = one::<1>();
+            }
+        }
+        "#,
+    );
+    // A `#[builtin]` is declared only in the standard library, which the root crate stands in for.
+    let as_stdlib = GetProgramOptions {
+        root_and_stdlib: true,
+        allow_elaborator_errors: true,
+        ..Default::default()
+    };
+    check_errors_with_options(
+        r#"
+        #[builtin(zeroed)]
+        fn zeroed<T>() -> T {}
+        fn zero<let N: u32>() -> u<N> { zeroed() }
+                                        ^^^^^^^^ `u16385` is not a supported integer type
+                                        ~~~~~~~~ integer widths are every width from 2 to 16384
+        fn main() {
+            comptime {
+                let _ = zero::<16385>();
+            }
+        }
+        "#,
+        false,
+        as_stdlib,
+    );
+    for typ in ["u<N>", "i<N>", "Nested<N>", "Alias<N>", "Choice<N>"] {
+        for bits in [0, 1, MAX_INTEGER_WIDTH + 1, 2, MAX_INTEGER_WIDTH] {
+            let src = format!(
+                "
+                #[builtin(zeroed)]
+                fn zeroed<T>() -> T {{}}
+                pub struct Wrapper<T> {{ inner: ([T; 1], &mut T) }}
+                pub struct Nested<let N: u32> {{ inner: Wrapper<i<N>> }}
+                pub type Alias<let N: u32> = Nested<N>;
+                pub enum Choice<let N: u32> {{ Empty, Value(Nested<N>) }}
+                fn zero<let N: u32>() -> {typ} {{ zeroed() }}
+                fn main() {{ comptime {{ let _ = zero::<{bits}>(); }} }}
+                "
+            );
+            let errors = get_program_with_options(&src, as_stdlib).2;
+            if (2..=MAX_INTEGER_WIDTH).contains(&bits) {
+                assert!(errors.is_empty(), "{typ}, {bits}: {errors:?}");
+            } else {
+                assert!(
+                    errors.iter().any(|error| matches!(
+                        error,
+                        CompilationError::InterpreterError(
+                            crate::hir::comptime::InterpreterError::UnsupportedIntegerWidth {
+                                bits: actual, ..
+                            }
+                        ) if *actual == bits
+                    )),
+                    "{typ}, {bits}: {errors:?}"
+                );
+            }
+        }
+    }
 }
