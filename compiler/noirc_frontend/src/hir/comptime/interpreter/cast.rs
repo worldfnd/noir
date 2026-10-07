@@ -1,6 +1,9 @@
 use crate::{
     Type,
-    hir::comptime::{Integer, InterpreterError, Value, errors::IResult},
+    hir::comptime::{
+        Integer, InterpreterError, Value, errors::IResult, integer::twos_complement_pattern,
+        interpreter::ensure_integer_width_is_legal,
+    },
 };
 use acvm::{FieldConfig, FieldValue};
 use noirc_errors::Location;
@@ -17,12 +20,6 @@ fn bit_size(field: FieldConfig, typ: &Type) -> u32 {
         Type::Bool => 1,
         _ => field.num_bits(),
     }
-}
-
-/// The two's complement pattern of `value` at `bits` bits.
-fn twos_complement_pattern(value: &BigInt, bits: u32) -> BigInt {
-    let modulus = BigInt::from(1) << bits;
-    ((value % &modulus) + &modulus) % &modulus
 }
 
 /// An integer target takes the source's two's complement pattern at the target width and reads it by the target's signedness; a `Field` target takes the source's own-width pattern exactly, and is an error if that pattern is not below the modulus (the type checker admits only source types whose every pattern is).
@@ -54,6 +51,7 @@ pub(crate) fn evaluate_cast_one_step(
             let bits = width.evaluate_to_u32(location).map_err(|err| {
                 InterpreterError::InvalidNumericGeneric { err: Box::new(err), location }
             })?;
+            ensure_integer_width_is_legal(sign, bits, location)?;
             Ok(Value::Integer(Integer::wrapping_int(sign.is_signed(), bits, value)))
         }
         Type::Bool if lhs_type == Type::Bool => Ok(Value::Bool(value != BigInt::ZERO)),

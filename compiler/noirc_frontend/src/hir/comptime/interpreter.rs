@@ -55,7 +55,7 @@ use crate::monomorphization::{
     undo_instantiation_bindings,
 };
 use crate::node_interner::GlobalValue;
-use crate::shared::ForeignCall;
+use crate::shared::{ForeignCall, Signedness, is_legal_integer_width};
 use crate::token::{FmtStrFragment, Tokens};
 use crate::{
     Shared, Type, TypeBindings,
@@ -955,6 +955,11 @@ impl<'local, 'interner> Interpreter<'local, 'interner> {
     fn evaluate_integer_literal(&self, value: BigInt, id: ExprId) -> IResult<Value> {
         let typ = self.elaborator.interner.id_type(id).follow_bindings();
         let location = self.elaborator.interner.expr_location(&id);
+        if let Type::Integer(signedness, width) = &typ
+            && let Some(bits) = width.constant_width()
+        {
+            ensure_integer_width_is_legal(*signedness, bits, location)?;
+        }
         let field = self.elaborator.interner.field().id();
         Integer::try_from_bigint(&value, &typ, field).map(Value::Integer).ok_or_else(|| {
             let typ = typ.clone();
@@ -1874,6 +1879,19 @@ fn bounds_check(array: Value, index: Value, location: Location) -> IResult<(Vect
     }
 
     Ok((collection, index))
+}
+
+/// Check a generic width once comptime evaluation has bound it to a number.
+pub(crate) fn ensure_integer_width_is_legal(
+    signedness: Signedness,
+    bits: u32,
+    location: Location,
+) -> IResult<()> {
+    if is_legal_integer_width(bits) {
+        Ok(())
+    } else {
+        Err(InterpreterError::UnsupportedIntegerWidth { signedness, bits, location })
+    }
 }
 
 fn evaluate_prefix_with_value(rhs: Value, operator: UnaryOp, location: Location) -> IResult<Value> {

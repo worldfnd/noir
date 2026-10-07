@@ -24,6 +24,8 @@ use noirc_errors::Location;
 use rustc_hash::FxHashMap as HashMap;
 
 use crate::hir::comptime::Integer;
+use crate::hir::comptime::interpreter::ensure_integer_width_is_legal;
+use crate::recursion::TypeRecursionContext;
 use crate::{
     Kind, QuotedType, Shared, Type, TypeBindings,
     ast::{
@@ -320,6 +322,7 @@ impl Interpreter<'_, '_> {
                 // instead of an opaque `Value::Zeroed` placeholder when called
                 // before the post-attribute drain.
                 self.elaborator.define_deferred_data_types_in(&return_type);
+                ensure_integer_widths_are_legal(&return_type, location)?;
                 Ok(zeroed(return_type, location, field))
             }
             _ => {
@@ -1692,6 +1695,46 @@ where
 
     let option_value = f(typ);
     Ok(option(return_type, option_value, location, field))
+}
+
+/// Refuses a type holding an integer whose bound width the language does not have, wherever
+/// the integer sits in it.
+fn ensure_integer_widths_are_legal(typ: &Type, location: Location) -> IResult<()> {
+    fn check(typ: &Type, location: Location, context: TypeRecursionContext) -> IResult<()> {
+        let mut result = Ok(());
+        typ.follow_bindings().visit(&mut |typ| {
+            if result.is_err() {
+                return false;
+            }
+            match typ {
+                Type::Integer(signedness, width) => {
+                    if let Some(bits) = width.constant_width() {
+                        result = ensure_integer_width_is_legal(*signedness, bits, location);
+                    }
+                }
+                Type::DataType(data_type, generics) => {
+                    let data_type = data_type.borrow();
+                    let mut context = context.clone();
+                    if context.insert_data_type(data_type.id, generics.clone()) {
+                        if let Some(fields) = data_type.get_fields(generics) {
+                            result = fields.iter().try_for_each(|(_, typ, _)| {
+                                check(typ, location, context.clone().recur())
+                            });
+                        } else if let Some(variants) = data_type.get_variants(generics) {
+                            result = variants
+                                .iter()
+                                .flat_map(|(_, params)| params)
+                                .try_for_each(|typ| check(typ, location, context.clone().recur()));
+                        }
+                    }
+                }
+                _ => {}
+            }
+            result.is_ok()
+        });
+        result
+    }
+    check(typ, location, TypeRecursionContext::default())
 }
 
 // fn zeroed<T>() -> T
