@@ -347,14 +347,12 @@ impl<'a> FunctionContext<'a> {
             });
         }
 
-        // If `value` is greater than `max` despite passing the `value_is_outside_limits`
-        // check, it means this is a negative number, which is encoded as a large field value.
-        // Convert it to two's complement instead.
-        if let Ok(max) = numeric_type.max_value()
-            && value > max
-        {
-            assert!(numeric_type.is_signed());
-            let bit_size = numeric_type.bit_size::<FieldElement>();
+        // A negative signed value passes the limits check encoded as `p - m`, a field element
+        // wider than the type's magnitude bits, where a non-negative one fits in them. Convert
+        // it to two's complement. The width test holds under every field: the type's maximum
+        // may lie at or above a small modulus, where a field element built from it is reduced.
+        let bit_size = numeric_type.bit_size::<FieldElement>();
+        if numeric_type.is_signed() && value.num_bits() >= bit_size {
             assert!(bit_size < 128);
             value = FieldElement::from(1u128 << bit_size) + value;
         }

@@ -30,6 +30,10 @@ pub enum RuntimeError {
         call_stack: CallStack,
     },
     #[error(
+        "The value `{value}` is at or above the modulus of the field this compiler is built for, which cannot represent it"
+    )]
+    IntegerExceedsField { value: String, call_stack: CallStack },
+    #[error(
         "Attempted to recurse more than {limit} times during inlining function '{function_name}'"
     )]
     RecursionLimit { limit: u32, function_name: String, call_stack: CallStack },
@@ -162,6 +166,7 @@ impl RuntimeError {
             | RuntimeError::StaticAssertDynamicPredicate { call_stack, .. }
             | RuntimeError::StaticAssertFailed { call_stack, .. }
             | RuntimeError::IntegerOutOfBounds { call_stack, .. }
+            | RuntimeError::IntegerExceedsField { call_stack, .. }
             | RuntimeError::InvalidBlackBoxInputBitSize { call_stack, .. }
             | RuntimeError::NestedVector { call_stack, .. }
             | RuntimeError::BigIntModulus { call_stack, .. }

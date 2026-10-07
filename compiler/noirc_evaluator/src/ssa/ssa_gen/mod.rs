@@ -3,11 +3,12 @@ mod program;
 mod tests;
 mod value;
 
-use acvm::AcirField;
+use acvm::{AcirField, FieldElement};
 use noirc_errors::call_stack::CallStack;
-use noirc_frontend::hir::comptime::bigint_to_field;
+use noirc_frontend::hir::comptime::try_bigint_to_field;
 use noirc_frontend::hir_def::expr::Constructor;
 use noirc_frontend::token::FmtStrFragment;
+use num_bigint::BigInt;
 pub use program::Ssa;
 
 use context::{Loop, SharedContext};
@@ -317,7 +318,8 @@ impl FunctionContext<'_> {
             ast::Literal::Integer(value, typ, location) => {
                 self.builder.set_location(*location);
                 let typ = Self::convert_non_tuple_type(typ).unwrap_numeric();
-                self.checked_numeric_constant(bigint_to_field(value), typ).map(Into::into)
+                let value = self.exact_literal_to_field(value)?;
+                self.checked_numeric_constant(value, typ).map(Into::into)
             }
             ast::Literal::Bool(value) => {
                 // Don't need to call checked_numeric_constant here since `value` can only be true or false
@@ -1238,9 +1240,21 @@ impl FunctionContext<'_> {
         typ: NumericType,
     ) -> Result<ValueId, RuntimeError> {
         match constructor {
-            Constructor::Int(value) => self.checked_numeric_constant(bigint_to_field(value), typ),
+            Constructor::Int(value) => {
+                let value = self.exact_literal_to_field(value)?;
+                self.checked_numeric_constant(value, typ)
+            }
             other => Ok(self.builder.numeric_constant(other.variant_index(), typ)),
         }
+    }
+
+    /// The monomorphized program carries integer literals exactly; the field this compiler is
+    /// built for carries one only if its magnitude is below the modulus.
+    fn exact_literal_to_field(&self, value: &BigInt) -> Result<FieldElement, RuntimeError> {
+        try_bigint_to_field(value).ok_or_else(|| RuntimeError::IntegerExceedsField {
+            value: value.to_string(),
+            call_stack: self.builder.get_call_stack(),
+        })
     }
 
     fn no_match(&mut self, variable: Values, case: &MatchCase) -> Result<Values, RuntimeError> {

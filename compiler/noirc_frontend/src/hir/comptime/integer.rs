@@ -24,7 +24,7 @@ pub(crate) fn field_to_bigint(value: &FieldElement) -> BigInt {
 /// `-7` becomes `-FieldElement::from(7)`.
 ///
 /// Returns `None` if the magnitude is at or above the linked field's modulus.
-fn try_bigint_to_field(value: &BigInt) -> Option<FieldElement> {
+pub fn try_bigint_to_field(value: &BigInt) -> Option<FieldElement> {
     if *value.magnitude() >= FieldElement::modulus() {
         return None;
     }
