@@ -57,7 +57,7 @@ The output is streamed to the console, and shows key metrics like:
 - `RND_EX_TIME` - How much time was spent executing the test cases in the last round (in a single thread)
 - `UPD_TIME` - Time spent updating the corpus (in a single thread)
 
-If the timeout is not specified, the fuzzer will run until it finds a failing test case. By default the failing test case is saved in the `Prover-failing-<package_name>-<harness_name>.toml` file. So that it can be easily used with nargo execute by renaming it to `Prover.toml` and renaming the harness to `main`.
+If the timeout is not specified, the fuzzer will run until it finds a failing test case. By default the failing test case is saved in the `Prover-failing-<package_name>-<harness_name>.toml` file. So that it can be easily used with nargo execute by renaming it to `Prover.toml` and renaming the harness to `main`, as long as the harness takes no `Field` and no empty value, which `main` refuses.
 
 Additional fuzzing-specific options include:
 
