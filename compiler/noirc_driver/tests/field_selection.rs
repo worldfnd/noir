@@ -36,7 +36,7 @@ fn frontend_accepts_a_non_linked_field_and_backend_rejects_it() {
     let requested = FieldId::ALL.into_iter().find(|id| *id != FieldId::linked()).unwrap();
     let options = CompileOptions { field: requested, ..Default::default() };
 
-    let source = "fn main() -> pub Field { comptime { 0 - 1 } }";
+    let source = "fn main() -> pub u32 { comptime { (0 - 1) as u32 } }";
     let (mut context, crate_id) = context_for(source);
     check_crate(&mut context, crate_id, &options).expect("the front half runs under any field");
 
@@ -74,7 +74,7 @@ fn monomorphization_reports_before_the_linked_field_guard() {
 #[test]
 fn cached_artifacts_cannot_bypass_field_selection() {
     let requested = FieldId::ALL.into_iter().find(|id| *id != FieldId::linked()).unwrap();
-    let source = "fn main() -> pub Field { 1 }";
+    let source = "fn main() -> pub u32 { 1 }";
 
     let (mut context, crate_id) = context_for(source);
     check_crate(&mut context, crate_id, &CompileOptions::default()).expect("the built field");
