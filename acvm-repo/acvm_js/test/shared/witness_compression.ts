@@ -1,6 +1,6 @@
 // Solved witness for noir program (x = 1, y = 2)
 //
-// fn main(x : Field, y : pub Field) -> pub Field {
+// fn main(x : u8, y : pub u8) -> pub u8 {
 //   assert(x != y);
 //   x + y
 // }

@@ -1,41 +1,5 @@
 define: &AZ_COMMIT 0e7787a7c47db1e36089b09362072fd0c62ebed1
 projects:
-  private-kernel-inner:
-    repo: AztecProtocol/aztec-packages
-    ref: *AZ_COMMIT
-    path: noir-projects/noir-protocol-circuits/crates/private-kernel-inner
-    num_compile_runs: 5
-    num_execute_runs: 5
-    compilation-timeout: 10
-    execution-timeout: 0.08
-    brillig-compilation-timeout: 3.0
-    brillig-execution-timeout: 0.08
-    compilation-memory-limit: 350
-    execution-memory-limit: 300
-  private-kernel-reset-tail:
-    repo: AztecProtocol/aztec-packages
-    ref: *AZ_COMMIT
-    path: noir-projects/noir-protocol-circuits/crates/private-kernel-reset-tail
-    num_compile_runs: 1
-    num_execute_runs: 1
-    compilation-timeout: 300
-    execution-timeout: 1
-    brillig-compilation-timeout: 150
-    brillig-execution-timeout: 1
-    compilation-memory-limit: 650
-    execution-memory-limit: 350
-  private-kernel-reset:
-    repo: AztecProtocol/aztec-packages
-    ref: *AZ_COMMIT
-    path: noir-projects/noir-protocol-circuits/crates/private-kernel-reset
-    num_compile_runs: 5
-    num_execute_runs: 10
-    compilation-timeout: 35
-    execution-timeout: 0.35
-    brillig-compilation-timeout: 10
-    brillig-execution-timeout: 0.35
-    compilation-memory-limit: 750
-    execution-memory-limit: 350
   # The Aztec rollup circuits use `std::test::OracleMock`, which this compiler does not provide.
   # rollup-block-root-first-empty-tx:
   #   repo: AztecProtocol/aztec-packages
@@ -155,17 +119,6 @@ projects:
   #   brillig-execution-timeout: 0.75
   #   compilation-memory-limit: 8000
   #   execution-memory-limit: 600
-  semaphore-depth-10:
-    repo: noir-lang/noir
-    path: test_programs/benchmarks/semaphore_depth_10
-    num_compile_runs: 20
-    num_execute_runs: 20
-    compilation-timeout: 2
-    execution-timeout: 0.6
-    brillig-compilation-timeout: 2
-    brillig-execution-timeout: 0.6
-    compilation-memory-limit: 450
-    execution-memory-limit: 400
   sha512-100-bytes:
     repo: noir-lang/noir
     path: test_programs/benchmarks/sha512_100_bytes

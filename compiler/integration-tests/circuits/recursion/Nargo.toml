@@ -1,7 +1,0 @@
-[package]
-name = "recursion"
-type = "bin"
-authors = [""]
-
-[dependencies]
-bb_proof_verification = {  git = "https://github.com/AztecProtocol/aztec-packages", tag = "v5.0.0", directory = "./barretenberg/noir/bb_proof_verification" }
