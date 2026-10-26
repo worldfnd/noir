@@ -1,11 +1,11 @@
 contract Foo {
-    fn double(x: Field) -> pub Field {
+    fn double(x: u32) -> pub u32 {
         x * 2
     }
-    fn triple(x: Field) -> pub Field {
+    fn triple(x: u32) -> pub u32 {
         x * 3
     }
-    fn quadruple(x: Field) -> pub Field {
+    fn quadruple(x: u32) -> pub u32 {
         x * 4
     }
     // Regression for issue #3344

@@ -1,7 +1,7 @@
 // Removing from a vector of references at a dynamic index is a dynamic selection of a
 // reference, which cannot be resolved before ACIR generation. This must be rejected with a
 // clean error rather than reaching a later pass that panics on the leftover memory operations.
-fn main(i: u32) -> pub Field {
+fn main(i: u32) -> pub u8 {
     let mut x = 10;
     let mut y = 20;
 
@@ -9,5 +9,5 @@ fn main(i: u32) -> pub Field {
     let (_v2, removed) = v.remove(i);
 
     y = 77;
-    *removed
+    *removed as u8
 }

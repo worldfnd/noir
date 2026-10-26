@@ -1,4 +1,4 @@
-fn main() -> pub Field {
+fn main() -> pub u32 {
     // Safety: the oracle is unconstrained
     unsafe {
         get_value()
@@ -6,4 +6,4 @@ fn main() -> pub Field {
 }
 
 #[oracle(get_value)]
-unconstrained fn get_value() -> Field {}
+unconstrained fn get_value() -> u32 {}

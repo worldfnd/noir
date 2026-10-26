@@ -1,5 +1,5 @@
-fn main(mut a: pub Field) {
-    let mut ctx_limit: u32 = 5_u32;
+fn main(a: pub u8) {
+    let (mut ctx_limit, mut a): (u32, Field) = (5_u32, a as Field);
     if a == -1 {
         for _ in 0..2 {
             let d =

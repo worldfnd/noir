@@ -2,11 +2,11 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-fn main() -> pub Field {
+fn main() -> pub u8 {
     // Safety: comment added by `nargo expand`
     let result: Field = unsafe { foo() };
     assert(result == 1_Field);
-    result
+    result as u8
 }
 
 unconstrained fn foo() -> Field {

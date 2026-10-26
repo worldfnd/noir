@@ -1,8 +1,8 @@
-fn main() -> pub Field {
+fn main() -> pub u8 {
     // Safety: testing context
     let result = unsafe { foo() };
     assert(result == 1);
-    result
+    result as u8
 }
 
 unconstrained fn foo() -> Field {
