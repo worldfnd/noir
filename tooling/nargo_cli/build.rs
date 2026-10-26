@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -272,17 +273,42 @@ const IGNORED_NARGO_EXPAND_COMPILE_SUCCESS_NO_BUG_TESTS: [&str; 17] = [
 
 const IGNORED_NARGO_EXPAND_COMPILE_SUCCESS_WITH_BUG_TESTS: [&str; 0] = [];
 
+/// Test programs no test is generated for, one `<category>/<program>` per line under
+/// `test_programs`, grouped by the reason given in the file.
+const SKIPPED_PROGRAMS_LIST: &str = "provekit_skipped.txt";
+
+fn read_skipped_programs(test_data_dir: &Path) -> HashSet<String> {
+    let list = test_data_dir.join(SKIPPED_PROGRAMS_LIST);
+    let contents = fs::read_to_string(&list)
+        .unwrap_or_else(|error| panic!("Failed to read {}: {error}", list.display()));
+    contents
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(|line| {
+            // A line naming a renamed or deleted program would silently skip nothing.
+            assert!(
+                test_data_dir.join(line).join("Nargo.toml").exists(),
+                "{SKIPPED_PROGRAMS_LIST}: `{line}` is not a test program"
+            );
+            line.to_owned()
+        })
+        .collect()
+}
+
 fn read_test_cases(
     test_data_dir: &Path,
     test_sub_dir: &str,
 ) -> impl Iterator<Item = (String, PathBuf)> {
+    let skipped_programs = read_skipped_programs(test_data_dir);
+    let category = test_sub_dir.to_owned();
     let test_data_dir = test_data_dir.join(test_sub_dir);
     // A missing directory means the test category currently has no tests, so we yield nothing
     // rather than panicking. The inner `flatten` also skips any entry that fails to read.
     let test_case_dirs =
         fs::read_dir(test_data_dir).into_iter().flatten().flatten().filter(|c| c.path().is_dir());
 
-    test_case_dirs.into_iter().filter_map(|dir| {
+    test_case_dirs.into_iter().filter_map(move |dir| {
         // When switching git branches we might end up with non-empty directories that have a `target`
         // directory inside them but no `Nargo.toml`.
         // These "tests" would always fail, but it's okay to ignore them so we do that here.
@@ -296,6 +322,9 @@ fn read_test_cases(
             panic!(
                 "Invalid test directory: {test_name}. Cannot include `-`, please convert to `_`"
             );
+        }
+        if skipped_programs.contains(&format!("{category}/{test_name}")) {
+            return None;
         }
         Some((test_name, dir.path()))
     })

@@ -75,6 +75,19 @@ describe('noir-compiler/node', () => {
     'poseidon2_simplification',
     'trait_method_mut_self',
     'turbofish_call_func_diff_types',
+    // Listed in test_programs/provekit_skipped.txt: `main` takes a `Field`.
+    'assert_constant',
+    'comptime_recursion_regression',
+    'instruction_deduplication',
+    'ret_fn_ret_cl',
+    'simple_program_no_body',
+    'simple_range',
+    'static_assert',
+    'trait_call_full_path',
+    'trait_default_implementation',
+    'trait_override_implementation',
+    'traits',
+    'unused_variables',
   ];
   getSubdirs(join(testProgramsDir, 'compile_success_empty'))
     .filter((name) => !filteredCompileSuccessEmptyTests.includes(name))
@@ -113,6 +126,17 @@ describe('noir-compiler/node', () => {
     'regression_5252',
     'regression_5615',
     'uhashmap',
+    // Listed in test_programs/provekit_skipped.txt: `main` takes a databus.
+    'databus',
+    'databus_composite_calldata',
+    'databus_two_calldata',
+    'databus_two_calldata_simple',
+    'regression_7143',
+    'regression_7612',
+    'regression_claude_1124',
+    // Listed in test_programs/provekit_skipped.txt: `main` takes a `Field`.
+    'large_nested_array_multi_field_merge',
+    'simple_shield',
   ];
   getSubdirs(join(testProgramsDir, 'execution_success'))
     .filter((name) => !filteredExecutionSuccessTests.includes(name))
