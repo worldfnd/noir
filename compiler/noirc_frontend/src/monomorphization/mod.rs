@@ -221,6 +221,31 @@ fn entry_point_field_count_saturating(typ: &ast::Type) -> u64 {
     }
 }
 
+/// Number of bytes `typ` takes in an entry point's byte encoding (see [`ast::MAX_INPUT_BYTES`]).
+///
+/// Computed with saturating `u64` arithmetic, like [`entry_point_field_count_saturating`]. A
+/// `Field` and types that cannot appear at an entry point contribute nothing; they are rejected
+/// separately by the entry point validity checks.
+fn entry_point_byte_size_saturating(typ: &ast::Type) -> u64 {
+    match typ {
+        ast::Type::Integer(_, bits) => u64::from(bits.div_ceil(8)),
+        ast::Type::Bool => 1,
+        ast::Type::Array(length, element) => {
+            u64::from(*length).saturating_mul(entry_point_byte_size_saturating(element))
+        }
+        ast::Type::String(length) => u64::from(*length),
+        ast::Type::Tuple(fields) => {
+            fields.iter().map(entry_point_byte_size_saturating).fold(0, u64::saturating_add)
+        }
+        ast::Type::Field
+        | ast::Type::FmtString(..)
+        | ast::Type::Unit
+        | ast::Type::Vector(_)
+        | ast::Type::Reference(..)
+        | ast::Type::Function(..) => 0,
+    }
+}
+
 /// The result of monomorphizing a program, labeled with the field it was compiled under.
 ///
 /// Consumers must check the field identity before lowering the program.
@@ -645,6 +670,7 @@ impl<'interner> Monomorphizer<'interner> {
         let _self_type_guard = self.bind_function_trait_self(&f);
 
         let meta = self.interner.function_meta(&f);
+        let is_program_entry_point = meta.is_entry_point;
         let func_parameters = meta.parameters.clone();
         let meta_return_type = meta.return_type().clone();
         let return_type_location = meta.return_type.location();
@@ -736,6 +762,38 @@ impl<'interner> Monomorphizer<'interner> {
                 return Err(MonomorphizationError::ReturnLimitExceeded {
                     num_elements,
                     max_elements,
+                    location: return_type_location,
+                });
+            }
+        }
+
+        // The inputs of `main` and of a contract function cross as one byte blob, and the return
+        // as another; each must stay below `MAX_INPUT_BYTES`. Test, fuzz and `#[export]` functions
+        // compiled as `main` are not entry points of a program and take no blob.
+        if is_program_entry_point {
+            let max_bytes = ast::MAX_INPUT_BYTES;
+            let mut num_bytes = 0u64;
+            for (pattern, typ, _visibility) in &func_parameters.0 {
+                let location = pattern.location();
+                let size = entry_point_byte_size_saturating(&Self::convert_type(typ, location)?);
+                num_bytes = num_bytes.saturating_add(size);
+                if num_bytes >= max_bytes {
+                    return Err(MonomorphizationError::InputSizeExceeded {
+                        num_bytes,
+                        max_bytes,
+                        location,
+                    });
+                }
+            }
+
+            let num_bytes = entry_point_byte_size_saturating(&Self::convert_type(
+                return_target_type,
+                return_type_location,
+            )?);
+            if num_bytes >= max_bytes {
+                return Err(MonomorphizationError::ReturnSizeExceeded {
+                    num_bytes,
+                    max_bytes,
                     location: return_type_location,
                 });
             }

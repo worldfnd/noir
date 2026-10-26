@@ -41,6 +41,8 @@ pub enum MonomorphizationError {
     InvalidTypeForEntryPoint { invalid_type: InvalidType, location: Location },
     InputLimitExceeded { num_elements: u64, max_elements: u64, location: Location },
     ReturnLimitExceeded { num_elements: u64, max_elements: u64, location: Location },
+    InputSizeExceeded { num_bytes: u64, max_bytes: u64, location: Location },
+    ReturnSizeExceeded { num_bytes: u64, max_bytes: u64, location: Location },
     ComplexType { complexity: usize, max_complexity: usize, location: Location },
     CannotUseFunctionAsValue { name: String, location: Location },
     GlobalContainsFunctionPointer { typ: String, location: Location },
@@ -85,6 +87,8 @@ impl MonomorphizationError {
             | MonomorphizationError::InvalidTypeForEntryPoint { location, .. }
             | MonomorphizationError::InputLimitExceeded { location, .. }
             | MonomorphizationError::ReturnLimitExceeded { location, .. }
+            | MonomorphizationError::InputSizeExceeded { location, .. }
+            | MonomorphizationError::ReturnSizeExceeded { location, .. }
             | MonomorphizationError::ComplexType { location, .. }
             | MonomorphizationError::CannotUseFunctionAsValue { location, .. }
             | MonomorphizationError::GlobalContainsFunctionPointer { location, .. }
@@ -260,6 +264,16 @@ impl From<MonomorphizationError> for CustomDiagnostic {
             MonomorphizationError::ReturnLimitExceeded { num_elements, max_elements, .. } => {
                 format!(
                     "The return value has {num_elements} elements which exceeds the limit of {max_elements}"
+                )
+            }
+            MonomorphizationError::InputSizeExceeded { num_bytes, max_bytes, .. } => {
+                format!(
+                    "The input parameters take {num_bytes} bytes, which reaches the limit of {max_bytes}"
+                )
+            }
+            MonomorphizationError::ReturnSizeExceeded { num_bytes, max_bytes, .. } => {
+                format!(
+                    "The return value takes {num_bytes} bytes, which reaches the limit of {max_bytes}"
                 )
             }
             MonomorphizationError::ComplexType { complexity, max_complexity, location } => {
