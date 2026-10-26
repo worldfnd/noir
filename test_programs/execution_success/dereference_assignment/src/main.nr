@@ -9,8 +9,8 @@ fn id(r: &mut Field) -> &mut Field {
     r
 }
 
-fn main(x: Field) {
-    let mut a = x;
+fn main(x: u8) {
+    let mut a = x as Field;
 
     // Equivalent to `a = a + 10`, but written through an explicit reference.
     *(&mut a) = a + 10;

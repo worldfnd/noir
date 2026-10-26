@@ -1,4 +1,4 @@
-fn main(c: bool) -> pub (Field, Field) {
+fn main(c: bool) -> pub (u8, u8) {
     // We are creating lambdas which turn into (constrained, unconstrained) pairs,
     // but the return value is not valid when going from unconstrained to constrained.
     // We expect the unconstrained lambda to be eliminated.
@@ -22,7 +22,7 @@ fn main(c: bool) -> pub (Field, Field) {
         assert_eq(n + 1, m);
     };
 
-    (x, y)
+    (x as u8, y as u8)
 }
 
 unconstrained fn call_and_deref(f: fn() -> &mut Field) -> Field {

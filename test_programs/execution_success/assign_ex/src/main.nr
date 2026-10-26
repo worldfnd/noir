@@ -1,4 +1,4 @@
-fn main(x: Field, y: Field) {
+fn main(x: u8, y: u8) {
     let mut z = x + y;
     assert(z == 3);
     z = x * y;

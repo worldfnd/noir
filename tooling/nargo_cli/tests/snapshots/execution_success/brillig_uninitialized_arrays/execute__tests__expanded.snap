@@ -2,11 +2,11 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-fn main(x: Field, y: Field) -> pub Field {
+fn main(x: u8, y: u8) -> pub u8 {
     // Safety: comment added by `nargo expand`
     unsafe {
-        let notes: [Field; 2] = create_notes(x, y);
-        sum_x(notes, x, y)
+        let notes: [Field; 2] = create_notes(x as Field, y as Field);
+        sum_x(notes, x as Field, y as Field) as u8
     }
 }
 

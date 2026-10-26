@@ -2,7 +2,7 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-fn main(w: Field) -> pub Field {
+fn main(w: u8) -> pub u8 {
     let f: fn() -> [u32; 2] = if (3_u32 * 7_u32) > 200_u32 { foo } else { bar };
     assert(f()[1_u32] == 2_u32);
     assert(twice(|x: Field| -> Field { x * 2_Field }, 5_Field) == 20_Field);
@@ -29,7 +29,7 @@ fn main(w: Field) -> pub Field {
     regression_2154();
     let ret: Field = twice(add1, 3_Field);
     test_array_functions();
-    w + ret
+    ((w as Field) + ret) as u8
 }
 
 /// Test the array functions in std::array

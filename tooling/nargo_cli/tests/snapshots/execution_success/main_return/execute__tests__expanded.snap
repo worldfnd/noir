@@ -2,6 +2,6 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-fn main(x: pub Field) -> pub Field {
+fn main(x: pub u8) -> pub u8 {
     x
 }

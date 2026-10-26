@@ -12,7 +12,7 @@ type Three: u32 = Two + One;
 global N: u32 = 100;
 type AliasN<let N: u32>: u32 = N;
 
-fn main(x: Field) {
+fn main(x: u8) {
     // Test composed aliases in type positions (array sizes)
     let arr: [Field; Quadruple::<2>] = [0; 8];
     assert(arr.len() == 8);
@@ -49,14 +49,14 @@ fn main(x: Field) {
 
     let mut m = new_matrix::<3, 4>();
     m.elements[3 * 2 + 3] = 10;
-    m.elements[3 * 2 + x as u32] = 5 + x;
+    m.elements[3 * 2 + x as u32] = 5 + x as Field;
     assert(equal(m, m));
     let b = transpose(m);
     assert(b.elements != m.elements);
     assert(trace(b) != trace(m));
     assert(sum(b) == sum(m));
 
-    let a = test_2::<4>(x);
+    let a = test_2::<4>(x as Field);
     assert(a.len() == 1);
 }
 

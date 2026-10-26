@@ -5,19 +5,19 @@ expression: expanded_code
 use std::embedded_curve_ops::{embedded_curve_add, EmbeddedCurvePoint};
 
 unconstrained fn main(
-    points: [EmbeddedCurvePoint; 5],
-    scalars: [Field; 5],
-) -> pub EmbeddedCurvePoint {
+    points: [(u8, [u8; 32]); 5],
+    scalars: [[u8; 32]; 5],
+) -> pub ([u8; 32], [u8; 32]) {
     double_then_add_msm(points, scalars)
 }
 
 unconstrained fn double_then_add_msm<let N: u32>(
-    points: [EmbeddedCurvePoint; N],
-    scalars: [Field; N],
-) -> EmbeddedCurvePoint {
+    p: [(u8, [u8; 32]); N],
+    scalars: [[u8; 32]; N],
+) -> ([u8; 32], [u8; 32]) {
     let mut acc: EmbeddedCurvePoint = EmbeddedCurvePoint::point_at_infinity();
     for i in 0_u32..N {
-        let full_scalar: Field = scalars[i];
+        let full_scalar: Field = Field::from_le_bytes_checked(scalars[i]);
         if full_scalar == 0_Field { continue; };
         let full_scalar_bits: [bool; 254] = full_scalar.to_be_bits();
         let mut index_of_msb: u32 = 0_u32;
@@ -27,8 +27,9 @@ unconstrained fn double_then_add_msm<let N: u32>(
                 break;
             }
         }
-        let temp: EmbeddedCurvePoint = points[i];
-        let mut res: EmbeddedCurvePoint = points[i];
+        let temp: EmbeddedCurvePoint =
+            EmbeddedCurvePoint::new(p[i].0 as Field, Field::from_le_bytes_checked(p[i].1));
+        let mut res: EmbeddedCurvePoint = temp;
         for j in index_of_msb + 1_u32..254_u32 {
             res = embedded_curve_add(res, res);
             if full_scalar_bits[j] {
@@ -37,5 +38,5 @@ unconstrained fn double_then_add_msm<let N: u32>(
         }
         acc = embedded_curve_add(acc, res);
     }
-    acc
+    (acc.x.to_le_bytes(), acc.y.to_le_bytes())
 }

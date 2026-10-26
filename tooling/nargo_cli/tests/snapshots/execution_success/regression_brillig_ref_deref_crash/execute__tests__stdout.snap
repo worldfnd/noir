@@ -2,4 +2,4 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: stdout
 ---
-[regression_brillig_ref_deref_crash] Circuit output: [0x00]
+[regression_brillig_ref_deref_crash] Circuit output: [0]

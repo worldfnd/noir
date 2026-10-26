@@ -3,13 +3,13 @@ source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
 struct Point {
-    x: Field,
-    y: Field,
+    x: u8,
+    y: u8,
 }
 
 impl Point {
     fn serialize(self) -> [Field; 2] {
-        [self.x, self.y]
+        [self.x as Field, self.y as Field]
     }
 }
 
@@ -39,7 +39,7 @@ fn main(points: [Point; 3]) {
         }
     };
     if serialized_points.len() > 5_u32 {
-        let empty_point: Point = Point { x: 0_Field, y: 0_Field };
+        let empty_point: Point = Point { x: 0_u8, y: 0_u8 };
         serialized_points = serialized_points.append(empty_point.serialize().as_vector());
     };
     assert(sum(serialized_points) == 21_Field);

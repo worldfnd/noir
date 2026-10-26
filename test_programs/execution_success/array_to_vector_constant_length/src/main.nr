@@ -3,10 +3,10 @@ unconstrained fn return_array(val: Field) -> [Field; 1] {
     [val; 1]
 }
 
-fn main(val: Field) {
+fn main(val: u8) {
     // Safety: testing context
     unsafe {
-        let array = return_array(val);
+        let array = return_array(val as Field);
         assert_constant(array.as_vector().len());
     }
 }

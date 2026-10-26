@@ -2,7 +2,7 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-unconstrained fn main(cond: bool, idx: u32, go: bool) -> pub Field {
+unconstrained fn main(cond: bool, idx: u32, go: bool) -> pub u8 {
     let mut a: Field = 0_Field;
     let mut b: Field = 0_Field;
     let mut c: Field = 0_Field;
@@ -17,8 +17,8 @@ unconstrained fn main(cond: bool, idx: u32, go: bool) -> pub Field {
     if go {
         a = 5_Field;
         *r2 = 99_Field;
-        a
+        a as u8
     } else {
-        a
+        a as u8
     }
 }

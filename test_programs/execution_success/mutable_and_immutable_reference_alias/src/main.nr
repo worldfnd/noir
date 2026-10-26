@@ -1,6 +1,6 @@
-unconstrained fn main() -> pub Field {
+unconstrained fn main() -> pub u8 {
     let mut value = 1;
-    foo(&mut value, &value)
+    foo(&mut value, &value) as u8
 }
 
 unconstrained fn foo(v0: &mut Field, v1: &Field) -> Field {

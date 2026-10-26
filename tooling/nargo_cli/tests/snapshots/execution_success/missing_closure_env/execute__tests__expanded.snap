@@ -2,7 +2,7 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-fn main(x: Field) {
+fn main(x: u8) {
     let x1: &mut Field = &mut 42_Field;
     let set_x1: fn[(&mut Field,)](Field) = |y: Field| { *x1 = y; };
     assert(*x1 == 42_Field);
@@ -10,10 +10,10 @@ fn main(x: Field) {
     assert(*x1 == 44_Field);
     set_x1(*x1);
     assert(*x1 == 44_Field);
-    assert(x == 42_Field);
+    assert(x == 42_u8);
 }
 
 #[test]
 fn test_main() {
-    main(42_Field);
+    main(42_u8);
 }

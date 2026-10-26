@@ -1,6 +1,6 @@
-fn main(x: u32, array: [Field; 5]) {
-    insert(x, array);
-    insert_dynamic_array(x, array);
+fn main(x: u32, array: [u8; 5]) {
+    insert(x, array.map(|v| v as Field));
+    insert_dynamic_array(x, array.map(|v| v as Field));
 }
 
 fn insert(x: u32, array: [Field; 5]) {

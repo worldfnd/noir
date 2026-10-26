@@ -57,14 +57,15 @@ fn get_dog() -> Animal {
 
 struct Unit {}
 
-fn main(x: Field, y: Field) {
+fn main(x: u8, y: u8) {
     let unit: Unit = Unit {};
-    let first: Foo = Foo::default(x, y);
+    let first: Foo = Foo::default(x as Field, y as Field);
     let p: Pair = Pair { first: first, second: 1_Field };
-    assert(p.bar() == x);
-    assert(p.second == y);
+    assert(p.bar() == (x as Field));
+    assert(p.second == (y as Field));
     assert(p.first.array[0_u32] != p.first.array[1_u32]);
-    let (struct_from_tuple, a_bool): (MyStruct, bool) = test_struct_in_tuple(true, x, y);
+    let (struct_from_tuple, a_bool): (MyStruct, bool) =
+        test_struct_in_tuple(true, x as Field, y as Field);
     assert(struct_from_tuple.my_bool == true);
     assert(a_bool == true);
     assert(struct_from_tuple.my_int == 5_u32);

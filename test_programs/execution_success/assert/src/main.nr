@@ -1,4 +1,4 @@
-fn main(x: Field) {
+fn main(x: u8) {
     assert(x == 1);
     assert(1 == conditional(x != 0));
 }

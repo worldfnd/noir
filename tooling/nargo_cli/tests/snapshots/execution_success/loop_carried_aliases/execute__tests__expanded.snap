@@ -2,12 +2,12 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-fn main() -> pub (Field, Field) {
+fn main() -> pub (u32, u32) {
     // Safety: comment added by `nargo expand`
     unsafe {
         let result_tuple: Field = foo_tuple();
         let result_field: Field = foo_field();
-        (result_tuple, result_field)
+        (result_tuple as u32, result_field as u32)
     }
 }
 

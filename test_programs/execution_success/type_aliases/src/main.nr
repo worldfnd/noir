@@ -10,12 +10,12 @@ struct MyStruct {
     foo: Bar,
 }
 
-fn main(x: [Field; 2]) {
+fn main(x: [u8; 2]) {
     let a: Foo<Field> = [1, 2];
-    assert(a[0] != x[0]);
+    assert(a[0] != x[0] as Field);
 
     let b: Bar = 2;
-    assert(x[0] == b);
+    assert(x[0] as Field == b);
 
     let c: u8 = 1;
     let d: u32 = 2;

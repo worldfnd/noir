@@ -1,4 +1,4 @@
-fn main(x: Field) {
+fn main(x: u8) {
     let x1 = &mut 42;
     let set_x1 = |y| { *x1 = y; };
 

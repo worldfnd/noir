@@ -2,7 +2,7 @@
 // for context.
 // We were not accurately accounting for situations where the vector capacity tracker
 // was expecting a capacity from vector intrinsic results.
-fn main(expected: pub Field, first: Field, input: [Field; 20]) {
+fn main(expected: pub u8, first: u8, input: [u8; 20]) {
     let mut hasher_vector = input.as_vector();
     hasher_vector = hasher_vector.push_front(first);
     assert(hasher_vector[0] == expected);

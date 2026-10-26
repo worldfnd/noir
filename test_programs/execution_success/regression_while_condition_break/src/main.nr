@@ -6,7 +6,7 @@
 // `y[0] = 10` would corrupt the value read afterwards. `z = y` keeps the in-place `array_set` from
 // being optimized away. The correct result is `[1, 10]`; the missing clone would produce `[10, 10]`
 // (or fail SSA validation in a debug build).
-unconstrained fn main(cond: bool) -> pub [Field; 2] {
+unconstrained fn main(cond: bool) -> pub [u8; 2] {
     let mut x = [1, 2];
     let mut z = [0, 0];
     let mut i = 0;
@@ -30,5 +30,5 @@ unconstrained fn main(cond: bool) -> pub [Field; 2] {
         };
         i = i + 1;
     }
-    [x[0], z[0]]
+    [x[0] as u8, z[0] as u8]
 }

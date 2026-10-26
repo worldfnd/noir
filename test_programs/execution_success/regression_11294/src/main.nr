@@ -22,8 +22,8 @@ pub struct PrivateAccumulatedData {
 }
 
 pub struct PrivateCallRequest {
-    pub args_hash: Field,
-    pub returns_hash: Field,
+    pub args_hash: [u8; 32],
+    pub returns_hash: [u8; 32],
     pub start_side_effect_counter: u32,
     pub end_side_effect_counter: u32,
 }
@@ -134,8 +134,8 @@ impl Eq for PrivateCallRequest {
 impl Empty for PrivateCallRequest {
     fn empty() -> Self {
         PrivateCallRequest {
-            args_hash: 0,
-            returns_hash: 0,
+            args_hash: [0; 32],
+            returns_hash: [0; 32],
             start_side_effect_counter: 0,
             end_side_effect_counter: 0,
         }

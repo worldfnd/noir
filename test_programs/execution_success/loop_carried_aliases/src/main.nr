@@ -1,9 +1,9 @@
-fn main() -> pub (Field, Field) {
+fn main() -> pub (u32, u32) {
     // Safety: testing context
     unsafe {
         let result_tuple = foo_tuple();
         let result_field = foo_field();
-        (result_tuple, result_field)
+        (result_tuple as u32, result_field as u32)
     }
 }
 

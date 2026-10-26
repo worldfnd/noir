@@ -2,7 +2,7 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-fn main(choose: bool, do_pop: bool) -> pub Field {
+fn main(choose: bool, do_pop: bool) -> pub u8 {
     let mut v: [Field] = if choose {
         [1_Field].as_vector()
     } else {
@@ -13,8 +13,8 @@ fn main(choose: bool, do_pop: bool) -> pub Field {
         v = new_v;
     };
     if v.len() == 0_u32 {
-        0_Field
+        0_u8
     } else {
-        v[0_u32]
+        v[0_u32] as u8
     }
 }

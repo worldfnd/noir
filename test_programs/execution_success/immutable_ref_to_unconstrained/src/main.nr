@@ -13,10 +13,10 @@ struct Foo {
     y: [u32; 3],
 }
 
-fn main(x: pub Field, y: pub u32) {
+fn main(x: pub u8, y: pub u32) {
     // Safety:
-    let result = unsafe { read_ref(&x) };
-    assert_eq(result, x);
+    let result = unsafe { read_ref(&Field::from(x)) };
+    assert_eq(result, x as Field);
 
     // `foo` is built from a witness so the compiler cannot fold the read away at
     // compile time, forcing the struct to be read back through the reference at runtime.

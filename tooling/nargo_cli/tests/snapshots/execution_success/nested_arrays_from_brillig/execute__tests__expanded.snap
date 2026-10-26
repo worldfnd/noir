@@ -26,8 +26,9 @@ unconstrained fn create_inside_brillig(values: [Field; 6]) -> [MyNote; 2] {
     [note0, note1]
 }
 
-fn main(values: [Field; 6]) {
+fn main(values: [u8; 6]) {
     // Safety: comment added by `nargo expand`
-    let notes: [MyNote; 2] = unsafe { create_inside_brillig(values) };
+    let notes: [MyNote; 2] =
+        unsafe { create_inside_brillig(values.map(unconstrained |v: u8| -> Field { v as Field })) };
     assert(access_nested(notes) == (((2_Field + 4_Field) + 3_Field) + 1_Field));
 }

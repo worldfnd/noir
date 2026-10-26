@@ -2,8 +2,8 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-pub fn main(in0: Field) -> pub (Field, Field) {
-    let out0: Field = in0 * in0;
-    let out1: Field = in0 * in0;
-    (out0, out1)
+pub fn main(in0: u8) -> pub (u16, u16) {
+    let out0: u8 = in0 * in0;
+    let out1: u8 = in0 * in0;
+    (out0 as u16, out1 as u16)
 }

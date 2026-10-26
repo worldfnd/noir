@@ -2,4 +2,4 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: stdout
 ---
-[vector_pop_back_remove_if_else_bug] Circuit output: 0x00
+[vector_pop_back_remove_if_else_bug] Circuit output: 0

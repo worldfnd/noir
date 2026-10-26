@@ -9,13 +9,13 @@ pub fn poseidon_hash<let N: u32>(inputs: [Field; N]) -> Field {
 }
 
 fn main(
-    to_hash: [[Field; HASH_LENGTH]; NUM_HASHES],
+    to_hash: [[u8; HASH_LENGTH]; NUM_HASHES],
     enable: [bool; NUM_HASHES],
-) -> pub [Field; NUM_HASHES + 1] {
+) -> pub [[u8; 32]; NUM_HASHES + 1] {
     let mut result = [0; NUM_HASHES + 1];
     for i in 0..NUM_HASHES {
         let enable = enable[i];
-        let to_hash = to_hash[i];
+        let to_hash = to_hash[i].map(|x| x as Field);
         if enable {
             result[i] = poseidon_hash(to_hash);
         }
@@ -25,9 +25,9 @@ fn main(
     // is monomorphized correctly.
     let mut double_preimage = [0; 20];
     for i in 0..HASH_LENGTH * 2 {
-        double_preimage[i] = to_hash[0][i % HASH_LENGTH];
+        double_preimage[i] = to_hash[0][i % HASH_LENGTH] as Field;
     }
     result[NUM_HASHES] = poseidon_hash(double_preimage);
 
-    result
+    result.map(|hash: Field| hash.to_le_bytes())
 }

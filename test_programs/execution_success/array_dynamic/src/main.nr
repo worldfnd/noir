@@ -5,7 +5,7 @@ fn main(
     index: [u32; 5],
     index2: [u32; 5],
     offset: u32,
-    sublen: Field,
+    sublen: u8,
 ) {
     let idx = (z - 5 * t - 5);
     //dynamic array test

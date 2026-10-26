@@ -12,10 +12,10 @@ unconstrained fn baz(x: Field) -> Field {
     x
 }
 
-fn main(x: Field, y: pub Field) {
+fn main(x: u8, y: pub u8) {
     // Safety: test
-    let x = unsafe { baz(x) };
+    let x = unsafe { baz(x as Field) };
     foo(x);
-    foo(y);
-    assert(x != y);
+    foo(y as Field);
+    assert(x != y as Field);
 }

@@ -2,10 +2,11 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-unconstrained fn main() -> pub Field {
+unconstrained fn main() -> pub [u8; 32] {
     func_2(
         [(0_u32, &mut -292434322542114415011969994633470574393_Field)],
     )
+        .to_le_bytes()
 }
 
 unconstrained fn func_2(mut b: [(u32, &mut Field); 1]) -> Field {

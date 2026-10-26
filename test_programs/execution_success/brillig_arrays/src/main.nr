@@ -1,11 +1,11 @@
 // Tests a very simple program.
 //
 // The features being tested are array reads and writes
-fn main(x: [Field; 3]) {
+fn main(x: [u8; 3]) {
     // Safety: testing context
     unsafe {
-        read_array(x);
-        read_write_array(x);
+        read_array(x.map(|v| v as Field));
+        read_write_array(x.map(|v| v as Field));
     }
 }
 

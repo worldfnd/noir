@@ -8,7 +8,7 @@ struct EnumEmulation {
     c: Option<Field>,
 }
 
-unconstrained fn main() -> pub Field {
+unconstrained fn main() -> pub u8 {
     let mut emulated_enum: EnumEmulation = EnumEmulation {
         a: Option::<Field>::some(1_Field),
         b: Option::<Field>::none(),
@@ -18,5 +18,5 @@ unconstrained fn main() -> pub Field {
         assert(emulated_enum.a.unwrap() == 1_Field);
     }
     emulated_enum.a = Option::<Field>::some(2_Field);
-    emulated_enum.a.unwrap()
+    emulated_enum.a.unwrap() as u8
 }

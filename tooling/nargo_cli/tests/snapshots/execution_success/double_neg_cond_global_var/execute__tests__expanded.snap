@@ -4,21 +4,21 @@ expression: expanded_code
 ---
 global G_A: bool = false;
 
-fn main(a: Field) -> pub Field {
+fn main(a: u8) -> pub u8 {
     if (
         if !G_A {
             if !G_A {
-                a as u128
+                (a as Field) as u128
             } else {
-                a as u128
+                (a as Field) as u128
             }
         } else {
-            a as u128
+            (a as Field) as u128
         }
-            <= (a as u128)
+            <= ((a as Field) as u128)
     ) as bool {
-        --a
+        --(a as Field) as u8
     } else {
-        --a
+        --(a as Field) as u8
     }
 }

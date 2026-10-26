@@ -8,10 +8,10 @@ global G_B: [(str<2>, Field)] = @[
     ("XJ", 0x30644e72e131a029b85045b68181585c43fbde22bc449717e3070e420da8717f),
 ];
 
-fn main(b: bool) -> pub Field {
+fn main(b: bool) -> pub u128 {
     if b {
-        G_B[1783103175_u32 % G_B.len()].1
+        G_B[1783103175_u32 % G_B.len()].1 as u128
     } else {
-        G_B[1771627614_u32].1 / G_B[2334904280_u32].1
+        (G_B[1771627614_u32].1 / G_B[2334904280_u32].1) as u128
     }
 }

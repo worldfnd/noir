@@ -1,7 +1,7 @@
 global G_A: [(bool, bool, str<4>); 3] =
     [(false, true, "LZUT"), (false, true, "MFFA"), (false, true, "XPHT")];
 
-fn main() -> pub Field {
+fn main() -> pub u8 {
     let mut a: ((str<4>, Field, str<4>, str<3>, bool), [&mut u8; 2]) = (
         (G_A[2].2, (unsafe { func_4() } as Field), G_A[1].2, "TWC", false), [(&mut 57), (&mut 219)],
     );

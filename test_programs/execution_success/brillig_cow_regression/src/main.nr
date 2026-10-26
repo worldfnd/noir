@@ -12,29 +12,29 @@ global TX_EFFECT_HASH_LOG_FIELDS: u32 = 4;
 global TX_EFFECT_HASH_FULL_FIELDS: u32 = 165;
 
 struct PublicDataUpdateRequest {
-    leaf_slot: Field,
-    old_value: Field,
-    new_value: Field,
+    leaf_slot: u8,
+    old_value: u8,
+    new_value: u8,
 }
 
 struct NewContractData {
-    contract_address: Field,
-    portal_contract_address: Field,
+    contract_address: u8,
+    portal_contract_address: u8,
 }
 
 impl NewContractData {
-    fn hash(self) -> Field {
-        std::hash::pedersen_hash([self.contract_address, self.portal_contract_address])
+    fn hash(NewContractData { contract_address, portal_contract_address }: Self) -> Field {
+        std::hash::pedersen_hash([contract_address.into(), portal_contract_address.into()])
     }
 }
 
 struct DataToHash {
-    new_note_hashes: [Field; MAX_NOTE_HASHES_PER_TX],
-    new_nullifiers: [Field; MAX_NULLIFIERS_PER_TX],
+    new_note_hashes: [u8; MAX_NOTE_HASHES_PER_TX],
+    new_nullifiers: [u8; MAX_NULLIFIERS_PER_TX],
     public_data_update_requests: [PublicDataUpdateRequest; MAX_PUBLIC_DATA_UPDATE_REQUESTS_PER_TX],
-    new_l2_to_l1_msgs: [Field; MAX_L2_TO_L1_MSGS_PER_TX],
-    encrypted_logs_hash: [Field; NUM_FIELDS_PER_SHA256],
-    unencrypted_logs_hash: [Field; NUM_FIELDS_PER_SHA256],
+    new_l2_to_l1_msgs: [u8; MAX_L2_TO_L1_MSGS_PER_TX],
+    encrypted_logs_hash: [u8; NUM_FIELDS_PER_SHA256],
+    unencrypted_logs_hash: [u8; NUM_FIELDS_PER_SHA256],
     new_contracts: [NewContractData; MAX_NEW_CONTRACTS_PER_TX],
 }
 
@@ -97,12 +97,12 @@ impl U256 {
     }
 }
 
-unconstrained fn main(kernel_data: DataToHash) -> pub [Field; NUM_FIELDS_PER_SHA256] {
+unconstrained fn main(kernel_data: DataToHash) -> pub [u128; NUM_FIELDS_PER_SHA256] {
     let mut tx_effects_hash_inputs = [0; TX_EFFECT_HASH_INPUT_SIZE];
 
     let new_note_hashes = kernel_data.new_note_hashes;
     let new_nullifiers = kernel_data.new_nullifiers;
-    let public_data_update_requests = kernel_data.public_data_update_requests;
+    let data_update_requests = kernel_data.public_data_update_requests;
     let l2ToL1Msgs = kernel_data.new_l2_to_l1_msgs;
     let encryptedLogsHash = kernel_data.encrypted_logs_hash;
     let unencryptedLogsHash = kernel_data.unencrypted_logs_hash;
@@ -110,23 +110,23 @@ unconstrained fn main(kernel_data: DataToHash) -> pub [Field; NUM_FIELDS_PER_SHA
     let mut offset = 0;
 
     for j in 0..MAX_NOTE_HASHES_PER_TX {
-        tx_effects_hash_inputs[offset + j] = new_note_hashes[j];
+        tx_effects_hash_inputs[offset + j] = new_note_hashes[j] as Field;
     }
     offset += MAX_NOTE_HASHES_PER_TX;
 
     for j in 0..MAX_NULLIFIERS_PER_TX {
-        tx_effects_hash_inputs[offset + j] = new_nullifiers[j];
+        tx_effects_hash_inputs[offset + j] = new_nullifiers[j] as Field;
     }
     offset += MAX_NULLIFIERS_PER_TX;
 
     for j in 0..MAX_PUBLIC_DATA_UPDATE_REQUESTS_PER_TX {
-        tx_effects_hash_inputs[offset + j * 2] = public_data_update_requests[j].leaf_slot;
-        tx_effects_hash_inputs[offset + j * 2 + 1] = public_data_update_requests[j].new_value;
+        tx_effects_hash_inputs[offset + j * 2] = data_update_requests[j].leaf_slot as Field;
+        tx_effects_hash_inputs[offset + j * 2 + 1] = data_update_requests[j].new_value as Field;
     }
     offset += MAX_PUBLIC_DATA_UPDATE_REQUESTS_PER_TX * 2;
 
     for j in 0..MAX_L2_TO_L1_MSGS_PER_TX {
-        tx_effects_hash_inputs[offset + j] = l2ToL1Msgs[j];
+        tx_effects_hash_inputs[offset + j] = l2ToL1Msgs[j] as Field;
     }
     offset += MAX_L2_TO_L1_MSGS_PER_TX;
 
@@ -136,20 +136,20 @@ unconstrained fn main(kernel_data: DataToHash) -> pub [Field; NUM_FIELDS_PER_SHA
     offset += MAX_NEW_CONTRACTS_PER_TX;
 
     let new_contracts = kernel_data.new_contracts;
-    tx_effects_hash_inputs[offset] = new_contracts[0].contract_address;
+    tx_effects_hash_inputs[offset] = new_contracts[0].contract_address as Field;
 
-    tx_effects_hash_inputs[offset + 1] = new_contracts[0].portal_contract_address;
+    tx_effects_hash_inputs[offset + 1] = new_contracts[0].portal_contract_address as Field;
 
     offset += MAX_NEW_CONTRACTS_PER_TX * 2;
 
     for j in 0..NUM_FIELDS_PER_SHA256 {
-        tx_effects_hash_inputs[offset + j] = encryptedLogsHash[j];
+        tx_effects_hash_inputs[offset + j] = encryptedLogsHash[j] as Field;
     }
 
     offset += NUM_ENCRYPTED_LOGS_HASHES_PER_TX * NUM_FIELDS_PER_SHA256;
 
     for j in 0..NUM_FIELDS_PER_SHA256 {
-        tx_effects_hash_inputs[offset + j] = unencryptedLogsHash[j];
+        tx_effects_hash_inputs[offset + j] = unencryptedLogsHash[j] as Field;
     }
 
     offset += NUM_UNENCRYPTED_LOGS_HASHES_PER_TX * NUM_FIELDS_PER_SHA256;
@@ -173,5 +173,5 @@ unconstrained fn main(kernel_data: DataToHash) -> pub [Field; NUM_FIELDS_PER_SHA
     }
 
     let blake2_digest = std::hash::blake2s(hash_input_flattened);
-    U256::from_bytes32(blake2_digest).to_u128_limbs()
+    U256::from_bytes32(blake2_digest).to_u128_limbs().map(|limb| limb as u128)
 }

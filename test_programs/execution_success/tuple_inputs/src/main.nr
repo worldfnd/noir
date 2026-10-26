@@ -1,14 +1,14 @@
 struct Bar {
-    inner: [Field; 3],
+    inner: [u8; 3],
 }
 
 struct Foo {
-    a: Field,
-    b: [Field; 3],
+    a: u8,
+    b: [u8; 3],
     bar: Bar,
 }
 
-fn main(pair: (Field, Field), x: [(u8, u8, u8); 2], struct_pair: (Foo, Bar)) -> pub (Field, u8) {
+fn main(pair: (u8, u8), x: [(u8, u8, u8); 2], struct_pair: (Foo, Bar)) -> pub (u8, u8) {
     let mut start_val = 0;
     for i in 0..2 {
         assert(x[i].0 == start_val);
@@ -31,5 +31,5 @@ fn main(pair: (Field, Field), x: [(u8, u8, u8); 2], struct_pair: (Foo, Bar)) -> 
     assert(u == pair.0 + 1);
     assert(v == pair.0);
 
-    (u, v as u8)
+    (u, v)
 }

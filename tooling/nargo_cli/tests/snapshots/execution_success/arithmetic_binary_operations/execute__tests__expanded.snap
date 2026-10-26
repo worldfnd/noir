@@ -2,11 +2,11 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-fn main(x: Field, y: Field, z: Field) -> pub Field {
-    assert(((y as u8) % 2_u8) == 0_u8);
-    let a: Field = x + x;
-    let b: Field = a - y;
-    let c: Field = b * z;
+fn main(x: u8, y: u8, z: u8) -> pub u8 {
+    assert((((y as Field) as u8) % 2_u8) == 0_u8);
+    let a: Field = (x as Field) + (x as Field);
+    let b: Field = a - (y as Field);
+    let c: Field = b * (z as Field);
     let d: Field = c / a;
-    d * a
+    (d * a) as u8
 }

@@ -6,10 +6,10 @@ type MyField = Field;
 
 type AliasOfAlias = MyField;
 
-fn main(x: Field) {
-    let expected: [bool; 8] = x.to_le_bits();
-    let bits: [bool; 8] = x.to_le_bits();
+fn main(x: u8) {
+    let expected: [bool; 8] = (x as Field).to_le_bits();
+    let bits: [bool; 8] = (x as Field).to_le_bits();
     assert(bits == expected);
-    let bits2: [bool; 8] = x.to_le_bits();
+    let bits2: [bool; 8] = (x as Field).to_le_bits();
     assert(bits2 == expected);
 }

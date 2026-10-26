@@ -2,8 +2,8 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-fn main(mut x: Field) {
-    let one: Field = 1_Field;
+fn main(x: u8) {
+    let (one, mut x): (Field, Field) = (1_Field, x as Field);
     let add1: fn[(Field,)](&mut Field) = |z: &mut Field| { *z = *z + one; };
     let two: Field = 2_Field;
     let add2: fn[(Field,)](&mut Field) = |z: &mut Field| { *z = *z + two; };

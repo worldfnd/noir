@@ -4,12 +4,12 @@ expression: expanded_code
 ---
 global G_A: [Field] = @[];
 
-fn main(a: u32) -> pub Field {
+fn main(a: u32) -> pub [u8; 32] {
     if a == 10_u32 {
-        G_A[1_u32 % G_A.len()]
+        G_A[1_u32 % G_A.len()].to_le_bytes()
     } else if a == 20_u32 {
-        a as Field
+        (a as Field).to_le_bytes()
     } else {
-        -1_Field
+        (0_Field - 1_Field).to_le_bytes()
     }
 }

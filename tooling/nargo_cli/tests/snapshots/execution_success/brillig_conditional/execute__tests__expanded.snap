@@ -2,10 +2,10 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-fn main(x: Field) {
+fn main(x: u8) {
     // Safety: comment added by `nargo expand`
     unsafe {
-        assert(4_Field == conditional(x == 1_Field));
+        assert(4_Field == conditional(x == 1_u8));
     }
 }
 

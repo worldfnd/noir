@@ -2,11 +2,11 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-fn main(x: [Field; 3]) {
+fn main(x: [u8; 3]) {
     // Safety: comment added by `nargo expand`
     unsafe {
-        read_array(x);
-        read_write_array(x);
+        read_array(x.map(unconstrained |v: u8| -> Field { v as Field }));
+        read_write_array(x.map(unconstrained |v: u8| -> Field { v as Field }));
     }
 }
 

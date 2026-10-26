@@ -1,7 +1,7 @@
 // This program lead to panics previously due to the compiler lowering it to multiple blocks
 // which all jumped to the same end block. It runs now due to the compiler lowering to the
 // equivalent of a nested series of if-else instead.
-fn main(x: Field) {
+fn main(x: u8) {
     match x {
         1 => panic("Branch 1 should not be taken"),
         2 => panic("Branch 2 should not be taken"),

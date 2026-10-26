@@ -2,8 +2,8 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-fn main(x: Field, y: pub Field) {
-    let string: str<14> = "i: {i}, j: {j}";
+fn main(x: u8, y: pub u8) {
+    let (string, x, y): (str<14>, Field, Field) = ("i: {i}, j: {j}", x as Field, y as Field);
     println(string);
     let fmt_str: fmtstr<14, (Field, Field)> = f"i: {x}, j: {y}";
     let fmt_str: fmtstr<14, (Field, Field)> = string_identity(fmt_str);

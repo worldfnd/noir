@@ -1,5 +1,5 @@
-fn main(mut x: Field) {
-    let one = 1;
+fn main(x: u8) {
+    let (one, mut x) = (1, x as Field);
     let add1 = |z| { *z = *z + one; };
 
     let two = 2;

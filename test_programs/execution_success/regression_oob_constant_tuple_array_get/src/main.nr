@@ -22,12 +22,12 @@
 global G_A: [(str<4>, str<4>, str<4>, Field, bool); 2] =
     [("FTIU", "XRAD", "BNIZ", 1, true), ("KTDA", "JDVL", "VGCJ", 2, true)];
 
-unconstrained fn main(run: bool) -> pub Field {
+unconstrained fn main(run: bool) -> pub u8 {
     let mut result: Field = 0;
     if run {
         if G_A[if false { 1_u32 } else { 818863061_u32 }].4 {
             result = 1;
         }
     }
-    result
+    result as u8
 }

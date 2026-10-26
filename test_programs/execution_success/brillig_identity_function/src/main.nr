@@ -5,20 +5,20 @@ struct myStruct {
 // Tests a very simple program.
 //
 // The features being tested is the identity function in Brillig
-fn main(x: Field) {
+fn main(x: u8) {
     // Safety: testing context
     unsafe {
-        assert(x == identity(x));
+        assert(x as Field == identity(x as Field));
         // TODO: add support for array comparison
-        let arr = identity_array([x, x]);
-        assert(x == arr[0]);
-        assert(x == arr[1]);
+        let arr = identity_array([x as Field, x as Field]);
+        assert(x as Field == arr[0]);
+        assert(x as Field == arr[1]);
 
-        let s = myStruct { foo: x, foo_arr: [x, x] };
+        let s = myStruct { foo: x as Field, foo_arr: [x as Field, x as Field] };
         let identity_struct = identity_struct(s);
-        assert(x == identity_struct.foo);
-        assert(x == identity_struct.foo_arr[0]);
-        assert(x == identity_struct.foo_arr[1]);
+        assert(x as Field == identity_struct.foo);
+        assert(x as Field == identity_struct.foo_arr[0]);
+        assert(x as Field == identity_struct.foo_arr[1]);
     }
 }
 

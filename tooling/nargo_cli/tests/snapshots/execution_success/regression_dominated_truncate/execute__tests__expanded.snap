@@ -11,8 +11,8 @@ unconstrained fn helper(cond: bool, x: Field) -> Field {
     }
 }
 
-fn main(cond: bool, x: pub Field) {
+fn main(cond: bool, x: pub u16) {
     // Safety: comment added by `nargo expand`
-    let y: Field = unsafe { helper(cond, x) };
-    assert(y != x);
+    let y: Field = unsafe { helper(cond, x as Field) };
+    assert(y != (x as Field));
 }

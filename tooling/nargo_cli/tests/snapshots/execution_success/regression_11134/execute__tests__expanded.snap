@@ -2,7 +2,7 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-fn main(c: bool) -> pub (Field, Field) {
+fn main(c: bool) -> pub (u8, u8) {
     let f: fn() -> [Field] = std::hint::black_box(|| -> [Field] @[1_Field, 2_Field, 3_Field]);
     let v: [Field] = if c { f() } else { @[4_Field, 5_Field] };
     let x: Field = v[0_u32];
@@ -15,7 +15,7 @@ fn main(c: bool) -> pub (Field, Field) {
         let m: Field = call_and_deref(h);
         assert((n + 1_Field) == m);
     };
-    (x, y)
+    (x as u8, y as u8)
 }
 
 unconstrained fn call_and_deref(f: fn() -> &mut Field) -> Field {

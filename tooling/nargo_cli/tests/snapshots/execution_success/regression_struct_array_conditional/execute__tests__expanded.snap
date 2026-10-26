@@ -3,7 +3,7 @@ source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
 struct foo {
-    value: Field,
+    value: u128,
     counter: u8,
     dummy: u8,
 }
@@ -26,10 +26,10 @@ fn main(x: [foo; 3], y: u32, z: u32) -> pub u8 {
     let mut c: [bar_field; 3] =
         [bar_field { value: 0_Field, counter: 0_u8, dummy: [0_Field; 3] }; 3];
     for i in 0_u32..3_u32 {
-        b[i].value = x[i].value;
+        b[i].value = x[i].value as Field;
         b[i].counter = x[i].counter;
         b[i].dummy[0_u32] = x[i].dummy;
-        c[i].value = x[i].value;
+        c[i].value = x[i].value as Field;
         c[i].counter = x[i].counter;
         c[i].dummy[0_u32] = x[i].dummy as Field;
     }

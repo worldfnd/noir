@@ -1,5 +1,5 @@
-fn main(a: Field, x: u32) -> pub Field {
-    if a == 1 {
+fn main(a: u8, x: u32) -> pub u8 {
+    if a as Field == 1 {
         0
     } else {
         let mut d = [];

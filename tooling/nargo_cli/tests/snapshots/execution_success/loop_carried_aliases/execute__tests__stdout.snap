@@ -2,4 +2,4 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: stdout
 ---
-[loop_carried_aliases] Circuit output: (0xdeadbeef, 0xdeadbeef)
+[loop_carried_aliases] Circuit output: (3735928559, 3735928559)
