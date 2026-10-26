@@ -3,7 +3,7 @@ use crate::tests::{assert_no_errors, check_errors};
 #[test]
 fn resolve_unused_var() {
     let src = r#"
-        fn main(x : Field) {
+        fn main(x : u32) {
             let y = x + x;
                 ^ unused variable y
                 ~ unused variable
@@ -16,7 +16,7 @@ fn resolve_unused_var() {
 #[test]
 fn resolve_unresolved_var() {
     let src = r#"
-        fn main(x : Field) {
+        fn main(x : u32) {
             let y = x + x;
             assert(y == z);
                         ^ cannot find `z` in this scope
@@ -29,7 +29,7 @@ fn resolve_unresolved_var() {
 #[test]
 fn unresolved_path() {
     let src = "
-        fn main(x : Field) {
+        fn main(x : u32) {
             let _z = some::path::to::a::func(x);
                      ^^^^ Could not resolve 'some' in path
         }
@@ -40,7 +40,7 @@ fn unresolved_path() {
 #[test]
 fn resolve_literal_expr() {
     let src = r#"
-        fn main(x : Field) {
+        fn main(x : u32) {
             let y = 5;
             assert(y == x);
         }
@@ -99,7 +99,7 @@ fn resolve_fmt_string_with_global() {
 #[test]
 fn multiple_resolution_errors() {
     let src = r#"
-        fn main(x : Field) {
+        fn main(x : u32) {
            let y = foo::bar(x);
                    ^^^ Could not resolve 'foo' in path
            let z = y + a;
@@ -126,7 +126,7 @@ fn bit_not_on_untyped_integer() {
 #[test]
 fn resolve_prefix_expr() {
     let src = r#"
-        fn main(x : Field) {
+        fn main(x : i32) {
             let _y = -x;
         }
     "#;

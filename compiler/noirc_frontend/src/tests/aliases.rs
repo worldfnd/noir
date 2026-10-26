@@ -306,7 +306,8 @@ fn type_alias_to_numeric_as_generic() {
         a: T,
         b: [Field; N],
     }
-    fn main(x: Field) {
+    fn main(x: u32) {
+        let x = x as Field;
         let a = foo::<4>(x);
         assert(a.a == x);
     }
@@ -1194,7 +1195,7 @@ fn no_false_cycle_from_stale_current_item_after_type_alias() {
     // record a dependency from `B` to `A` (which would create a false A↔B cycle).
     let src = r#"
         type A = B;
-        type B = Field;
+        type B = u32;
 
         trait Dummy<T> {}
         trait Foo: Dummy<A> {}

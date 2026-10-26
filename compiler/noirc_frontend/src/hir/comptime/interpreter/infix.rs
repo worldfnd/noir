@@ -308,8 +308,9 @@ mod tests {
     #[test]
     fn div_zero_field() {
         let src = r#"
-            comptime fn main() -> pub Field {
-                32 / 0
+            comptime fn main() -> pub u32 {
+                let x: Field = 32 / 0;
+                x as u32
             }
         "#;
         let result = interpret_expect_error(src);

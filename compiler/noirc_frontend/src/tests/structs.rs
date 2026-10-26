@@ -523,12 +523,12 @@ fn deny_cyclic_structs() {
     }
 
     // Here we check the input and output types
-    fn main(_: Foo) -> pub [Foo; 0] {
+    fn main(x: Foo) -> pub [Foo; 1] {
         // Here we also check if the call returns a function, another check
         // that must be done with care.
         // Safety:
         let _ = unsafe { foo() };
-        []
+        [x]
     }
     "#;
     check_errors(src);

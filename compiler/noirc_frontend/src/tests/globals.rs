@@ -550,7 +550,8 @@ fn comptime_global_used_in_runtime_code() {
 
     pub comptime global foo_global: fn(Field) = |x: Field| baz(x);
 
-    fn main(x: Field) {
+    fn main(x: u32) {
+        let x = x as Field;
         foo_global(x);
         ^^^^^^^^^^ Comptime global `foo_global` used in non-comptime code
         ~~~~~~~~~~ Consider using a comptime function or block
@@ -585,7 +586,8 @@ fn comptime_global_closure_cannot_be_inlined_into_runtime() {
 
     pub comptime global foo_global: fn(Field) = |x: Field| baz(x);
 
-    fn main(x: Field) {
+    fn main(x: u32) {
+        let x = x as Field;
         let _ = comptime { foo_global }(x);
                 ^^^^^^^^^^^^^^^^^^^^^^^ Cannot inline values of type `fn(Field) -> ()` into this position
                 ~~~~~~~~~~~~~~~~~~~~~~~ Cannot inline value `(closure)`

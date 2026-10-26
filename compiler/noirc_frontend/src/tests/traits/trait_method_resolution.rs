@@ -1169,7 +1169,7 @@ fn trait_method_and_struct_method_with_same_name_and_turbofish() {
 #[test]
 fn no_eq_impl_for_struct_in_assert_eq() {
     let src = r#"
-    struct myStruct {}
+    struct myStruct { a: u32 }
 
     fn main(x: myStruct, y: pub myStruct) {
         assert_eq(x, y);

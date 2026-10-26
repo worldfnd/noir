@@ -856,7 +856,8 @@ fn match_constructor_pattern_on_integer_gives_type_error() {
     let src = "
     struct S {}
 
-    fn main(x: u32, _b: S) {
+    fn main(x: u32) {
+        let _b = S {};
         match x {
             S {} => (),
             ^^^^ Expected type u32, found type S

@@ -322,7 +322,7 @@ fn get_lambda_captures(
 #[test]
 fn resolve_basic_closure() {
     let src = r#"
-        fn main(x : Field) -> pub Field {
+        fn main(x : u32) -> pub u32 {
             let closure = |y| y + x;
             closure(x)
         }
@@ -355,20 +355,20 @@ fn resolve_simplified_closure() {
 #[test]
 fn resolve_complex_closures() {
     let src = r#"
-        fn main(x: Field) -> pub Field {
-            let closure_without_captures = |x: Field| -> Field { x + x };
+        fn main(x: u32) -> pub u32 {
+            let closure_without_captures = |x: u32| -> u32 { x + x };
             let a = closure_without_captures(1);
 
-            let closure_capturing_a_param = |y: Field| -> Field { y + x };
+            let closure_capturing_a_param = |y: u32| -> u32 { y + x };
             let b = closure_capturing_a_param(2);
 
-            let closure_capturing_a_local_var = |y: Field| -> Field { y + b };
+            let closure_capturing_a_local_var = |y: u32| -> u32 { y + b };
             let c = closure_capturing_a_local_var(3);
 
-            let closure_with_transitive_captures = |y: Field| -> Field {
+            let closure_with_transitive_captures = |y: u32| -> u32 {
                 let d = 5;
-                let nested_closure = |z: Field| -> Field {
-                    let doubly_nested_closure = |w: Field| -> Field { w + x + b };
+                let nested_closure = |z: u32| -> u32 {
+                    let doubly_nested_closure = |w: u32| -> u32 { w + x + b };
                     a + z + y + d + x + doubly_nested_closure(4) + x + y
                 };
                 let res = nested_closure(5);
@@ -620,8 +620,8 @@ fn global_captured_closure_cannot_be_inlined() {
         |x: Field| x + offset
     };
 
-    fn main(x: Field) -> pub Field {
-        ADD_ONE(x)
+    fn main(x: u32) -> pub u32 {
+        ADD_ONE(x as Field) as u32
     }
     "#;
     check_monomorphization_error(src);
@@ -638,9 +638,9 @@ fn macro_unquote_captured_closure_cannot_be_inlined() {
                  ~ Cannot inline value `(closure)`
     }
 
-    fn main(x: Field) -> pub Field {
+    fn main(x: u32) -> pub u32 {
         let f = make_adder!();
-        f(x)
+        f(x as Field) as u32
     }
     "#;
     check_errors(src);
