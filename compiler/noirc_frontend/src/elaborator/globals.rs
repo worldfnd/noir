@@ -28,6 +28,7 @@ use crate::{
     hir_def::{expr::HirExpression, stmt::HirStatement},
     node_interner::{DependencyId, GlobalId, GlobalValue},
     token::SecondaryAttributeKind,
+    validity::ProgramBoundary,
 };
 
 use super::Elaborator;
@@ -120,11 +121,14 @@ impl Elaborator<'_> {
 
         // Globals marked with `#[abi(tag)]` are emitted directly into the contract's ABI, so
         // their types must be representable in the ABI. We reuse `program_validity` (in input
-        // mode) since the set of ABI-representable value types coincides with what a `main`
-        // entry-point accepts as a parameter, except for the field's bound on integers: a tag
-        // carries an integer's magnitude rather than a field element.
+        // mode, as a harness) since the set of ABI-representable value types is that of the sized
+        // program inputs, `Field` included: a tag is not an entry point input.
+        if has_abi_attribute {
+            self.define_deferred_data_types_in(&let_statement.r#type);
+        }
         if has_abi_attribute
-            && let Some(invalid_type) = let_statement.r#type.program_validity(false, None)
+            && let Some(invalid_type) =
+                let_statement.r#type.program_validity(false, ProgramBoundary::Harness)
         {
             let location = abi_type_location.unwrap_or(location);
             self.push_err(ResolverError::NonAbiTypeInAbiGlobal { invalid_type, location });

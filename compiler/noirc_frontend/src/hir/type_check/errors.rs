@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::rc::Rc;
 
-use acvm::{FieldConfig, FieldValue};
+use acvm::FieldValue;
 use iter_extended::vecmap;
 use noirc_errors::CustomDiagnostic as Diagnostic;
 use noirc_errors::DiagnosticKind;
@@ -18,8 +18,11 @@ use crate::hir::resolution::errors::ResolverError;
 use crate::hir_def::traits::TraitConstraint;
 use crate::hir_def::types::{BinaryTypeOperator, Type};
 use crate::node_interner::NodeInterner;
-use crate::shared::{LOWERABLE_INTEGER_TYPES, Signedness};
+use crate::shared::Signedness;
 use crate::validity::InvalidType;
+
+/// The note on an invalid entry point type that has no note of its own.
+pub(crate) const ENTRY_POINT_TYPES_NOTE: &str = "Note: vectors, references, or any type containing them may not be used in main, contract functions, test functions, fuzz functions or foldable functions. Neither may empty arrays or empty strings, except in the return of a test, fuzz or foldable function.";
 
 /// Rust also only shows 3 maximum, even for short patterns.
 pub const MAX_MISSING_CASES: usize = 3;
@@ -776,14 +779,19 @@ impl<'a> From<&'a TypeCheckError> for Diagnostic {
                 }
 
                 let note = match invalid_type.innermost() {
-                    InvalidType::IntegerExceedsField { field, .. } => {
-                        let widest = FieldConfig::new(*field).num_bits() - 1;
-                        format!("Note: under {field}, an integer that main or a contract function takes or returns must be at most {widest} bits wide, so that each of its values is below the field modulus. Split a wider integer into narrower ones.")
+                    InvalidType::Field(_) => {
+                        "Note: main and contract functions take and return no `Field`, so that a program's inputs are read the same way on every field. Use an integer type, or bytes such as `[u8; 32]` for a hash or a curve coordinate, and convert inside the program.".to_string()
                     }
-                    InvalidType::IntegerNotLowerable { .. } => {
-                        format!("Note: main and contract functions take and return only the integer types the circuit backend lowers: {LOWERABLE_INTEGER_TYPES}. Widen or narrow the value inside the program.")
+                    InvalidType::Unbound(_) => {
+                        "Note: every type that main or a contract function takes or returns must be known before the program runs. Name the type instead of leaving it to inference.".to_string()
                     }
-                    _ => "Note: vectors, references, empty arrays, empty strings, or any type containing them may not be used in main, contract functions, test functions, fuzz functions or foldable functions.".to_string(),
+                    InvalidType::EmptyStruct(_) => {
+                        "Note: main and contract functions take and return no empty values. Remove the parameter, or return `()` for no return value.".to_string()
+                    }
+                    InvalidType::FieldGated { .. } => {
+                        "Note: main and contract functions take and return only types that every field compiles, so a type marked `#[field(..)]`, itself or through an enclosing module, cannot cross them.".to_string()
+                    }
+                    _ => ENTRY_POINT_TYPES_NOTE.to_string(),
                 };
                 diagnostic.add_note(note);
                 invalid_type.add_to_diagnostic(*location, &mut diagnostic);

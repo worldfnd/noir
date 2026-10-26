@@ -1,4 +1,8 @@
-use crate::tests::{assert_no_errors, check_errors, check_monomorphization_error_using_features};
+use crate::elaborator::UnstableFeature;
+use crate::tests::{
+    assert_no_errors, check_errors, check_errors_using_features,
+    check_monomorphization_error_using_features,
+};
 
 #[test]
 fn resolve_empty_function() {
@@ -13,7 +17,7 @@ fn resolve_empty_function() {
 #[test]
 fn resolve_basic_function() {
     let src = r#"
-        fn main(x : Field) {
+        fn main(x : u32) {
             let y = x + x;
             assert(y == x);
         }
@@ -24,11 +28,11 @@ fn resolve_basic_function() {
 #[test]
 fn resolve_call_expr() {
     let src = r#"
-        fn main(x : Field) {
+        fn main(x : u32) {
             let _z = foo(x);
         }
 
-        fn foo(x : Field) -> Field {
+        fn foo(x : u32) -> u32 {
             x
         }
     "#;
@@ -318,7 +322,7 @@ fn error_on_returning_empty_unit_array() {
     let src = r#"
     fn main() -> pub [(); 0] {
                      ^^^^^^^ Invalid type found in the entry point to a program
-                     ~~~~~~~ Unit is not a valid entry point type
+                     ~~~~~~~ Empty array is not a valid entry point type. Found: [(); 0]
         [(); 0]
     }
     "#;
@@ -338,43 +342,97 @@ fn error_on_returning_non_empty_unit_array() {
 }
 
 #[test]
-fn no_error_on_returning_empty_array() {
+fn error_on_returning_empty_array() {
     let src = r#"
     fn main() -> pub [u32; 0] {
+                     ^^^^^^^^ Invalid type found in the entry point to a program
+                     ~~~~~~~~ Empty array is not a valid entry point type. Found: [u32; 0]
         []
     }
     "#;
-    assert_no_errors(src);
+    check_errors(src);
 }
 
 #[test]
-fn no_error_on_returning_empty_array_with_empty_nested_array() {
+fn error_on_returning_empty_array_with_empty_nested_array() {
     let src = r#"
     fn main() -> pub [[u32; 0]; 0] {
+                     ^^^^^^^^^^^^^ Invalid type found in the entry point to a program
+                     ~~~~~~~~~~~~~ Empty array is not a valid entry point type. Found: [[u32; 0]; 0]
         []
     }
     "#;
-    assert_no_errors(src);
+    check_errors(src);
 }
 
 #[test]
-fn no_error_on_returning_non_empty_array_with_empty_nested_array() {
+fn error_on_returning_non_empty_array_with_empty_nested_array() {
     let src = r#"
     fn main() -> pub [[u32; 0]; 1] {
+                     ^^^^^^^^^^^^^ Invalid type found in the entry point to a program
+                     ~~~~~~~~~~~~~ Empty array is not a valid entry point type. Found: [u32; 0]
         [[]]
     }
     "#;
+    check_errors(src);
+}
+
+#[test]
+fn error_on_returning_empty_array_with_tuple_of_empty_arrays() {
+    let src = r#"
+    fn main() -> pub [([u32; 0], [u32; 0]); 0] {
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^ Invalid type found in the entry point to a program
+                     ~~~~~~~~~~~~~~~~~~~~~~~~~ Empty array is not a valid entry point type. Found: [([u32; 0], [u32; 0]); 0]
+        []
+    }
+    "#;
+    check_errors(src);
+}
+
+/// A test function is not an entry point of a program, so its return may still be empty.
+#[test]
+fn no_error_on_returning_empty_values_from_test_function() {
+    let src = r#"
+    fn main() {}
+
+    #[test]
+    fn empty_array() -> [u32; 0] {
+        []
+    }
+
+    #[test]
+    fn empty_array_with_empty_nested_array() -> [[u32; 0]; 0] {
+        []
+    }
+
+    #[test]
+    fn non_empty_array_with_empty_nested_array() -> [[u32; 0]; 1] {
+        [[]]
+    }
+
+    #[test]
+    fn empty_array_with_tuple_of_empty_arrays() -> [([u32; 0], [u32; 0]); 0] {
+        []
+    }
+
+    #[test]
+    fn empty_string() -> str<0> {
+        ""
+    }
+    "#;
     assert_no_errors(src);
 }
 
 #[test]
-fn no_error_on_returning_empty_array_with_tuple_of_empty_arrays() {
+fn error_on_returning_string_with_zero_length() {
     let src = r#"
-    fn main() -> pub [([u32; 0], [u32; 0]); 0] {
-        []
+    fn main() -> pub str<0> {
+                     ^^^^^^ Invalid type found in the entry point to a program
+                     ~~~~~~ Empty string is not a valid entry point type. Found: str<0>
+        ""
     }
     "#;
-    assert_no_errors(src);
+    check_errors(src);
 }
 
 #[test]
@@ -474,11 +532,11 @@ fn can_use_trait_associated_constant_in_main_signature() {
         let N: u32;
     }
 
-    impl Deserialize for Field {
+    impl Deserialize for u32 {
         let N: u32 = 1;
     }
 
-    unconstrained fn main(fields: [Field; <Field as Deserialize>::N]) -> pub Field {
+    unconstrained fn main(fields: [u32; <u32 as Deserialize>::N]) -> pub u32 {
         fields[0]
     }
     "#;
@@ -488,7 +546,7 @@ fn can_use_trait_associated_constant_in_main_signature() {
 #[test]
 fn rejects_tuple_pattern_in_main_param() {
     let src = r#"
-    fn main((a, b): pub (Field, Field)) -> pub Field {
+    fn main((a, b): pub (u32, u32)) -> pub u32 {
             ^^^^^^ Entry point parameter must use a simple identifier pattern
             ~~~~~~ Destructuring patterns are not allowed here; bind to a name and destructure inside the body
         a + b
@@ -500,9 +558,9 @@ fn rejects_tuple_pattern_in_main_param() {
 #[test]
 fn rejects_struct_pattern_in_main_param() {
     let src = r#"
-    pub struct P { a: Field, b: Field }
+    pub struct P { a: u32, b: u32 }
 
-    fn main(P { a, b }: pub P) -> pub Field {
+    fn main(P { a, b }: pub P) -> pub u32 {
             ^^^^^^^^^^ Entry point parameter must use a simple identifier pattern
             ~~~~~~~~~~ Destructuring patterns are not allowed here; bind to a name and destructure inside the body
         a + b
@@ -514,7 +572,7 @@ fn rejects_struct_pattern_in_main_param() {
 #[test]
 fn rejects_mutable_tuple_pattern_in_main_param() {
     let src = r#"
-    fn main(mut (a, b): pub (Field, Field)) -> pub Field {
+    fn main(mut (a, b): pub (u32, u32)) -> pub u32 {
             ^^^^^^^^^^ Entry point parameter must use a simple identifier pattern
             ~~~~~~~~~~ Destructuring patterns are not allowed here; bind to a name and destructure inside the body
                  ^ variable does not need to be mutable
@@ -528,7 +586,7 @@ fn rejects_mutable_tuple_pattern_in_main_param() {
 #[test]
 fn accepts_mutable_identifier_pattern_in_main_param() {
     let src = r#"
-    fn main(mut x: pub Field) -> pub Field {
+    fn main(mut x: pub u32) -> pub u32 {
         x = x + 1;
         x
     }
@@ -543,13 +601,13 @@ fn can_use_trait_associated_constant_via_global_in_main_signature() {
         let N: u32;
     }
 
-    impl Deserialize for Field {
+    impl Deserialize for u32 {
         let N: u32 = 1;
     }
 
-    global FIELD_N: u32 = <Field as Deserialize>::N;
+    global FIELD_N: u32 = <u32 as Deserialize>::N;
 
-    unconstrained fn main(fields: [Field; FIELD_N]) -> pub Field {
+    unconstrained fn main(fields: [u32; FIELD_N]) -> pub u32 {
         fields[0]
     }
     "#;
@@ -601,10 +659,10 @@ fn errors_on_duplicate_generic_names() {
 #[test]
 fn errors_on_main_with_generics() {
     let src = r#"
-    fn main<let F: u32>(x: [Field; F]) {
+    fn main<let F: u32>(x: [u32; F]) {
                 ^^^^^^ `main` entry-point function is not allowed to have generic parameters
-                           ^^^^^^^^^^ Invalid type found in the entry point to a program
-                           ~~~~~~~~~~ Invalid entry point type: [Field; F]
+                           ^^^^^^^^ Invalid type found in the entry point to a program
+                           ~~~~~~~~ Invalid entry point type: [u32; F]
         assert(x[0] != x[1]);
     }
     "#;
@@ -629,6 +687,89 @@ fn error_on_unit_in_main() {
     fn main(_: ()) {}
                ^^ Invalid type found in the entry point to a program
                ~~ Unit is not a valid entry point type
+    "#;
+    check_errors(src);
+}
+
+/// `()` means "no return", so `main` may still return it.
+#[test]
+fn no_error_on_returning_unit_from_main() {
+    let src = r#"
+    fn main() -> pub () {}
+    "#;
+    assert_no_errors(src);
+}
+
+/// An `impl Trait` parameter is an implicit generic, which `main` cannot bind.
+#[test]
+fn error_on_impl_trait_param_in_main() {
+    let src = r#"
+    pub trait Foo {}
+    impl Foo for u32 {}
+
+    fn main(_x: impl Foo) {}
+                ^^^^^^^^ Invalid type found in the entry point to a program
+                ~~~~~~~~ An unbound type is not a valid entry point type. Found: impl Foo
+    "#;
+    check_errors_using_features(src, &[UnstableFeature::TraitAsType]);
+}
+
+/// A type left to inference is never bound at `main`: here the associated type is the trait's
+/// own generic, written `_`.
+#[test]
+fn error_on_unbound_associated_type_in_main() {
+    let src = r#"
+    pub trait Tr<A> { type X; }
+    impl<A> Tr<A> for u32 { type X = A; }
+
+    fn main(_x: <u32 as Tr<_>>::X) {}
+                ^^^^^^^^^^^^^^^^^ Invalid type found in the entry point to a program
+                ~~~~~~~~~~~~~~~~~ An unbound type is not a valid entry point type. Found: _
+    "#;
+    check_errors(src);
+}
+
+#[test]
+fn error_on_empty_struct_in_main() {
+    let src = r#"
+    struct Empty {}
+
+    fn main(_x: Empty) -> pub Empty {
+                ^^^^^ Invalid type found in the entry point to a program
+                ~~~~~ A struct with no fields is not a valid entry point type. Found: Empty
+                              ^^^^^ Invalid type found in the entry point to a program
+                              ~~~~~ A struct with no fields is not a valid entry point type. Found: Empty
+        Empty {}
+    }
+    "#;
+    check_errors(src);
+}
+
+/// `main` may name a struct whose fields use a struct defined after it: the fields are known by
+/// the time the entry point is checked, so the struct is not mistaken for an empty one.
+#[test]
+fn no_error_on_struct_with_later_defined_field_type_in_main() {
+    let src = r#"
+    fn main(_a: A) {}
+
+    struct A { b: B }
+    struct B { x: u32 }
+    "#;
+    assert_no_errors(src);
+}
+
+#[test]
+fn error_on_struct_with_later_defined_empty_field_type_in_main() {
+    let src = r#"
+    fn main(_a: A) {}
+                ^ Invalid type found in the entry point to a program
+                ~ This type has an invalid entry point type inside it
+
+    struct A { b: B }
+           ~ Struct A has an invalid entry point type
+               ~ Field b has an invalid entry point type
+               ~ A struct with no fields is not a valid entry point type. Found: B
+    struct B {}
     "#;
     check_errors(src);
 }
@@ -697,9 +838,13 @@ fn error_on_empty_string_in_call_data_param() {
     fn main(
         _a: (i8, u32, i8),
         _b: call_data(0) [(i8, i8, bool, bool, str<0>); 2],
+            ^^^^^^^^^^^^ call_data(0) is not supported
+            ~~~~~~~~~~~~ unsupported call_data(0)
                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Invalid type found in the entry point to a program
                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Empty string is not a valid entry point type. Found: str<0>
     ) -> pub [(bool, str<3>, str<0>, u32); 0] {
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Invalid type found in the entry point to a program
+             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Empty array is not a valid entry point type. Found: [(bool, str<3>, str<0>, u32); 0]
         []
     }
     "#;
@@ -711,7 +856,9 @@ fn error_on_empty_array_param_with_call_data() {
     let src = r#"
     fn main(_empty: [u32; 0], value_1: u32, value_2: call_data(0) u32) {
                     ^^^^^^^^ Invalid type found in the entry point to a program
-                    ~~~~~~~~ Invalid entry point type: [u32; 0]
+                    ~~~~~~~~ Empty array is not a valid entry point type. Found: [u32; 0]
+                                                     ^^^^^^^^^^^^ call_data(0) is not supported
+                                                     ~~~~~~~~~~~~ unsupported call_data(0)
         assert_eq(value_1 + 1, value_2);
     }
     "#;
@@ -724,7 +871,9 @@ fn error_on_empty_nested_array_param() {
     let src = r#"
     fn main(a: [[u32; 0]; 1], b: bool) -> pub [u32; 0] {
                ^^^^^^^^^^^^^ Invalid type found in the entry point to a program
-               ~~~~~~~~~~~~~ Invalid entry point type: [u32; 0]
+               ~~~~~~~~~~~~~ Empty array is not a valid entry point type. Found: [u32; 0]
+                                              ^^^^^^^^ Invalid type found in the entry point to a program
+                                              ~~~~~~~~ Empty array is not a valid entry point type. Found: [u32; 0]
         if (b) {
             a[0]
         } else {
@@ -738,9 +887,9 @@ fn error_on_empty_nested_array_param() {
 #[test]
 fn error_on_empty_composite_array_param_and_out_of_bounds_index() {
     let src = r#"
-    fn main(empty_input: [(Field, Field); 0]) {
-                         ^^^^^^^^^^^^^^^^^^^ Invalid type found in the entry point to a program
-                         ~~~~~~~~~~~~~~~~~~~ Invalid entry point type: [(Field, Field); 0]
+    fn main(empty_input: [(u32, u32); 0]) {
+                         ^^^^^^^^^^^^^^^ Invalid type found in the entry point to a program
+                         ~~~~~~~~~~~~~~~ Empty array is not a valid entry point type. Found: [(u32, u32); 0]
         let empty_array: [(Field, Field); 0] = [];
         let _ = empty_input[0];
                             ^ Index 0 is out of bounds for this array of length 0

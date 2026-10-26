@@ -55,6 +55,7 @@ use crate::lint::Lint;
 use crate::node_interner::{ExprId, GlobalValue, ImplSearchErrorKind, TraitItemId};
 use crate::recursion::TypeRecursionContext;
 use crate::shared::{ForeignCall, Signedness, Visibility};
+use crate::validity::ProgramBoundary;
 use crate::{
     Kind, Type, TypeBinding, TypeBindings,
     debug::DebugInstrumenter,
@@ -695,7 +696,9 @@ impl<'interner> Monomorphizer<'interner> {
             }
 
             let output = true;
-            if let Some(invalid_type) = return_target_type.program_validity(output, None) {
+            if let Some(invalid_type) =
+                return_target_type.program_validity(output, ProgramBoundary::Harness)
+            {
                 let location = return_type_location;
                 return Err(MonomorphizationError::InvalidTypeForEntryPoint {
                     invalid_type,

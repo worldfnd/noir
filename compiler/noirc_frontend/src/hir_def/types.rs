@@ -442,6 +442,10 @@ pub struct DataType {
     pub location: Location,
 
     pub must_use: MustUse,
+
+    /// The `#[field(..)]` attribute that makes this type field-specific: its own, or one on an
+    /// enclosing module. Such a type can't cross an entry point.
+    pub field_gate: Option<Location>,
 }
 
 /// Convenience enum to avoid using `Option<Option<String>>` to indicate
@@ -544,6 +548,7 @@ impl Ord for DataType {
 }
 
 impl DataType {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         id: TypeId,
         name: Ident,
@@ -552,6 +557,7 @@ impl DataType {
         visibility: ItemVisibility,
         comptime: bool,
         is_struct: bool,
+        field_gate: Option<Location>,
     ) -> DataType {
         DataType {
             id,
@@ -566,6 +572,7 @@ impl DataType {
             visibility,
             comptime,
             must_use: MustUse::NoMustUse,
+            field_gate,
         }
     }
 
@@ -817,6 +824,9 @@ pub struct TypeAlias {
     /// Optional expression, used by type aliases to numeric generics
     pub numeric_expr: Option<UnresolvedTypeExpression>,
     pub module_id: ModuleId,
+    /// The `#[field(..)]` attribute that makes this alias field-specific: its own, or one on an
+    /// enclosing module. Such an alias can't cross an entry point.
+    pub field_gate: Option<Location>,
 }
 
 impl std::hash::Hash for TypeAlias {
@@ -860,6 +870,7 @@ impl TypeAlias {
         visibility: ItemVisibility,
         comptime: bool,
         module_id: ModuleId,
+        field_gate: Option<Location>,
     ) -> TypeAlias {
         TypeAlias {
             id,
@@ -871,6 +882,7 @@ impl TypeAlias {
             comptime,
             module_id,
             numeric_expr: None,
+            field_gate,
         }
     }
 

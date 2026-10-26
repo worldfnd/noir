@@ -9,7 +9,7 @@ use std::path::Path;
 
 use acvm::acir::circuit::Circuit;
 use acvm::acir::native_types::Witness;
-use noirc_abi::AbiErrorType;
+use noirc_abi::{AbiErrorType, AbiType};
 use noirc_driver::{
     CompileOptions, display_compiled_program, file_manager_with_stdlib, prepare_crate,
 };
@@ -79,7 +79,7 @@ fn folded_generic_str_assertion_has_no_stale_error_type() {
         assert(predicate, msg);
     }
 
-    fn main(x: pub Field) {
+    fn main(x: pub u32) {
         fail_with_generic_msg(x == 0, "bad");
     }
     "#;
@@ -103,8 +103,8 @@ fn dynamic_custom_error_type_is_preserved() {
         code: Field,
     }
 
-    fn main(x: pub Field) {
-        assert(x == 0, MyError { code: x });
+    fn main(x: pub u32) {
+        assert(x == 0, MyError { code: x as Field });
     }
     "#;
 
@@ -117,6 +117,22 @@ fn dynamic_custom_error_type_is_preserved() {
         "expected a custom error type, got {:?}",
         error_types[0]
     );
+}
+
+#[test]
+fn literal_error_payload_keeps_the_default_type() {
+    // `main`'s signature takes no `Field` and its ABI is built strictly, but an error payload is
+    // not an input: a literal whose type is never pinned down reads as the default, `Field`.
+    let source = r#"
+    fn main(x: pub u32) {
+        assert(x == 0, 5);
+    }
+    "#;
+
+    let program = compile(source, false);
+
+    let error_types: Vec<&AbiErrorType> = program.abi.error_types.values().collect();
+    assert_eq!(error_types, vec![&AbiErrorType::Custom(AbiType::Field)]);
 }
 
 #[test]

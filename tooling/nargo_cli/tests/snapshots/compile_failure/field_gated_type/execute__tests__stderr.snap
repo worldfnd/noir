@@ -1,0 +1,16 @@
+---
+source: tooling/nargo_cli/tests/execute.rs
+expression: stderr
+---
+error: Invalid type found in the entry point to a program
+  ┌─ src/main.nr:2:1
+  │
+2 │ #[field(bn254)]
+  │ --------------- Made field-specific here
+  ·
+8 │ fn main(x: Limbs) {
+  │            ----- A field-specific type is not a valid entry point type. Found: Limbs
+  │
+  = Note: main and contract functions take and return only types that every field compiles, so a type marked `#[field(..)]`, itself or through an enclosing module, cannot cross them.
+
+Aborting due to 1 previous error
