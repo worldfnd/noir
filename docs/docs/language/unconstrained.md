@@ -125,11 +125,11 @@ This check is enabled by default and can be disabled by passing the `--skip-unde
 The results of a Brillig function call must be constrained to ensure security, adhering to these rules: every resulting value (including every array element of a resulting array) has to be involved in a later constraint (i.e. assert, range check) against either one of the arguments of the call, or a constant. In this context, involvement means that a descendant value (e.g. a result of a chain of operations over the value) of a result has to be checked against a descendant value of an argument. For example:
 
 ```rust
-unconstrained fn factor(v0: Field) -> [Field; 2] {
+unconstrained fn factor(v0: u64) -> [u64; 2] {
     ...
 }
 
-fn main(foo: Field) -> pub [Field; 2] {
+fn main(foo: u64) -> pub [u64; 2] {
     // Safety: factored is constrained below by `assert(factored[0] * factored[1] == foo)`
     let factored = unsafe { factor(foo) };
     assert(factored[0] * factored[1] == foo);
@@ -148,11 +148,11 @@ The check is enabled by default and can be disabled by passing the `--skip-brill
 Certain false positives of this check can be avoided by providing the `--enable-brillig-constraints-check-lookback` option to `nargo`, which can be slower at compile-time but additionally ensures that descendants of call argument values coming from operations *preceding* the call itself would be followed. For example, consider this case:
 
 ```rust
-unconstrained fn unconstrained_add(v0: Field, v1: Field) -> Field {
+unconstrained fn unconstrained_add(v0: u32, v1: u32) -> u32 {
     v0 + v1
 }
 
-fn main(v0: Field, v1: Field) {
+fn main(v0: u32, v1: u32) {
     let foo = v0 + v1;
     // Safety: `bar` is constrained below by `assert(foo == bar)`
     let bar = unsafe { unconstrained_add(v0, v1) };

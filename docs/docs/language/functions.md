@@ -78,15 +78,15 @@ Invalid signatures:
 
 - `fn main(x: Field)` - a `Field` is refused, as is any type that contains one. Take an integer or bytes and convert to `Field` inside the program, for example with `Field::from_le_bytes_checked(bytes)`.
 - `fn main(x: [u32])` - can't compile, has variable size.
-- `fn main(x: [u32; 0])` or `fn main() -> pub [u32; 0]` - empty arrays, empty strings and structs with no fields are refused, in the return too. Return `()`, or nothing, when there is no return value.
+- `fn main(x: [u32; 0])` - an empty array or empty string parameter is refused. They may still be returned.
 - A type marked `#[field(..)]`, or declared in a module marked `#[field(..)]`, is refused; pass its contents as integers or bytes and build it inside.
 
-These rules apply to `main` and contract functions only. Other functions, and test and fuzz functions, may take and return `Field`.
+The `Field` and `#[field(..)]` rules apply to `main` and contract functions only: other functions, and test and fuzz functions, may take and return `Field`.
 
 Keep in mind [tests](../tooling/tests.md) don't differentiate between `main` and any other function. The following snippet passes tests, but won't compile or prove:
 
 ```rust
-fn main(x : [Field]) {
+fn main(x : [u32]) {
     assert(x[0] == 1);
 }
 
@@ -115,11 +115,11 @@ arguments.
 Below we show how to call the `foo` function from the `main` function using a call expression:
 
 ```rust
-fn main(x : Field, y : Field) {
+fn main(x : u32, y : u32) {
     let z = foo(x);
 }
 
-fn foo(x : Field) -> Field {
+fn foo(x : u32) -> u32 {
     x + x
 }
 ```
