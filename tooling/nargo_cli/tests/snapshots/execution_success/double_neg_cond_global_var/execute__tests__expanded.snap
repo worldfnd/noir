@@ -5,20 +5,21 @@ expression: expanded_code
 global G_A: bool = false;
 
 fn main(a: u8) -> pub u8 {
+    let a: Field = a as Field;
     if (
         if !G_A {
             if !G_A {
-                (a as Field) as u128
+                a as u128
             } else {
-                (a as Field) as u128
+                a as u128
             }
         } else {
-            (a as Field) as u128
+            a as u128
         }
-            <= ((a as Field) as u128)
+            <= (a as u128)
     ) as bool {
-        --(a as Field) as u8
+        --a as u8
     } else {
-        --(a as Field) as u8
+        --a as u8
     }
 }

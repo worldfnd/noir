@@ -1,6 +1,5 @@
 ---
 source: tooling/nargo_cli/tests/execute.rs
-assertion_line: 381
 expression: expanded_code
 ---
 use std::{
@@ -11,13 +10,14 @@ use std::{
 };
 
 fn main(priv_key: u8, pub_x: pub u8, pub_y: pub [u8; 32]) {
+    let pub_x: Field = pub_x as Field;
+    let pub_y: Field = Field::from_le_bytes_checked(pub_y);
     let g1: EmbeddedCurvePoint = EmbeddedCurvePoint::generator();
     let scalar: EmbeddedCurveScalar = EmbeddedCurveScalar { lo: priv_key as Field, hi: 0_Field };
     let res: EmbeddedCurvePoint = multi_scalar_mul([g1], [scalar]);
-    assert(res.x == (pub_x as Field));
-    assert(res.y == Field::from_le_bytes_checked(pub_y));
-    let pub_point: EmbeddedCurvePoint =
-        EmbeddedCurvePoint { x: pub_x.into(), y: Field::from_le_bytes_checked(pub_y) };
+    assert(res.x == pub_x);
+    assert(res.y == pub_y);
+    let pub_point: EmbeddedCurvePoint = EmbeddedCurvePoint { x: pub_x, y: pub_y };
     let res: EmbeddedCurvePoint = pub_point.double();
     let double: EmbeddedCurvePoint = g1.add(g1);
     assert(double.x == res.x);
@@ -39,24 +39,21 @@ fn main(priv_key: u8, pub_x: pub u8, pub_y: pub [u8; 32]) {
     let partial_mul: EmbeddedCurvePoint =
         multi_scalar_mul([zero_point, double, g1], [scalar, const_zero, scalar]);
     assert(partial_mul == g1);
-    if pub_point.x == pub_point.y {
+    if pub_x == pub_y {
         let a1: EmbeddedCurvePoint = EmbeddedCurvePoint { x: 1_Field, y: 2_Field };
         let a2: EmbeddedCurvePoint = EmbeddedCurvePoint { x: 1_Field, y: 3_Field };
         let doubling: EmbeddedCurvePoint = a1.double();
         assert(doubling.x == 1_Field);
         let res: EmbeddedCurvePoint = embedded_curve_add(a1, a2);
         assert(res.x == 1_Field);
-        let a1: EmbeddedCurvePoint =
-            EmbeddedCurvePoint { x: pub_point.x + 1_Field, y: pub_point.y };
-        let a2: EmbeddedCurvePoint =
-            EmbeddedCurvePoint { x: pub_point.x + 1_Field, y: pub_point.y + 1_Field };
+        let a1: EmbeddedCurvePoint = EmbeddedCurvePoint { x: pub_x + 1_Field, y: pub_y };
+        let a2: EmbeddedCurvePoint = EmbeddedCurvePoint { x: pub_x + 1_Field, y: pub_y + 1_Field };
         let doubling: EmbeddedCurvePoint = a1.double();
         assert(doubling.x == 1_Field);
         let res: EmbeddedCurvePoint = embedded_curve_add(a1, a2);
         assert(res.x == 1_Field);
         let a1: EmbeddedCurvePoint = EmbeddedCurvePoint { x: 2_Field, y: 3_Field };
-        let a2: EmbeddedCurvePoint =
-            EmbeddedCurvePoint { x: pub_point.x, y: pub_point.y + (1_Field as Field) };
+        let a2: EmbeddedCurvePoint = EmbeddedCurvePoint { x: pub_x, y: pub_y + (1_Field as Field) };
         let res: EmbeddedCurvePoint = embedded_curve_add(a1, a2);
         assert(res.x == 1_Field);
         let a1: EmbeddedCurvePoint = EmbeddedCurvePoint { x: 2_Field, y: 3_Field };
@@ -71,8 +68,8 @@ fn main(priv_key: u8, pub_x: pub u8, pub_y: pub [u8; 32]) {
         let a2: EmbeddedCurvePoint = EmbeddedCurvePoint { x: 1_Field, y: 3_Field };
         let res: EmbeddedCurvePoint = embedded_curve_add(a1, a2);
         assert(res.x == 1_Field);
-        let a1: EmbeddedCurvePoint = EmbeddedCurvePoint { x: pub_point.x, y: 3_Field };
-        let a2: EmbeddedCurvePoint = EmbeddedCurvePoint { x: pub_point.x, y: 2_Field };
+        let a1: EmbeddedCurvePoint = EmbeddedCurvePoint { x: pub_x, y: 3_Field };
+        let a2: EmbeddedCurvePoint = EmbeddedCurvePoint { x: pub_x, y: 2_Field };
         let res: EmbeddedCurvePoint = embedded_curve_add(a1, a2);
         assert(res.x == 1_Field);
     }

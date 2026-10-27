@@ -2,15 +2,15 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-fn main(x: u8) {
-    let (one, mut x): (Field, Field) = (1_Field, x as Field);
-    let add1: fn[(Field,)](&mut Field) = |z: &mut Field| { *z = *z + one; };
-    let two: Field = 2_Field;
-    let add2: fn[(Field,)](&mut Field) = |z: &mut Field| { *z = *z + two; };
+fn main(mut x: u8) {
+    let one: u8 = 1_u8;
+    let add1: fn[(u8,)](&mut u8) = |z: &mut u8| { *z = *z + one; };
+    let two: u8 = 2_u8;
+    let add2: fn[(u8,)](&mut u8) = |z: &mut u8| { *z = *z + two; };
     add1(&mut x);
-    assert(x == 1_Field);
+    assert(x == 1_u8);
     add2(&mut x);
-    assert(x == 3_Field);
+    assert(x == 3_u8);
     issue_2120();
 }
 

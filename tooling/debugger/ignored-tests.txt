@@ -30,5 +30,3 @@ databus_two_calldata_simple
 regression_7143
 regression_7612
 regression_claude_1124
-large_nested_array_multi_field_merge
-simple_shield

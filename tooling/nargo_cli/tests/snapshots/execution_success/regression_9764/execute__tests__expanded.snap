@@ -3,7 +3,7 @@ source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
 fn main(a: u8, x: u32) -> pub u8 {
-    if (a as Field) == 1_Field {
+    if a == 1_u8 {
         0_u8
     } else {
         let mut d: [&mut u32; 0] = [];

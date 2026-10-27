@@ -61,7 +61,8 @@ impl F for Bar {
     }
 }
 
-fn main(x: Field) {
+fn main() {
+    let x: Field = std::hint::black_box(1_Field);
     let first: Field = Foo::method2(x);
     assert(first == (3_Field * x));
     let bar: Bar = Bar {};

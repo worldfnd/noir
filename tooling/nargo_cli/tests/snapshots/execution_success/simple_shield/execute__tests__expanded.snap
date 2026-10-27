@@ -3,13 +3,20 @@ source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
 fn main(
-    priv_key: Field,
-    note_root: pub Field,
-    index: Field,
-    note_hash_path: [Field; 3],
-    to_pubkey_x: Field,
-    to_pubkey_y: Field,
-) -> pub [Field; 2] {
+    priv_key: [u8; 32],
+    note_root: pub [u8; 32],
+    index: u32,
+    note_hash_path: [[u8; 32]; 3],
+    to_pubkey_x: [u8; 32],
+    to_pubkey_y: [u8; 32],
+) -> pub [[u8; 32]; 2] {
+    let priv_key: Field = Field::from_le_bytes_checked(priv_key);
+    let note_root: Field = Field::from_le_bytes_checked(note_root);
+    let index: Field = index as Field;
+    let note_hash_path: [Field; 3] =
+        note_hash_path.map(|node: [u8; 32]| -> Field Field::from_le_bytes_checked(node));
+    let to_pubkey_x: Field = Field::from_le_bytes_checked(to_pubkey_x);
+    let to_pubkey_y: Field = Field::from_le_bytes_checked(to_pubkey_y);
     let priv_key_as_scalar: std::embedded_curve_ops::EmbeddedCurveScalar =
         std::embedded_curve_ops::EmbeddedCurveScalar { lo: priv_key, hi: 0_Field };
     let pubkey: std::embedded_curve_ops::EmbeddedCurvePoint =
@@ -21,7 +28,7 @@ fn main(
     let receiver_note_commitment: std::embedded_curve_ops::EmbeddedCurvePoint =
         std::hash::pedersen_commitment([to_pubkey_x, to_pubkey_y]);
     assert(note_root == compute_merkle_root(note_commitment.x, index, note_hash_path));
-    [nullifier.x, receiver_note_commitment.x]
+    [nullifier.x.to_le_bytes(), receiver_note_commitment.x.to_le_bytes()]
 }
 
 fn compute_merkle_root<let N: u32>(leaf: Field, index: Field, hash_path: [Field; N]) -> Field {

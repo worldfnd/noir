@@ -17,7 +17,9 @@ impl MyDefault for Foo {
     }
 }
 
-fn main(x: Field, y: Field) {
+fn main() {
+    let x: Field = std::hint::black_box(1_Field);
+    let y: Field = std::hint::black_box(2_Field);
     let first: Foo = Foo::my_default(x, y);
     assert(first.bar == x);
 }

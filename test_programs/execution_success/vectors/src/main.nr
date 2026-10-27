@@ -1,13 +1,15 @@
 use std::vector;
 
 fn main(x: u8, y: pub u8) {
+    let x = x as Field;
+    let y = y as Field;
     let mut vector = [0; 2].as_vector();
     assert(vector[0] == 0);
     assert(vector[0] != 1);
-    vector[0] = x as Field;
-    assert(vector[0] == x as Field);
+    vector[0] = x;
+    assert(vector[0] == x);
 
-    let vector_plus_10 = vector.push_back(y as Field);
+    let vector_plus_10 = vector.push_back(y);
     assert(vector_plus_10[2] == 10);
     assert(vector_plus_10[2] != 8);
     assert(vector_plus_10.len() == 3);
@@ -55,11 +57,11 @@ fn main(x: u8, y: pub u8) {
 
     regression_2083();
     // The parameters to this function must come from witness values (inputs to main)
-    regression_merge_vectors(x as Field, y as Field);
+    regression_merge_vectors(x, y);
     regression_2370();
 
-    regression_4418(x as Field);
-    regression_vector_call_result(x as Field, y as Field);
+    regression_4418(x);
+    regression_vector_call_result(x, y);
     regression_4506();
     regression_vector_to_brillig(x as u32 % 3);
 }

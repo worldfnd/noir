@@ -8,19 +8,23 @@ unconstrained fn main(
     points: [(u8, [u8; 32]); 5],
     scalars: [[u8; 32]; 5],
 ) -> pub ([u8; 32], [u8; 32]) {
-    double_then_add_msm(points, scalars)
+    let points =
+        points.map(|(x, y)| EmbeddedCurvePoint::new(x as Field, Field::from_le_bytes_checked(y)));
+    let scalars = scalars.map(|scalar| Field::from_le_bytes_checked(scalar));
+    let result = double_then_add_msm(points, scalars);
+    (result.x.to_le_bytes(), result.y.to_le_bytes())
 }
 
 unconstrained fn double_then_add_msm<let N: u32>(
-    p: [(u8, [u8; 32]); N],
-    scalars: [[u8; 32]; N],
-) -> ([u8; 32], [u8; 32]) {
+    points: [EmbeddedCurvePoint; N],
+    scalars: [Field; N],
+) -> EmbeddedCurvePoint {
     // EmbeddedCurveScalar are two 128-bit numbers
     let mut acc = EmbeddedCurvePoint::point_at_infinity();
     for i in 0..N {
         // These should probably be EmbeddedCurveScalars
         // let full_scalar: Field = scalars[i].hi * 2.pow_32(128) + scalars[i].lo;
-        let full_scalar = Field::from_le_bytes_checked(scalars[i]);
+        let full_scalar = scalars[i];
         // If the scalar is zero we won't add anything to acc
         if full_scalar == 0 {
             continue;
@@ -35,8 +39,8 @@ unconstrained fn double_then_add_msm<let N: u32>(
             }
         }
 
-        let temp = EmbeddedCurvePoint::new(p[i].0 as Field, Field::from_le_bytes_checked(p[i].1));
-        let mut res = temp;
+        let temp = points[i];
+        let mut res = points[i];
         // traversing from second MSB to LSB
         for j in (index_of_msb + 1)..(254) {
             // Double
@@ -49,5 +53,5 @@ unconstrained fn double_then_add_msm<let N: u32>(
 
         acc = embedded_curve_add(acc, res);
     }
-    (acc.x.to_le_bytes(), acc.y.to_le_bytes())
+    acc
 }

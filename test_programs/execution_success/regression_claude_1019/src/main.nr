@@ -2,11 +2,12 @@
 // in every evaluation context, for all four public decomposition entry points.
 // See https://github.com/noir-lang/noir-claude/issues/1019.
 fn main(x: pub u8) {
+    let x = x as Field;
     // Constrained, witness input (`x == 0`).
-    let _: [u8; 0] = (x as Field).to_le_bytes();
-    let _: [u8; 0] = (x as Field).to_be_bytes();
-    let _: [bool; 0] = (x as Field).to_le_bits();
-    let _: [bool; 0] = (x as Field).to_be_bits();
+    let _: [u8; 0] = x.to_le_bytes();
+    let _: [u8; 0] = x.to_be_bytes();
+    let _: [bool; 0] = x.to_le_bits();
+    let _: [bool; 0] = x.to_be_bits();
 
     // Constrained, literal-zero input.
     let _: [u8; 0] = (0 as Field).to_le_bytes();

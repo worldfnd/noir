@@ -1,16 +1,18 @@
 global EXPONENTIATE: [[Field; 2]; 2] = [[1, 1], [0, 0]];
 
 fn main(x: u8, y: pub u8) {
+    let x = x as Field;
+    let y = y as Field;
     let mut acc: Field = 0;
     for i in 0..2 {
         for j in 0..2 {
             acc += EXPONENTIATE[i][j];
         }
     }
-    assert(!acc.lt(x as Field));
+    assert(!acc.lt(x));
     assert(x != y);
 
-    dummy_again(x as Field, y as Field);
+    dummy_again(x, y);
 }
 
 fn dummy_again(x: Field, y: Field) {

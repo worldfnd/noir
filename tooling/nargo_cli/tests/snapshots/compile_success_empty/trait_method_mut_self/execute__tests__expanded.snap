@@ -5,7 +5,9 @@ expression: expanded_code
 use poseidon::poseidon2::Poseidon2Hasher;
 use std::hash::Hasher;
 
-fn main(x: Field, y: pub Field) {
+fn main() {
+    let x: Field = std::hint::black_box(1_Field);
+    let y: Field = std::hint::black_box(2_Field);
     let mut a_mut_ref: AType = AType { x: x };
     pass_trait_by_value(a_mut_ref, y);
     assert(a_mut_ref.x == x);

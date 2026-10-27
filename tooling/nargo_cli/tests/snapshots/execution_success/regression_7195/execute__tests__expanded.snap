@@ -17,9 +17,11 @@ unconstrained fn baz(x: Field) -> Field {
 }
 
 fn main(x: u8, y: pub u8) {
+    let x: Field = x as Field;
+    let y: Field = y as Field;
     // Safety: comment added by `nargo expand`
-    let x: Field = unsafe { baz(x as Field) };
+    let x: Field = unsafe { baz(x) };
     foo(x);
-    foo(y as Field);
-    assert(x != (y as Field));
+    foo(y);
+    assert(x != y);
 }

@@ -5,11 +5,13 @@ global G_A: [Field] = [
 ]
     .as_vector();
 fn main(b: pub u8) -> pub u8 {
-    if b as Field == -284015218230919225711528337869756109769 {
-        (-(b as Field)) as u8
-    } else if b as Field == -64182487568962597178733740932221199270 {
-        G_A[1887189234_u32] as u8
+    let b = b as Field;
+    let result = if b == -284015218230919225711528337869756109769 {
+        -b
+    } else if b == -64182487568962597178733740932221199270 {
+        G_A[1887189234_u32]
     } else {
         b
-    }
+    };
+    result as u8
 }

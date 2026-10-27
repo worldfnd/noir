@@ -3,12 +3,14 @@ global TWO: Field = 2;
 global THREE: Field = 3;
 
 fn main(x: u8, y: pub u8) {
+    let x = x as Field;
+    let y = y as Field;
     // Safety: testing context
     unsafe {
-        entry_point_no_global(x as Field, y as Field);
-        entry_point_inner_func_globals(x as Field, y as Field);
-        entry_point_one_global(x as Field, y as Field);
-        entry_point_one_diff_global(x as Field, y as Field);
+        entry_point_no_global(x, y);
+        entry_point_inner_func_globals(x, y);
+        entry_point_one_global(x, y);
+        entry_point_one_diff_global(x, y);
     }
 }
 

@@ -4,11 +4,12 @@ expression: expanded_code
 ---
 use std::embedded_curve_ops::{embedded_curve_add, EmbeddedCurvePoint};
 
-fn main(is_active: bool) -> pub u8 {
+fn main(is_active: bool) -> pub (u8, u8) {
     let bad: EmbeddedCurvePoint = EmbeddedCurvePoint::new(0_Field, 5_Field);
-    if is_active {
-        embedded_curve_add(bad, bad).y as u8
+    let point: EmbeddedCurvePoint = if is_active {
+        embedded_curve_add(bad, bad)
     } else {
-        bad.y as u8
-    }
+        bad
+    };
+    (point.x as u8, point.y as u8)
 }

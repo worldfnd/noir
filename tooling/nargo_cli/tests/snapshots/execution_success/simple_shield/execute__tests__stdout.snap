@@ -2,4 +2,4 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: stdout
 ---
-[simple_shield] Circuit output: [0x2b3e2281b493baa4497aa5fe5abf9f340f43bd9c4a65dcb1cda20dc210058870, 0x1e2d117a1b344bd3ff0cf1d5f860f02cd8b27f6b8ccd2e844852f2c93d36f4aa]
+[simple_shield] Circuit output: [[112, 136, 5, 16, 194, 13, 162, 205, 177, 220, 101, 74, 156, 189, 67, 15, 52, 159, 191, 90, 254, 165, 122, 73, 164, 186, 147, 180, 129, 34, 62, 43], [170, 244, 54, 61, 201, 242, 82, 72, 132, 46, 205, 140, 107, 127, 178, 216, 44, 240, 96, 248, 213, 241, 12, 255, 211, 75, 52, 27, 122, 17, 45, 30]]

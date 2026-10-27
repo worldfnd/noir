@@ -24,9 +24,11 @@ pub fn blake2s_to_field<let N: u32>(bytes_to_hash: [u8; N]) -> Field {
 }
 
 fn main(tx_effects_hash_input: [u32; 256]) -> pub [u8; 32] {
+    let tx_effects_hash_input: [Field; 256] =
+        tx_effects_hash_input.map(|x: u32| -> Field { x as Field });
     let mut hash_input_flattened: [u8; 8192] = [0_u8; 8192];
     for offset in 0_u32..TX_EFFECTS_HASH_INPUT_FIELDS {
-        let input_as_bytes: [u8; 32] = (tx_effects_hash_input[offset] as Field).to_be_bytes();
+        let input_as_bytes: [u8; 32] = tx_effects_hash_input[offset].to_be_bytes();
         for byte_index in 0_u32..32_u32 {
             hash_input_flattened[(offset * 32_u32) + byte_index] = input_as_bytes[byte_index];
         }

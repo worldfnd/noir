@@ -3,6 +3,6 @@ source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
 fn main(x: u8, y: pub u8) {
-    println(x as Field);
-    println([x as Field, y as Field]);
+    println(x);
+    println([x, y]);
 }

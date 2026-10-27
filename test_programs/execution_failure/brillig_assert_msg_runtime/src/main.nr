@@ -1,4 +1,5 @@
-fn main(x: u8) { let x = x as Field;
+fn main(x: u8) {
+    let x = x as Field;
     // Safety: testing context
     assert(1 == unsafe { conditional(x) });
 }

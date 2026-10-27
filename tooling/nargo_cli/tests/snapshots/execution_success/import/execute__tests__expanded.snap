@@ -11,8 +11,9 @@ mod import {
 }
 
 fn main(x: u8, y: u8) {
-    let _k: std::embedded_curve_ops::EmbeddedCurvePoint =
-        std::hash::pedersen_commitment([x as Field]);
-    let _l: Field = hello(x as Field);
-    assert((x as Field) != hello(y as Field));
+    let x: Field = x as Field;
+    let y: Field = y as Field;
+    let _k: std::embedded_curve_ops::EmbeddedCurvePoint = std::hash::pedersen_commitment([x]);
+    let _l: Field = hello(x);
+    assert(x != hello(y));
 }

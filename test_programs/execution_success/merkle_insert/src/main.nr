@@ -6,21 +6,28 @@ fn main(
     leaf: [u8; 32],
     index: u8,
 ) {
-    assert(old_root == compute_merkle_root(old_leaf, index, old_hash_path).to_le_bytes());
+    let old_root = Field::from_le_bytes_checked(old_root);
+    let old_leaf = Field::from_le_bytes_checked(old_leaf);
+    let old_hash_path = old_hash_path.map(|node| Field::from_le_bytes_checked(node));
+    let new_root = Field::from_le_bytes_checked(new_root);
+    let leaf = Field::from_le_bytes_checked(leaf);
+    let index = index as Field;
+
+    assert(old_root == compute_merkle_root(old_leaf, index, old_hash_path));
 
     let calculated_root = compute_merkle_root(leaf, index, old_hash_path);
-    assert(Field::from_le_bytes_checked(new_root) == calculated_root);
+    assert(new_root == calculated_root);
 }
 
-fn compute_merkle_root<let N: u32>(leaf: [u8; 32], index: u8, hash_path: [[u8; 32]; N]) -> Field {
-    let index_bits: [bool; N] = (index as Field).to_le_bits();
-    let mut current = Field::from_le_bytes_checked(leaf);
+fn compute_merkle_root<let N: u32>(leaf: Field, index: Field, hash_path: [Field; N]) -> Field {
+    let index_bits: [bool; N] = index.to_le_bits();
+    let mut current = leaf;
     for i in 0..N {
         let path_bit = index_bits[i];
         let (hash_left, hash_right) = if path_bit {
-            (Field::from_le_bytes_checked(hash_path[i]), current)
+            (hash_path[i], current)
         } else {
-            (current, Field::from_le_bytes_checked(hash_path[i]))
+            (current, hash_path[i])
         };
         current = std::hash::pedersen_hash([hash_left, hash_right]);
     }

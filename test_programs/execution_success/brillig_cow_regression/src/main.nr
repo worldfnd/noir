@@ -23,8 +23,11 @@ struct NewContractData {
 }
 
 impl NewContractData {
-    fn hash(NewContractData { contract_address, portal_contract_address }: Self) -> Field {
-        std::hash::pedersen_hash([contract_address.into(), portal_contract_address.into()])
+    fn hash(self) -> Field {
+        std::hash::pedersen_hash([
+            self.contract_address as Field,
+            self.portal_contract_address as Field,
+        ])
     }
 }
 
@@ -102,7 +105,7 @@ unconstrained fn main(kernel_data: DataToHash) -> pub [u128; NUM_FIELDS_PER_SHA2
 
     let new_note_hashes = kernel_data.new_note_hashes;
     let new_nullifiers = kernel_data.new_nullifiers;
-    let data_update_requests = kernel_data.public_data_update_requests;
+    let public_data_update_requests = kernel_data.public_data_update_requests;
     let l2ToL1Msgs = kernel_data.new_l2_to_l1_msgs;
     let encryptedLogsHash = kernel_data.encrypted_logs_hash;
     let unencryptedLogsHash = kernel_data.unencrypted_logs_hash;
@@ -120,8 +123,9 @@ unconstrained fn main(kernel_data: DataToHash) -> pub [u128; NUM_FIELDS_PER_SHA2
     offset += MAX_NULLIFIERS_PER_TX;
 
     for j in 0..MAX_PUBLIC_DATA_UPDATE_REQUESTS_PER_TX {
-        tx_effects_hash_inputs[offset + j * 2] = data_update_requests[j].leaf_slot as Field;
-        tx_effects_hash_inputs[offset + j * 2 + 1] = data_update_requests[j].new_value as Field;
+        tx_effects_hash_inputs[offset + j * 2] = public_data_update_requests[j].leaf_slot as Field;
+        tx_effects_hash_inputs[offset + j * 2 + 1] =
+            public_data_update_requests[j].new_value as Field;
     }
     offset += MAX_PUBLIC_DATA_UPDATE_REQUESTS_PER_TX * 2;
 

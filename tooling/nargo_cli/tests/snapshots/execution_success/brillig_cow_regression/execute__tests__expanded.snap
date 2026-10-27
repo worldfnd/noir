@@ -36,8 +36,11 @@ struct NewContractData {
 }
 
 impl NewContractData {
-    fn hash(Self { contract_address, portal_contract_address }: Self) -> Field {
-        std::hash::pedersen_hash([contract_address.into(), portal_contract_address.into()])
+    fn hash(self) -> Field {
+        std::hash::pedersen_hash([
+            self.contract_address as Field,
+            self.portal_contract_address as Field,
+        ])
     }
 }
 
@@ -147,7 +150,7 @@ unconstrained fn main(kernel_data: DataToHash) -> pub [u128; 2] {
     let mut tx_effects_hash_inputs: [Field; 169] = [0_Field; 169];
     let new_note_hashes: [u8; 64] = kernel_data.new_note_hashes;
     let new_nullifiers: [u8; 64] = kernel_data.new_nullifiers;
-    let data_update_requests: [PublicDataUpdateRequest; 16] =
+    let public_data_update_requests: [PublicDataUpdateRequest; 16] =
         kernel_data.public_data_update_requests;
     let l2ToL1Msgs: [u8; 2] = kernel_data.new_l2_to_l1_msgs;
     let encryptedLogsHash: [u8; 2] = kernel_data.encrypted_logs_hash;
@@ -162,9 +165,10 @@ unconstrained fn main(kernel_data: DataToHash) -> pub [u128; 2] {
     }
     offset = offset + MAX_NULLIFIERS_PER_TX;
     for j in 0_u32..MAX_PUBLIC_DATA_UPDATE_REQUESTS_PER_TX {
-        tx_effects_hash_inputs[offset + (j * 2_u32)] = data_update_requests[j].leaf_slot as Field;
+        tx_effects_hash_inputs[offset + (j * 2_u32)] =
+            public_data_update_requests[j].leaf_slot as Field;
         tx_effects_hash_inputs[(offset + (j * 2_u32)) + 1_u32] =
-            data_update_requests[j].new_value as Field;
+            public_data_update_requests[j].new_value as Field;
     }
     offset = offset + (MAX_PUBLIC_DATA_UPDATE_REQUESTS_PER_TX * 2_u32);
     for j in 0_u32..MAX_L2_TO_L1_MSGS_PER_TX {
@@ -172,7 +176,7 @@ unconstrained fn main(kernel_data: DataToHash) -> pub [u128; 2] {
     }
     offset = offset + MAX_L2_TO_L1_MSGS_PER_TX;
     let contract_leaf: NewContractData = kernel_data.new_contracts[0_u32];
-    tx_effects_hash_inputs[offset] = NewContractData::hash(contract_leaf);
+    tx_effects_hash_inputs[offset] = contract_leaf.hash();
     offset = offset + MAX_NEW_CONTRACTS_PER_TX;
     let new_contracts: [NewContractData; 1] = kernel_data.new_contracts;
     tx_effects_hash_inputs[offset] = new_contracts[0_u32].contract_address as Field;

@@ -3,10 +3,11 @@ source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
 fn main(x: pub u8) {
-    let _: [u8; 0] = (x as Field).to_le_bytes();
-    let _: [u8; 0] = (x as Field).to_be_bytes();
-    let _: [bool; 0] = (x as Field).to_le_bits();
-    let _: [bool; 0] = (x as Field).to_be_bits();
+    let x: Field = x as Field;
+    let _: [u8; 0] = x.to_le_bytes();
+    let _: [u8; 0] = x.to_be_bytes();
+    let _: [bool; 0] = x.to_le_bits();
+    let _: [bool; 0] = x.to_be_bits();
     let _: [u8; 0] = (0_Field as Field).to_le_bytes();
     let _: [u8; 0] = (0_Field as Field).to_be_bytes();
     let _: [bool; 0] = (0_Field as Field).to_le_bits();

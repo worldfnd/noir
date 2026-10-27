@@ -3,6 +3,7 @@ source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
 unconstrained fn main(b: u128) -> pub bool {
+    let b: Field = b as Field;
     let mut a: bool = true;
     let mut running: bool = true;
     while running {
@@ -23,7 +24,7 @@ unconstrained fn main(b: u128) -> pub bool {
         } else {
             0_u64
         };
-        a = a < (((b as Field) as u128) <= ((b as Field) as u128));
+        a = a < ((b as u128) <= (b as u128));
         running = false;
     }
     a

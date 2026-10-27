@@ -2,7 +2,7 @@
 // found in Veridise Audit.
 
 fn main(x: u8, y: pub u8) -> pub u16 {
-    assert(x as Field != y as Field);
+    assert(x != y);
     let mut f = [my_fun];
     f[0] = my_fun2;
     (f[0])(x as Field) as u16

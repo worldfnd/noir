@@ -6,15 +6,18 @@ use std::{
 };
 
 fn main(priv_key: u8, pub_x: pub u8, pub_y: pub [u8; 32]) {
+    let pub_x = pub_x as Field;
+    let pub_y = Field::from_le_bytes_checked(pub_y);
+
     let g1 = EmbeddedCurvePoint::generator();
     let scalar = EmbeddedCurveScalar { lo: priv_key as Field, hi: 0 };
     // Test that multi_scalar_mul correctly derives the public key
     let res = multi_scalar_mul([g1], [scalar]);
-    assert(res.x == pub_x as Field);
-    assert(res.y == Field::from_le_bytes_checked(pub_y));
+    assert(res.x == pub_x);
+    assert(res.y == pub_y);
 
     // Test that double function calling embedded_curve_add works as expected
-    let pub_point = EmbeddedCurvePoint { x: pub_x.into(), y: Field::from_le_bytes_checked(pub_y) };
+    let pub_point = EmbeddedCurvePoint { x: pub_x, y: pub_y };
     let res = pub_point.double();
     let double = g1.add(g1);
 
@@ -42,7 +45,7 @@ fn main(priv_key: u8, pub_x: pub u8, pub_y: pub [u8; 32]) {
     assert(partial_mul == g1);
 
     // Additional tests for validating embedded_curve_add under a conditional
-    if pub_point.x == pub_point.y {
+    if pub_x == pub_y {
         let a1 = EmbeddedCurvePoint { x: 1, y: 2 };
         let a2 = EmbeddedCurvePoint { x: 1, y: 3 };
         let doubling = a1.double();
@@ -50,15 +53,15 @@ fn main(priv_key: u8, pub_x: pub u8, pub_y: pub [u8; 32]) {
         let res = embedded_curve_add(a1, a2);
         assert(res.x == 1);
 
-        let a1 = EmbeddedCurvePoint { x: pub_point.x + 1, y: pub_point.y };
-        let a2 = EmbeddedCurvePoint { x: pub_point.x + 1, y: pub_point.y + 1 };
+        let a1 = EmbeddedCurvePoint { x: pub_x + 1, y: pub_y };
+        let a2 = EmbeddedCurvePoint { x: pub_x + 1, y: pub_y + 1 };
         let doubling = a1.double();
         assert(doubling.x == 1);
         let res = embedded_curve_add(a1, a2);
         assert(res.x == 1);
 
         let a1 = EmbeddedCurvePoint { x: 2, y: 3 };
-        let a2 = EmbeddedCurvePoint { x: pub_point.x, y: pub_point.y + 1 as Field };
+        let a2 = EmbeddedCurvePoint { x: pub_x, y: pub_y + 1 as Field };
         let res = embedded_curve_add(a1, a2);
         assert(res.x == 1);
 
@@ -75,8 +78,8 @@ fn main(priv_key: u8, pub_x: pub u8, pub_y: pub [u8; 32]) {
         let a2 = EmbeddedCurvePoint { x: 1, y: 3 };
         let res = embedded_curve_add(a1, a2);
         assert(res.x == 1);
-        let a1 = EmbeddedCurvePoint { x: pub_point.x, y: 3 };
-        let a2 = EmbeddedCurvePoint { x: pub_point.x, y: 2 };
+        let a1 = EmbeddedCurvePoint { x: pub_x, y: 3 };
+        let a2 = EmbeddedCurvePoint { x: pub_x, y: 2 };
         let res = embedded_curve_add(a1, a2);
         assert(res.x == 1);
     }

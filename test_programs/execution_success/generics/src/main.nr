@@ -39,8 +39,10 @@ impl<T> Bar<T> {
 }
 
 fn main(x: u8, y: u8) {
-    let bar1: Bar<Field> = Bar { one: x as Field, two: y as Field, other: 0 };
-    let bar2 = Bar { one: x as Field, two: y as Field, other: [0] };
+    let x = x as Field;
+    let y = y as Field;
+    let bar1: Bar<Field> = Bar { one: x, two: y, other: 0 };
+    let bar2 = Bar { one: x, two: y, other: [0] };
 
     foo(bar1);
     foo(bar2);
@@ -53,8 +55,8 @@ fn main(x: u8, y: u8) {
     assert(bar1.get_other() == bar1.other);
     // Expected type error
     // assert(bar2.get_other() == bar2.other);
-    let one = x as Field;
-    let two = y as Field;
+    let one = x;
+    let two = y;
     let nested_generics: Bar<Bar<Field>> = Bar { one, two, other: Bar { one, two, other: 0 } };
     assert(nested_generics.other.other == bar1.get_other());
 

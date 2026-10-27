@@ -5,9 +5,9 @@ fn main(i: u32) -> pub u8 {
     let mut x = 10;
     let mut y = 20;
 
-    let v: [&mut Field] = [&mut x, &mut y].as_vector();
+    let v: [&mut u8] = [&mut x, &mut y].as_vector();
     let (_v2, removed) = v.remove(i);
 
     y = 77;
-    *removed as u8
+    *removed
 }

@@ -5,6 +5,7 @@ expression: expanded_code
 fn main(x: u8) {
     let mut x: Field = x as Field;
     add1(&mut x);
+    assert(x == 3_Field);
     let mut s: S = S { y: x };
     s.add2();
     assert(s.y == 5_Field);

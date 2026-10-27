@@ -7,9 +7,10 @@ unconstrained fn two(_r: &Field) -> Field {
 }
 
 fn main(condition: bool, x: u8) {
+    let x = x as Field;
     let f = if condition { one } else { two };
     // Safety: testing function-pointer dispatch across the ACIR/Brillig boundary.
-    let y = unsafe { f(&Field::from(x)) };
+    let y = unsafe { f(&x) };
     let expected: Field = if condition { 1 } else { 2 };
     assert(y == expected);
 }

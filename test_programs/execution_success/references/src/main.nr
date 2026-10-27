@@ -1,6 +1,7 @@
 fn main(x: u8) {
     let mut x = x as Field;
     add1(&mut x);
+    assert(x == 3);
     let mut s = S { y: x };
     s.add2();
     assert(s.y == 5);

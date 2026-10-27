@@ -1,5 +1,7 @@
 fn main(x: u8, y: pub u8) {
-    let (string, x, y) = ("i: {i}, j: {j}", x as Field, y as Field);
+    let x = x as Field;
+    let y = y as Field;
+    let string = "i: {i}, j: {j}";
     println(string);
 
     // TODO: fmtstr cannot be printed

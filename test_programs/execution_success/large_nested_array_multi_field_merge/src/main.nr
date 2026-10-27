@@ -11,16 +11,24 @@
 // so for this discard-heavy `Field` shape it costs more than it saves. The `_u64` twin
 // is the opposite: integer side effects keep the merges live regardless, so collapsing
 // the chain there is a clear win.
-struct Element {
-    a: Field,
-    b: Field,
-    c: Field,
-    d: Field,
-    e: Field,
+struct Element<T> {
+    a: T,
+    b: T,
+    c: T,
+    d: T,
+    e: T,
 }
 
-fn main(input: [Element; 256], condition: bool) {
-    let mut arr = input;
+fn main(input: [Element<u32>; 256], condition: bool) {
+    let mut arr = input.map(|x| {
+        Element {
+            a: x.a as Field,
+            b: x.b as Field,
+            c: x.c as Field,
+            d: x.d as Field,
+            e: x.e as Field,
+        }
+    });
     for i in 0..256 {
         if condition {
             arr[i].a = arr[i].a + 1;

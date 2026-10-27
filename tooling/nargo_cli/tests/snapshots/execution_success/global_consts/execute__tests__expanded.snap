@@ -60,12 +60,13 @@ unconstrained fn calculate_global_value() -> Field {
 global CALCULATED_GLOBAL: Field = 0x2a;
 
 fn main(a: [u8; 32], b: [u8; 32], c: pub [u8; 3], d: [u8; 5]) {
-    let test_struct: Dummy = Dummy {
-        x: d.map(|v: u8| -> Field { v as Field }),
-        y: c.map(|v: u8| -> Field { v as Field }),
-    };
+    let a: [Field; 32] = a.map(|v: u8| -> Field { v as Field });
+    let b: [Field; 32] = b.map(|v: u8| -> Field { v as Field });
+    let c: [Field; 3] = c.map(|v: u8| -> Field { v as Field });
+    let d: [Field; 5] = d.map(|v: u8| -> Field { v as Field });
+    let test_struct: Dummy = Dummy { x: d, y: c };
     for i in 0_u32..foo::MAGIC_NUMBER {
-        assert((c[i] as Field) == (foo::MAGIC_NUMBER as Field));
+        assert(c[i] == (foo::MAGIC_NUMBER as Field));
         assert(test_struct.y[i] == (foo::MAGIC_NUMBER as Field));
         assert(test_struct.y[i] != NESTED[1_u32][0_u32].v);
     }
@@ -83,10 +84,7 @@ fn main(a: [u8; 32], b: [u8; 32], c: pub [u8; 3], d: [u8; 5]) {
     assert(x == 10_u32);
     let q: Field = multiplyByM(3_Field);
     assert(q == 96_Field);
-    arrays_neq(
-        a.map(|v: u8| -> Field { v as Field }),
-        b.map(|v: u8| -> Field { v as Field }),
-    );
+    arrays_neq(a, b);
     let t: [Field; 2] = [N as Field, M as Field];
     assert(t[1_u32] == 32_Field);
     assert(15_Field == my_submodule::my_helper());
@@ -98,8 +96,8 @@ fn main(a: [u8; 32], b: [u8; 32], c: pub [u8; 3], d: [u8; 5]) {
     assert(sugared[my_submodule::N + 1_u32] == 0_Field);
     let arr: [Field; 10] = [N as Field; 10];
     assert((arr[0_u32] == 5_Field) & (arr[9_u32] == 5_Field));
-    foo::from_foo(d.map(|v: u8| -> Field { v as Field }));
-    baz::from_baz(c.map(|v: u8| -> Field { v as Field }));
+    foo::from_foo(d);
+    baz::from_baz(c);
     assert(DERIVED == ((M as Field) + L));
     assert(CALCULATED_GLOBAL == 42_Field);
 }

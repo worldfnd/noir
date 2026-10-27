@@ -3,7 +3,8 @@ source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
 fn main(a: pub u8) {
-    let (mut ctx_limit, mut a): (u32, Field) = (5_u32, a as Field);
+    let mut a: Field = a as Field;
+    let mut ctx_limit: u32 = 5_u32;
     if a == -1_Field {
         for _ in 0_u32..2_u32 {
             // Safety: comment added by `nargo expand`

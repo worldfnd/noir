@@ -3,7 +3,7 @@ source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
 fn main(x: u8, y: pub u8) -> pub u16 {
-    assert((x as Field) != (y as Field));
+    assert(x != y);
     let mut f: [fn(Field) -> Field; 1] = [my_fun];
     f[0_u32] = my_fun2;
     f[0_u32](x as Field) as u16

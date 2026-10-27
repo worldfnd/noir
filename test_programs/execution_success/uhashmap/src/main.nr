@@ -6,9 +6,14 @@ type K = Field;
 type V = Field;
 
 // It is more convenient and readable to use structs as input.
-struct Entry<T> {
-    key: T,
-    value: T,
+struct InputEntry {
+    key: u8,
+    value: u8,
+}
+
+struct Entry {
+    key: Field,
+    value: Field,
 }
 
 global HASHMAP_LEN: u32 = 6;
@@ -22,10 +27,11 @@ global KV_CMP: fn((K, V), (K, V)) -> bool = |a: (K, V), b: (K, V)| a.0.lt(b.0);
 global ALLOCATE_HASHMAP: fn() -> UHashMap<K, V, BuildHasherDefault<Poseidon2Hasher>> =
     || -> UHashMap<K, V, BuildHasherDefault<Poseidon2Hasher>> UHashMap::default();
 
-unconstrained fn main(input: [Entry<u8>; HASHMAP_LEN]) {
-    test_sequential(input[0].key as K, input[0].value as V);
-    test_multiple_equal_insert(input[1].key as K, input[1].value as V);
-    test_value_override(input[2].key as K, input[2].value as V, input[3].value as V);
+unconstrained fn main(input: [InputEntry; HASHMAP_LEN]) {
+    let input = input.map(|entry| Entry { key: entry.key as K, value: entry.value as V });
+    test_sequential(input[0].key, input[0].value);
+    test_multiple_equal_insert(input[1].key, input[1].value);
+    test_value_override(input[2].key, input[2].value, input[3].value);
     test_insert_and_methods(&input);
     test_hashmaps_equality(input);
     test_retain();
@@ -91,11 +97,11 @@ unconstrained fn test_value_override(key: K, value: V, new_value: V) {
 }
 
 // Insert several distinct pairs and test auxiliary methods.
-unconstrained fn test_insert_and_methods(input: &[Entry<u8>; HASHMAP_LEN]) {
+unconstrained fn test_insert_and_methods(input: &[Entry; HASHMAP_LEN]) {
     let mut hashmap = ALLOCATE_HASHMAP();
     assert(hashmap.is_empty(), "New UHashMap should be empty.");
 
-    for entry in input.map(|e| Entry { key: e.key as K, value: e.value as V }) {
+    for entry in input {
         println(f"Inserting {entry}");
         hashmap.insert(entry.key, entry.value);
     }
@@ -103,7 +109,7 @@ unconstrained fn test_insert_and_methods(input: &[Entry<u8>; HASHMAP_LEN]) {
     println(hashmap.len());
     assert(hashmap.len() == HASHMAP_LEN, "hashmap.len() does not match input length.");
 
-    for entry in input.map(|e| Entry { key: e.key as K, value: e.value as V }) {
+    for entry in input {
         let entry_key = entry.key;
         assert(hashmap.contains_key(entry.key), f"Not found inserted key {entry_key}.");
     }
@@ -135,18 +141,18 @@ unconstrained fn test_retain() {
 }
 
 // Equality trait check.
-unconstrained fn test_hashmaps_equality(input: [Entry<u8>; HASHMAP_LEN]) {
+unconstrained fn test_hashmaps_equality(input: [Entry; HASHMAP_LEN]) {
     let mut hashmap_1 = ALLOCATE_HASHMAP();
     let mut hashmap_2 = ALLOCATE_HASHMAP();
 
     for entry in &input {
-        hashmap_1.insert(entry.key as K, entry.value as V);
-        hashmap_2.insert(entry.key as K, entry.value as V);
+        hashmap_1.insert(entry.key, entry.value);
+        hashmap_2.insert(entry.key, entry.value);
     }
 
     assert(hashmap_1 == hashmap_2, "CtHashMaps should be equal.");
 
-    hashmap_2.remove(input[0].key as K);
+    hashmap_2.remove(input[0].key);
 
     assert(hashmap_1 != hashmap_2, "CtHashMaps should not be equal.");
 }

@@ -4,16 +4,16 @@ expression: expanded_code
 ---
 fn main() -> pub u8 {
     // Safety: comment added by `nargo expand`
-    let result: Field = unsafe { foo() };
-    assert(result == 1_Field);
-    result as u8
+    let result: u8 = unsafe { foo() };
+    assert(result == 1_u8);
+    result
 }
 
-unconstrained fn foo() -> Field {
+unconstrained fn foo() -> u8 {
     bar()
 }
 
-unconstrained fn bar() -> Field {
+unconstrained fn bar() -> u8 {
     while true {}
-    1_Field
+    1_u8
 }

@@ -3,10 +3,12 @@ global TWO: Field = 2;
 global THREE: Field = 3;
 
 fn main(x: u8, y: pub u8) {
+    let x = x as Field;
+    let y = y as Field;
     // Safety: testing context
     unsafe {
-        entry_point_one(x as Field, y as Field);
-        entry_point_two(x as Field, y as Field);
+        entry_point_one(x, y);
+        entry_point_two(x, y);
     }
 }
 

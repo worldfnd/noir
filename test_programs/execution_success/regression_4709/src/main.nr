@@ -3850,5 +3850,5 @@ fn main(x: u8, y: pub u8) {
         }
     }
     assert(!acc.lt(x as Field));
-    assert(x as Field != y as Field);
+    assert(x != y);
 }

@@ -33,10 +33,15 @@ fn main(
     c: pub [u8; foo::MAGIC_NUMBER],
     d: [u8; foo::bar::N],
 ) {
-    let test_struct = Dummy { x: d.map(|v| v as Field), y: c.map(|v| v as Field) };
+    let a = a.map(|v| v as Field);
+    let b = b.map(|v| v as Field);
+    let c = c.map(|v| v as Field);
+    let d = d.map(|v| v as Field);
+
+    let test_struct = Dummy { x: d, y: c };
 
     for i in 0..foo::MAGIC_NUMBER {
-        assert(c[i] as Field == foo::MAGIC_NUMBER as Field);
+        assert(c[i] == foo::MAGIC_NUMBER as Field);
         assert(test_struct.y[i] == foo::MAGIC_NUMBER as Field);
         assert(test_struct.y[i] != NESTED[1][0].v);
     }
@@ -60,7 +65,7 @@ fn main(
     let q = multiplyByM(3);
     assert(q == 96);
 
-    arrays_neq(a.map(|v| v as Field), b.map(|v| v as Field));
+    arrays_neq(a, b);
 
     let t: [Field; T_LEN] = [N as Field, M as Field];
     assert(t[1] == 32);
@@ -78,8 +83,8 @@ fn main(
     let arr: [Field; my_submodule::N] = [N as Field; 10];
     assert((arr[0] == 5) & (arr[9] == 5));
 
-    foo::from_foo(d.map(|v| v as Field));
-    baz::from_baz(c.map(|v| v as Field));
+    foo::from_foo(d);
+    baz::from_baz(c);
     assert(DERIVED == M as Field + L);
 
     assert(CALCULATED_GLOBAL == 42);

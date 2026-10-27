@@ -11,9 +11,10 @@ unconstrained fn two(_r: &Field) -> Field {
 }
 
 fn main(condition: bool, x: u8) {
+    let x: Field = x as Field;
     let f: unconstrained fn(&Field) -> Field = if condition { one } else { two };
     // Safety: comment added by `nargo expand`
-    let y: Field = unsafe { f(&<Field as From<u8>>::from(x)) };
+    let y: Field = unsafe { f(&x) };
     let expected: Field = if condition { 1_Field } else { 2_Field };
     assert(y == expected);
 }

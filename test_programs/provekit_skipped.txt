@@ -12,25 +12,3 @@ execution_success/databus_two_calldata_simple
 execution_success/regression_7143
 execution_success/regression_7612
 execution_success/regression_claude_1124
-
-# Each must compile to an empty circuit, which needs a `Field` input: every type an entry point
-# takes adds range-check opcodes.
-compile_success_empty/assert_constant
-compile_success_empty/comptime_recursion_regression
-compile_success_empty/instruction_deduplication
-compile_success_empty/ret_fn_ret_cl
-compile_success_empty/simple_program_no_body
-compile_success_empty/simple_range
-compile_success_empty/static_assert
-compile_success_empty/trait_call_full_path
-compile_success_empty/trait_default_implementation
-compile_success_empty/trait_method_mut_self
-compile_success_empty/trait_override_implementation
-compile_success_empty/traits
-compile_success_empty/turbofish_call_func_diff_types
-compile_success_empty/unused_variables
-compile_success_empty/workspace_reexport_bug
-
-# `main` takes `Field` inputs that can't become an entry point type without new lines.
-execution_success/large_nested_array_multi_field_merge
-execution_success/simple_shield

@@ -16,9 +16,10 @@ struct Foo {
 }
 
 fn main(x: pub u8, y: pub u32) {
+    let x: Field = x as Field;
     // Safety: comment added by `nargo expand`
-    let result: Field = unsafe { read_ref(&<Field as From<u8>>::from(x)) };
-    assert(result == (x as Field));
+    let result: Field = unsafe { read_ref(&x) };
+    assert(result == x);
     let foo: Foo = Foo { x: y, y: [y, y, y] };
     // Safety: comment added by `nargo expand`
     let result: u32 = unsafe { read_ref_struct(&foo) };

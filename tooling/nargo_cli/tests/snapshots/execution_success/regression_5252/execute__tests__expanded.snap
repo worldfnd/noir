@@ -13,10 +13,9 @@ pub fn poseidon_hash<let N: u32>(inputs: [Field; N]) -> Field {
 }
 
 fn main(to_hash: [[u64; 20]; 3], enable: [bool; 3]) -> pub [[u8; 32]; 3] {
-    let (to_hash, mut result): ([[Field; 20]; 3], [Field; 3]) = (
-        to_hash.map(|row: [u64; 20]| -> [Field; 20] row.map(|x: u64| -> Field { x as Field })),
-        [0_Field; 3],
-    );
+    let to_hash: [[Field; 20]; 3] =
+        to_hash.map(|row: [u64; 20]| -> [Field; 20] row.map(|x: u64| -> Field { x as Field }));
+    let mut result: [Field; 3] = [0_Field; 3];
     for i in 0_u32..NUM_HASHES {
         let enable: bool = enable[i];
         let to_hash: [Field; 20] = to_hash[i];

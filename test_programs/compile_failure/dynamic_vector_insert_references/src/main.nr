@@ -5,9 +5,9 @@ fn main(i: u32) -> pub u8 {
     let mut x = 10;
     let mut y = 20;
 
-    let v: [&mut Field] = [&mut x, &mut y].as_vector();
+    let v: [&mut u8] = [&mut x, &mut y].as_vector();
     let v2 = v.insert(i, &mut x);
 
     y = 77;
-    *v2[0] as u8
+    *v2[0]
 }

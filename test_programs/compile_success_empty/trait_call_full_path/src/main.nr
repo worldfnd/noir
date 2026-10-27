@@ -12,7 +12,8 @@ mod foo {
 
 use foo::Trait;
 
-fn main(x: Field) {
+fn main() {
+    let x: Field = std::hint::black_box(1);
     let _ = foo::Trait::me(x);
     let _ = Trait::me(x);
 }

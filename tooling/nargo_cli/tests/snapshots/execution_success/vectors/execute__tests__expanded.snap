@@ -5,12 +5,14 @@ expression: expanded_code
 use std::vector;
 
 fn main(x: u8, y: pub u8) {
+    let x: Field = x as Field;
+    let y: Field = y as Field;
     let mut vector: [Field] = [0_Field; 2].as_vector();
     assert(vector[0_u32] == 0_Field);
     assert(vector[0_u32] != 1_Field);
-    vector[0_u32] = x as Field;
-    assert(vector[0_u32] == (x as Field));
-    let vector_plus_10: [Field] = vector.push_back(y as Field);
+    vector[0_u32] = x;
+    assert(vector[0_u32] == x);
+    let vector_plus_10: [Field] = vector.push_back(y);
     assert(vector_plus_10[2_u32] == 10_Field);
     assert(vector_plus_10[2_u32] != 8_Field);
     assert(vector_plus_10.len() == 3_u32);
@@ -56,10 +58,10 @@ fn main(x: u8, y: pub u8) {
     assert([2_u32, 4_u32, 6_u32].as_vector().all(|x: u32| -> bool { x > 0_u32 }));
     assert([2_u32, 4_u32, 6_u32].as_vector().any(|x: u32| -> bool { x > 5_u32 }));
     regression_2083();
-    regression_merge_vectors(x as Field, y as Field);
+    regression_merge_vectors(x, y);
     regression_2370();
-    regression_4418(x as Field);
-    regression_vector_call_result(x as Field, y as Field);
+    regression_4418(x);
+    regression_vector_call_result(x, y);
     regression_4506();
     regression_vector_to_brillig((x as u32) % 3_u32);
 }

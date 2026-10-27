@@ -11,11 +11,12 @@ struct MyStruct {
 }
 
 fn main(x: [u8; 2]) {
+    let x = x.map(|x| x as Field);
     let a: Foo<Field> = [1, 2];
-    assert(a[0] != x[0] as Field);
+    assert(a[0] != x[0]);
 
     let b: Bar = 2;
-    assert(x[0] as Field == b);
+    assert(x[0] == b);
 
     let c: u8 = 1;
     let d: u32 = 2;
