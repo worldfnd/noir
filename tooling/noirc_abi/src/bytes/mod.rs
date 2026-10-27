@@ -4,14 +4,15 @@
 //! as its `w`-bit two's complement pattern in `ceil(w / 8)` bytes, with the padding bits above
 //! the width zero; a `bool` as one byte, `0` or `1`; a `str<N>` as its `N` raw bytes. Arrays,
 //! tuples and structs hold their elements in declaration order, with no alignment and no length
-//! prefix. The parameters form one blob and the return value its own. A `Field` has no byte
-//! encoding, so an ABI that names one is refused, as is one that names an empty value, which no
-//! entry point takes or returns.
+//! prefix, so an empty array, string, tuple or struct takes no bytes. The parameters form one
+//! blob and the return value its own. A `Field` has no byte encoding, so an ABI that names one is
+//! refused.
 //!
-//! Inputs are read from TOML or JSON by a strict parser: shapes are exact, an integer is a
-//! native integer of the format or a quoted `-?(0x[0-9a-fA-F]+|[0-9]+)`, and a boolean is
-//! `true` or `false`. The field-element path ([`crate::input_parser`], [`crate::Abi::encode`])
-//! is separate and unchanged.
+//! Inputs are read from TOML or JSON as Noir's input parser reads them: a key that names nothing
+//! is ignored, an integer is a native integer of the format or a quoted integer, and a boolean is
+//! `true`, `false`, or 0 or 1 spelled as an integer. Unlike that parser, this one takes shapes
+//! exactly, so a short array or a missing key is refused. The field-element path
+//! ([`crate::input_parser`], [`crate::Abi::encode`]) is separate and unchanged.
 
 use std::fmt;
 
@@ -96,17 +97,14 @@ pub enum Error {
     /// does not happen for inputs that pass the other checks.
     #[error("cannot read the input: {message}")]
     Syntax { message: String },
-    /// A JSON object names a key twice.
-    #[error("{}the key is given more than once", at(path))]
-    DuplicateKey { path: String },
-    /// A key names no parameter or struct field, or is `return` when there is no return value.
-    #[error("{}unknown key", at(path))]
-    UnknownKey { path: String },
+    /// A return value is given to the codec or the writer for an ABI with none.
+    #[error("{}the ABI has no return value", at(path))]
+    UnexpectedReturn { path: String },
     /// A parameter or struct field has no value.
     #[error("{}missing value", at(path))]
     Missing { path: String },
-    /// The ABI names a type with no byte encoding: a `Field`, an integer width outside
-    /// `2..=MAX_INTEGER_WIDTH`, or an empty array, string, tuple or struct.
+    /// The ABI names a type with no byte encoding: a `Field`, or an integer width outside
+    /// `2..=MAX_INTEGER_WIDTH`.
     #[error("{}`{}` has no byte encoding", at(path), type_name(typ))]
     UnsupportedType { path: String, typ: AbiType },
     /// The ABI declares two parameters, or two fields of a struct, with the same name.
@@ -126,7 +124,8 @@ pub enum Error {
     /// An integer is written in a spelling the parser refuses.
     #[error("{}cannot read `{text}`: {rule}", at(path))]
     Spelling { path: String, text: String, rule: &'static str },
-    /// An integer is outside the range of its type.
+    /// An integer is outside the range of its type, or a boolean spelled as an integer is
+    /// neither 0 nor 1.
     #[error("{}{value} is out of range for `{}`", at(path), type_name(typ))]
     OutOfRange { path: String, value: BigInt, typ: AbiType },
     /// An integer's bytes set a padding bit above its width.
@@ -138,7 +137,8 @@ pub enum Error {
     /// A blob is not exactly as long as its layout.
     #[error("{}expected {expected} bytes, found {found}", at(path))]
     ByteLength { path: String, expected: usize, found: usize },
-    /// A blob or a type's encoding would reach [`MAX_INPUT_BYTES`].
+    /// A blob or a type's encoding would reach [`MAX_INPUT_BYTES`], counting each empty value as
+    /// one byte.
     #[error("{}the byte encoding reaches 2^32 bytes", at(path))]
     TooLarge { path: String },
     /// A `str<N>` holds bytes that are not UTF-8, which have no text spelling.

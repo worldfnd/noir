@@ -7,26 +7,31 @@ use num_bigint::{BigInt, BigUint};
 use serde::de::{self, Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde::ser::{Serialize, Serializer};
 
-use crate::{Abi, AbiType, MAIN_RETURN_NAME, Sign, input_parser::Format};
+use crate::{Abi, AbiType, MAIN_RETURN_NAME, input_parser::Format};
 
 use super::{
     Error, Inputs, MAX_INTEGER_WIDTH, Path, Value, check_length, codec::check_int, layout::layout,
     unsupported, value_kind,
 };
 
-const SIGNED_SPELLING: &str = "a quoted signed integer is spelled -?(0x[0-9a-fA-F]+|[0-9]+)";
-const UNSIGNED_SPELLING: &str = "a quoted unsigned integer is spelled 0x[0-9a-fA-F]+ or [0-9]+";
+const SPELLING: &str =
+    "a quoted integer is an optional -, an optional 0x and an optional +, then digits and _";
 const NATIVE_RANGE: &str = "a native integer is at most i64::MAX; quote a larger one";
 const DIGIT_LIMIT: &str = "a quoted integer has at most 16384 digits after its leading zeros";
 
 /// Reads the inputs of `abi` from a TOML or JSON document.
 ///
-/// The document holds exactly one value per parameter, keyed by name, and optionally a value
-/// keyed `return` when `abi` has a return value. Shapes are exact: an unknown, repeated or
-/// missing key, an array or tuple of the wrong length and a string of the wrong byte length are
-/// refused. An integer is a native integer of the format (TOML takes every spelling it has) or a
-/// quoted `-?(0x[0-9a-fA-F]+|[0-9]+)`, with the `-` only for a signed type. A boolean is `true`
-/// or `false`. Floats, datetimes and `null` are refused, except JSON's negative zero: a native
+/// The document holds one value per parameter, keyed by name, and optionally a value keyed
+/// `return` when `abi` has a return value. As in Noir's input parser, a key that names no
+/// parameter or struct field, or `return` when `abi` has no return value, is ignored, and a key
+/// repeated in JSON takes its last value (TOML refuses a repeated key itself). Otherwise shapes are
+/// exact: a missing key, an array or tuple of the wrong length and a string of the wrong byte
+/// length are refused. An integer is a native integer of the format (TOML takes every spelling it has) or a
+/// quoted integer as Noir's input parser reads it: an optional `-`, an optional `0x` and an
+/// optional `+`, then digits that may hold `_` after the first. A negative value is out of range
+/// for an unsigned type, but `"-0"` is 0. A boolean is `true` or `false`, or 0 or 1 spelled as an
+/// integer, as Noir's input parser also takes it.
+/// Floats, datetimes and `null` are refused, except JSON's negative zero: a native
 /// `-0`, which `serde_json` reads as the float `-0.0`, is the integer 0, and so are the JSON
 /// spellings `-0.0`, `-0e0` and a negative underflow such as `-1e-400`. Positive zero (`0.0`)
 /// is refused.
@@ -48,10 +53,10 @@ pub fn parse(format: &Format, src: &str, abi: &Abi) -> Result<Inputs, Error> {
     };
 
     let has_return = abi.return_type.is_some();
-    let mut values = keyed(entries, root_path, |key| {
+    let mut values = keyed(entries, |key| {
         abi.parameters.iter().any(|param| param.name == key)
             || (has_return && key == MAIN_RETURN_NAME)
-    })?;
+    });
     let params = abi
         .parameters
         .iter()
@@ -84,7 +89,7 @@ pub fn serialize(format: &Format, abi: &Abi, inputs: &Inputs) -> Result<String, 
     if let Some(ret) = &inputs.ret {
         let path = Path::Root(MAIN_RETURN_NAME);
         let Some(typ) = &abi.return_type else {
-            return Err(Error::UnknownKey { path: path.to_string() });
+            return Err(Error::UnexpectedReturn { path: path.to_string() });
         };
         entries.push((MAIN_RETURN_NAME, write(&typ.abi_type, ret, path)?));
     }
@@ -111,7 +116,7 @@ enum Node {
     Bool(bool),
     Str(String),
     Seq(Vec<Node>),
-    /// The entries of a table or object, a repeated key kept: an object's in document order, a
+    /// The entries of a table or object: an object's in document order, a repeated key kept, a
     /// table's sorted by key.
     Map(Vec<(String, Node)>),
     /// A value no input type takes, named for errors: a float, a datetime or `null`.
@@ -200,7 +205,7 @@ impl<'de> Visitor<'de> for NodeVisitor {
         Ok(Node::Seq(elements))
     }
 
-    /// Keeps every entry, a repeated key included, for the reader to refuse with its path.
+    /// Keeps every entry in document order, so that the reader takes a repeated key's last value.
     fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Node, A::Error> {
         let mut entries: Vec<(String, Node)> = Vec::new();
         while let Some(entry) = map.next_entry()? {
@@ -210,24 +215,10 @@ impl<'de> Visitor<'de> for NodeVisitor {
     }
 }
 
-/// The entries of a table or object by key. In entry order, refuses a key `known` refuses, then
-/// a repeated key.
-fn keyed(
-    entries: Vec<(String, Node)>,
-    path: Path<'_>,
-    known: impl Fn(&str) -> bool,
-) -> Result<HashMap<String, Node>, Error> {
-    let mut values = HashMap::with_capacity(entries.len());
-    for (key, node) in entries {
-        if !known(&key) {
-            return Err(Error::UnknownKey { path: Path::Field(&path, &key).to_string() });
-        }
-        if values.contains_key(&key) {
-            return Err(Error::DuplicateKey { path: Path::Field(&path, &key).to_string() });
-        }
-        values.insert(key, node);
-    }
-    Ok(values)
+/// The entries of a table or object that `known` takes, by key. As in Noir's input parser, the
+/// others are ignored and a repeated key takes its last value.
+fn keyed(entries: Vec<(String, Node)>, known: impl Fn(&str) -> bool) -> HashMap<String, Node> {
+    entries.into_iter().filter(|(key, _)| known(key)).collect()
 }
 
 /// Reads nodes against their types. `map` names a table or an object in errors.
@@ -240,11 +231,19 @@ impl Reader {
         match (typ, node) {
             (AbiType::Field, _) => Err(unsupported(typ, path)),
             (AbiType::Integer { sign, width }, node) => {
-                let value = self.read_int(*sign, node, path)?;
+                let value = self.read_int(node, path)?;
                 check_int(&value, *sign, *width, path)?;
                 Ok(Value::Int(value))
             }
             (AbiType::Boolean, Node::Bool(value)) => Ok(Value::Bool(value)),
+            (AbiType::Boolean, node @ (Node::Int(_) | Node::Wide(_) | Node::Str(_))) => {
+                let value = self.read_int(node, path)?;
+                match u8::try_from(&value) {
+                    Ok(0) => Ok(Value::Bool(false)),
+                    Ok(1) => Ok(Value::Bool(true)),
+                    _ => Err(Error::OutOfRange { path: path.to_string(), value, typ: typ.clone() }),
+                }
+            }
             (AbiType::String { length }, Node::Str(text)) => {
                 check_length(*length as usize, text.len(), path)?;
                 Ok(Value::Str(text.into_bytes()))
@@ -271,8 +270,7 @@ impl Reader {
                     .map(Value::Seq)
             }
             (AbiType::Struct { fields, .. }, Node::Map(entries)) => {
-                let mut values =
-                    keyed(entries, path, |key| fields.iter().any(|(name, _)| name == key))?;
+                let mut values = keyed(entries, |key| fields.iter().any(|(name, _)| name == key));
                 fields
                     .iter()
                     .map(|(name, typ)| {
@@ -288,14 +286,12 @@ impl Reader {
         }
     }
 
-    fn read_int(&self, sign: Sign, node: Node, path: Path<'_>) -> Result<BigInt, Error> {
+    fn read_int(&self, node: Node, path: Path<'_>) -> Result<BigInt, Error> {
         match node {
             Node::Int(value) => Ok(BigInt::from(value)),
-            Node::Str(text) => scan(&text, sign).map_err(|rule| Error::Spelling {
-                path: path.to_string(),
-                text,
-                rule,
-            }),
+            Node::Str(text) => {
+                scan(&text).map_err(|rule| Error::Spelling { path: path.to_string(), text, rule })
+            }
             Node::Wide(value) => Err(Error::Spelling {
                 path: path.to_string(),
                 text: value.to_string(),
@@ -332,31 +328,33 @@ impl Reader {
     }
 }
 
-/// Reads a quoted integer spelled `-?(0x[0-9a-fA-F]+|[0-9]+)`, the `-` only for a signed type,
-/// or names the rule `text` breaks. Unlike the field parser, this refuses a `+`, a `_` separator
-/// and an upper-case `0X`. A number of more significant digits than the widest type has bits is
-/// refused before it is converted, which would take time quadratic in its length.
-fn scan(text: &str, sign: Sign) -> Result<BigInt, &'static str> {
-    let spelling = match sign {
-        Sign::Signed => SIGNED_SPELLING,
-        Sign::Unsigned => UNSIGNED_SPELLING,
-    };
-    let (negative, unsigned) = match (text.strip_prefix('-'), sign) {
-        (Some(unsigned), Sign::Signed) => (true, unsigned),
-        (Some(_), Sign::Unsigned) => return Err(spelling),
-        (None, _) => (false, text),
+/// Reads a quoted integer as Noir's input parser does, or names the rule `text` breaks: an
+/// optional `-`, then `0x` and hex digits or decimal digits, which may start with one `+` and
+/// hold `_` after the first digit. The `-` is read for every type, and the range check refuses a
+/// negative value of an unsigned type, so `"-0"` is 0 there. A number of more significant digits
+/// than the widest type has bits is refused before it is converted, which would take time
+/// quadratic in its length.
+fn scan(text: &str) -> Result<BigInt, &'static str> {
+    let (negative, unsigned) = match text.strip_prefix('-') {
+        Some(unsigned) => (true, unsigned),
+        None => (false, text),
     };
     let (digits, radix) = match unsigned.strip_prefix("0x") {
         Some(digits) => (digits, 16),
         None => (unsigned, 10),
     };
-    if digits.is_empty() || !digits.chars().all(|digit| digit.is_digit(radix)) {
-        return Err(spelling);
+    let digits = digits.strip_prefix('+').unwrap_or(digits);
+    if digits.is_empty()
+        || digits.starts_with('_')
+        || !digits.chars().all(|digit| digit == '_' || digit.is_digit(radix))
+    {
+        return Err(SPELLING);
     }
-    if digits.trim_start_matches('0').len() > MAX_INTEGER_WIDTH as usize {
+    let significant = digits.trim_start_matches(['0', '_']).bytes().filter(|&digit| digit != b'_');
+    if significant.count() > MAX_INTEGER_WIDTH as usize {
         return Err(DIGIT_LIMIT);
     }
-    let magnitude = BigUint::parse_bytes(digits.as_bytes(), radix).ok_or(spelling)?;
+    let magnitude = BigUint::parse_bytes(digits.as_bytes(), radix).ok_or(SPELLING)?;
     let magnitude = BigInt::from(magnitude);
     Ok(if negative { -magnitude } else { magnitude })
 }

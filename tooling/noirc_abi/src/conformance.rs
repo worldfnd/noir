@@ -214,8 +214,8 @@ pub fn byte_vectors() -> Vec<ByteVector> {
         &nested,
         Some(nested_toml(&format!("{toml_fields}extra = 1\n"))),
         Some(nested_json(&format!("{json_fields}, \"extra\": 1"))),
-        None,
-        false,
+        Some(nested_bytes.clone()),
+        true,
     ));
     vectors.push(document(
         "nested missing key",
@@ -226,12 +226,12 @@ pub fn byte_vectors() -> Vec<ByteVector> {
         false,
     ));
     vectors.push(document(
-        "nested duplicate key",
+        "nested JSON repeated key",
         &nested,
         None,
-        Some(nested_json(&format!("\"tag\": 7, {json_fields}"))),
-        None,
-        false,
+        Some(nested_json(&format!("\"tag\": 8, {json_fields}"))),
+        Some(nested_bytes.clone()),
+        true,
     ));
     for length in [nested_bytes.len() - 1, nested_bytes.len() + 1] {
         let mut bytes = nested_bytes.clone();
@@ -275,15 +275,30 @@ pub fn byte_vectors() -> Vec<ByteVector> {
             &one,
             "x = 1\nreturn = 2",
             "{\"x\": 1, \"return\": 2}",
-            false,
+            true,
         ),
-        ("unknown key", &one, "x = 1\ny = 2", "{\"x\": 1, \"y\": 2}", false),
-        ("duplicate key", &one, "x = 1\nx = 1", "{\"x\": 1, \"x\": 1}", false),
+        ("unknown key", &one, "x = 1\ny = 2", "{\"x\": 1, \"y\": 2}", true),
         ("missing key", &two, "x = 1", "{\"x\": 1}", false),
     ] {
         let bytes = accept.then(|| vec![0x01]);
         vectors.push(document(name, abi, Some(toml.into()), Some(json.into()), bytes, accept));
     }
+    vectors.push(document(
+        "TOML repeated key",
+        &one,
+        Some("x = 2\nx = 1".into()),
+        None,
+        None,
+        false,
+    ));
+    vectors.push(document(
+        "JSON repeated key",
+        &one,
+        None,
+        Some("{\"x\": 2, \"x\": 1}".into()),
+        Some(vec![0x01]),
+        true,
+    ));
     vectors.push(document(
         "JSON array at the top level",
         &one,
@@ -302,8 +317,9 @@ pub fn byte_vectors() -> Vec<ByteVector> {
         ("short array", array.clone(), "[1]"),
         ("long array", array, "[1, 2, 3]"),
         ("two-byte str<1>", AbiType::String { length: 1 }, "\"\u{e9}\""),
-        ("quoted +", signed(8), "\"+5\""),
-        ("quoted _", unsigned(16), "\"1_000\""),
+        ("quoted ++", signed(8), "\"++5\""),
+        ("quoted leading _", unsigned(16), "\"_1\""),
+        ("quoted + before 0x", unsigned(8), "\"+0x10\""),
         ("quoted 0X", signed(8), "\"0X10\""),
         ("quoted 0x alone", signed(8), "\"0x\""),
         ("quoted - alone", signed(8), "\"-\""),
@@ -315,13 +331,14 @@ pub fn byte_vectors() -> Vec<ByteVector> {
         ("quoted non-ASCII digit", unsigned(8), "\"\u{665}\""),
         ("quoted hex above i8::MAX", signed(8), "\"0x80\""),
         ("quoted -0x81 i8", signed(8), "\"-0x81\""),
-        ("quoted -0 unsigned", unsigned(8), "\"-0\""),
         ("quoted -1 unsigned", unsigned(8), "\"-1\""),
         ("native -1 unsigned", unsigned(8), "-1"),
         ("native 256 u8", unsigned(8), "256"),
         ("native 128 i8", signed(8), "128"),
         ("native -129 i8", signed(8), "-129"),
-        ("integer as bool", AbiType::Boolean, "1"),
+        ("native 2 bool", AbiType::Boolean, "2"),
+        ("quoted 2 bool", AbiType::Boolean, "\"2\""),
+        ("native -1 bool", AbiType::Boolean, "-1"),
         ("string as bool", AbiType::Boolean, "\"true\""),
         ("integer as string", AbiType::String { length: 1 }, "5"),
         ("bool as integer", unsigned(8), "true"),
@@ -393,6 +410,18 @@ pub fn byte_vectors() -> Vec<ByteVector> {
         ("quoted leading zeros", unsigned(8), "\"007\"", vec![0x07]),
         ("native i64::MIN", signed(64), "-9223372036854775808", le_bytes(&i64::MIN.into(), 64)),
         ("bool false", AbiType::Boolean, "false", vec![0x00]),
+        ("native 0 bool", AbiType::Boolean, "0", vec![0x00]),
+        ("native 1 bool", AbiType::Boolean, "1", vec![0x01]),
+        ("quoted 1 bool", AbiType::Boolean, "\"1\"", vec![0x01]),
+        ("quoted 0x0 bool", AbiType::Boolean, "\"0x0\"", vec![0x00]),
+        ("quoted +", signed(8), "\"+5\"", vec![0x05]),
+        ("quoted -+", signed(8), "\"-+5\"", vec![0xfb]),
+        ("quoted _", unsigned(16), "\"1_000\"", vec![0xe8, 0x03]),
+        ("quoted hex _", unsigned(16), "\"0x1_0\"", vec![0x10, 0x00]),
+        ("quoted -0 unsigned", unsigned(8), "\"-0\"", vec![0x00]),
+        ("quoted -0 bool", AbiType::Boolean, "\"-0\"", vec![0x00]),
+        ("empty array", AbiType::Array { length: 0, typ: Box::new(unsigned(8)) }, "[]", Vec::new()),
+        ("empty string", AbiType::String { length: 0 }, "\"\"", Vec::new()),
     ] {
         vectors.push(value_vector(name, typ, spelling, Some(bytes), true));
     }

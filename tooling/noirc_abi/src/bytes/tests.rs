@@ -201,22 +201,37 @@ fn utf8_string_lengths_count_bytes_and_raw_strings_keep_every_byte() {
     }
 }
 
-/// No entry point takes or returns an empty value, so a type of no bytes is refused wherever it
-/// sits. Otherwise an empty element would let an empty blob declare any number of values.
+/// An empty array, string, tuple or struct takes no bytes, as a parameter, nested or as the
+/// return value.
 #[test]
-fn empty_values_are_refused_at_any_depth() {
-    for typ in [array(0, unsigned(8)), AbiType::String { length: 0 }, tuple(vec![]), structure(&[])]
-    {
-        let refusal =
-            |path: &str| Err(Error::UnsupportedType { path: path.into(), typ: typ.clone() });
-        assert_eq!(check_abi(&single(typ.clone())), refusal("x"));
-        assert_eq!(check_abi(&single(tuple(vec![unsigned(8), typ.clone()]))), refusal("x.1"));
-        assert_eq!(check_abi(&abi(&[("x", unsigned(8))], Some(typ.clone()))), refusal("return"));
+fn empty_values_take_no_bytes() {
+    for (typ, value) in [
+        (array(0, unsigned(8)), Value::Seq(vec![])),
+        (AbiType::String { length: 0 }, Value::Str(vec![])),
+        (tuple(vec![]), Value::Seq(vec![])),
+        (structure(&[]), Value::Seq(vec![])),
+    ] {
+        let returning = abi(&[("x", unsigned(8))], Some(typ.clone()));
+        assert_eq!(decode_params(&single(typ.clone()), &[]), Ok(vec![value.clone()]));
+        assert_eq!(encode_return(&returning, &value), Ok(vec![]));
+        assert_eq!(decode_return(&returning, &[]), Ok(value.clone()));
+        let nested = single(tuple(vec![unsigned(8), typ]));
+        let pair = Value::Seq(vec![int(7), value]);
+        assert_eq!(encode_params(&nested, std::slice::from_ref(&pair)), Ok(vec![7]));
+        assert_eq!(decode_params(&nested, &[7]), Ok(vec![pair]));
     }
+}
+
+/// An empty value counts as one byte against [`MAX_INPUT_BYTES`], so that an empty blob cannot
+/// declare unboundedly many values.
+#[test]
+fn empty_values_count_against_the_byte_limit() {
     let empty = array(0, unsigned(8));
-    let huge = single(array(u32::MAX, empty.clone()));
-    let refusal = Error::UnsupportedType { path: "x[_]".into(), typ: empty };
-    assert_eq!(decode_params(&huge, &[]), Err(refusal));
+    let below = single(array(u32::MAX, empty.clone()));
+    assert_eq!(layout(&below).map(|layout| layout.params_len), Ok(0));
+    let at = single(array(u32::MAX, tuple(vec![empty.clone(), empty])));
+    assert_eq!(check_abi(&at), Err(Error::TooLarge { path: "x".into() }));
+    assert_eq!(decode_params(&at, &[]), Err(Error::TooLarge { path: "x".into() }));
 }
 
 #[test]
@@ -305,7 +320,7 @@ fn the_return_value_is_its_own_blob() {
     }
 
     let none = single(unsigned(8));
-    let unknown = Error::UnknownKey { path: "return".into() };
+    let unknown = Error::UnexpectedReturn { path: "return".into() };
     assert_eq!(encode_return(&none, &int(1)), Err(unknown.clone()));
     assert_eq!(decode_return(&none, &[0x01]), Err(unknown.clone()));
     let inputs = Inputs { params: vec![int(1)], ret: Some(int(1)) };
@@ -336,8 +351,8 @@ fn reading_errors_name_the_path_of_the_value() {
             Error::OutOfRange { path: path("x[2].head.0"), value: 256.into(), typ: unsigned(8) },
         ),
         (
-            "{ head = [3, 1], tail = \"c\" }",
-            Error::Shape { path: path("x[2].head.1"), expected: "a boolean", found: "an integer" },
+            "{ head = [3, 2], tail = \"c\" }",
+            Error::OutOfRange { path: path("x[2].head.1"), value: 2.into(), typ: AbiType::Boolean },
         ),
         (
             "{ head = [3.0, true], tail = \"c\" }",
@@ -353,15 +368,11 @@ fn reading_errors_name_the_path_of_the_value() {
         ),
         ("{ head = [3, true] }", Error::Missing { path: path("x[2].tail") }),
         (
-            "{ head = [3, true], tail = \"c\", tip = 1 }",
-            Error::UnknownKey { path: path("x[2].tip") },
-        ),
-        (
-            "{ head = [\"+3\", true], tail = \"c\" }",
+            "{ head = [\"++3\", true], tail = \"c\" }",
             Error::Spelling {
                 path: path("x[2].head.0"),
-                text: "+3".into(),
-                rule: "a quoted unsigned integer is spelled 0x[0-9a-fA-F]+ or [0-9]+",
+                text: "++3".into(),
+                rule: "a quoted integer is an optional -, an optional 0x and an optional +, then digits and _",
             },
         ),
         ("[3, true]", Error::Shape { path: path("x[2]"), expected: "a table", found: "an array" }),
@@ -377,12 +388,6 @@ fn reading_errors_name_the_path_of_the_value() {
     };
     let third = r#"{"head": [3, true], "tail": "c"}]"#;
     let cases = [
-        (
-            json(r#"{"head": [3, true], "head": [3, true], "tail": "c"}]}"#),
-            Error::DuplicateKey { path: path("x[2].head") },
-        ),
-        (json(&format!(r#"{third}, "x": []}}"#)), Error::DuplicateKey { path: path("x") }),
-        (json(&format!(r#"{third}, "y": 1}}"#)), Error::UnknownKey { path: path("y") }),
         (
             json(&format!(r#"{third}, "return": null}}"#)),
             Error::Shape { path: path("return"), expected: "an integer", found: "null" },
@@ -483,7 +488,8 @@ fn document(format: &Format, spelling: &str) -> String {
     }
 }
 
-/// A quoted integer outside `-?(0x[0-9a-fA-F]+|[0-9]+)` is a spelling error, whatever its value.
+/// A quoted integer outside the grammar of Noir's input parser is a spelling error, whatever its
+/// value.
 #[test]
 fn a_quoted_integer_outside_the_grammar_is_a_spelling_error() {
     for (typ, text) in [
@@ -491,9 +497,10 @@ fn a_quoted_integer_outside_the_grammar_is_a_spelling_error() {
         (unsigned(8), " 5"),
         (unsigned(8), "5 "),
         (unsigned(8), "\u{665}"),
-        (unsigned(16), "1_000"),
-        (unsigned(8), "-0"),
-        (signed(8), "+5"),
+        (unsigned(16), "_1"),
+        (unsigned(8), "+0x10"),
+        (signed(8), "++5"),
+        (signed(8), "--5"),
         (signed(8), "- 5"),
         (signed(8), "0x-1"),
         (signed(8), "0X10"),
@@ -576,20 +583,20 @@ fn arb_width() -> impl Strategy<Value = u32> {
     prop_oneof![8 => 2u32..=72, 3 => 73u32..=300, 1 => Just(MAX_INTEGER_WIDTH)]
 }
 
-/// A field-free type with no empty value in it, at most three levels deep, of at most four
-/// elements per level.
+/// A field-free type at most three levels deep, of at most four elements per level, sometimes
+/// empty.
 fn arb_type() -> impl Strategy<Value = AbiType> {
     let leaf = prop_oneof![
         6 => (any::<bool>(), arb_width())
             .prop_map(|(is_signed, width)| if is_signed { signed(width) } else { unsigned(width) }),
         2 => Just(AbiType::Boolean),
-        2 => (1u32..=6).prop_map(|length| AbiType::String { length }),
+        2 => (0u32..=6).prop_map(|length| AbiType::String { length }),
     ];
     leaf.prop_recursive(3, 24, 4, |inner| {
         prop_oneof![
-            (1u32..=4, inner.clone()).prop_map(|(length, typ)| array(length, typ)),
-            prop::collection::vec(inner.clone(), 1..=3).prop_map(tuple),
-            prop::collection::vec(inner, 1..=4).prop_map(|types| {
+            (0u32..=4, inner.clone()).prop_map(|(length, typ)| array(length, typ)),
+            prop::collection::vec(inner.clone(), 0..=3).prop_map(tuple),
+            prop::collection::vec(inner, 0..=4).prop_map(|types| {
                 let fields = FIELD_NAMES.iter().map(|name| name.to_string()).zip(types).collect();
                 AbiType::Struct { path: "S".into(), fields }
             }),

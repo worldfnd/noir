@@ -23,7 +23,7 @@ pub fn encode_return(abi: &Abi, ret: &Value) -> Result<Vec<u8>, Error> {
     layout(abi)?;
     let path = Path::Root(MAIN_RETURN_NAME);
     let Some(typ) = &abi.return_type else {
-        return Err(Error::UnknownKey { path: path.to_string() });
+        return Err(Error::UnexpectedReturn { path: path.to_string() });
     };
     let mut blob = Vec::new();
     encode(&typ.abi_type, ret, path, &mut blob)?;
@@ -54,7 +54,7 @@ pub fn decode_return(abi: &Abi, bytes: &[u8]) -> Result<Value, Error> {
     let layout = layout(abi)?;
     let path = Path::Root(MAIN_RETURN_NAME);
     let (Some(typ), Some(expected)) = (&abi.return_type, layout.ret_len) else {
-        return Err(Error::UnknownKey { path: path.to_string() });
+        return Err(Error::UnexpectedReturn { path: path.to_string() });
     };
     if bytes.len() != expected {
         return Err(Error::ByteLength { path: path.to_string(), expected, found: bytes.len() });
