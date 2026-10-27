@@ -1,0 +1,14 @@
+# Test programs the test generators skip, one `<category>/<program>` per line, grouped by reason.
+# The debugger's `ignored-tests.txt` and the filters in the wasm package's `compile.test.ts` skip
+# them too, in the categories those run. The build fails on a line that names no test program.
+
+# Their subject is `call_data`/`return_data`, which the frontend refuses.
+compile_success_no_bug/databus_mapping_regression
+execution_failure/regression_databus_out_of_bounds
+execution_success/databus
+execution_success/databus_composite_calldata
+execution_success/databus_two_calldata
+execution_success/databus_two_calldata_simple
+execution_success/regression_7143
+execution_success/regression_7612
+execution_success/regression_claude_1124

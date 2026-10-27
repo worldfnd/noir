@@ -6,7 +6,8 @@ global ROOTS: [Field; 16] = [
     0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
 ];
 
-unconstrained fn main(fracs: [Field; 16]) -> pub [Field; 2] {
+unconstrained fn main(fracs: [u8; 16]) -> pub [u32; 2] {
+    let fracs: [Field; 16] = fracs.map(|frac: u8| -> Field { frac as Field });
     let mut partial_sums: [Field; 2] = std::mem::zeroed();
     let mut partial_sum: Field = 0_Field;
     for i in 0_u32..8_u32 {
@@ -24,5 +25,5 @@ unconstrained fn main(fracs: [Field; 16]) -> pub [Field; 2] {
         }
         partial_sums[i] = partial_sum;
     }
-    partial_sums
+    partial_sums.map(|partial_sum: Field| -> u32 { partial_sum as u32 })
 }

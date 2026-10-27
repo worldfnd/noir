@@ -139,9 +139,10 @@ fn bool_math() {
 #[test]
 fn field_modulo() {
     let src = r#"
-    fn main(x: Field) -> pub Field {
-        x % 2
-        ^^^^^ Cannot do modulo on Fields, try casting to an integer first
+    fn main() {
+        let x: Field = 3;
+        let _ = x % 2;
+                ^^^^^ Cannot do modulo on Fields, try casting to an integer first
     }
     "#;
     check_errors(src);
@@ -166,10 +167,10 @@ fn integer_too_large() {
     let modulus = acvm::FieldConfig::linked().modulus();
     let src = format!(
         r#"
-    fn main(x: Field) {{
+    fn main() {{
         let too_large: Field = 233149999999999999999999999999999999999999999999999999999999923314999999999999999999999999999999999999999999999999999999999923314999999999999999999999999999999999999999999999999999999999;
                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ The value `233149999999999999999999999999999999999999999999999999999999923314999999999999999999999999999999999999999999999999999999999923314999999999999999999999999999999999999999999999999999999999` cannot fit into `Field` which has range `0..{modulus}`
-        assert(x == too_large);
+        assert(too_large != 0);
     }}
     "#
     );

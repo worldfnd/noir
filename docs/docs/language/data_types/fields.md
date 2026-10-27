@@ -19,12 +19,15 @@ The size of a Noir field depends on the elliptic curve's finite field for the pr
 Fields support integer arithmetic:
 
 ```rust
-fn main(x : Field, y : Field)  {
+fn add(x : Field, y : Field) -> Field {
     let z = x + y;
+    z
 }
 ```
 
-`x`, `y` and `z` are all private fields in this example. Using the `let` keyword we defined a new private value `z` constrained to be equal to `x + y`.
+`x`, `y` and `z` are all fields in this example. Using the `let` keyword we defined a new value `z` constrained to be equal to `x + y`.
+
+`main` takes no `Field`, so a program takes its inputs as integers or bytes and converts them to fields inside, for example with `Field::from_le_bytes_checked` (see [Main function](../functions.md#main-function)).
 
 If proving efficiency is of priority, fields should be used as a default for solving problems. Smaller integer types (e.g. `u64`) incur extra range constraints.
 

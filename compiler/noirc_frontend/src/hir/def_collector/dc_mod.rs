@@ -469,8 +469,11 @@ impl ModCollector<'_> {
                 &mut errors,
             );
 
+            let def_map = &self.def_collector.def_map;
+            let attributes = &unresolved.type_alias_def.attributes;
+            let gate = field_gate(def_map, self.module_id, attributes);
             let type_alias_id =
-                context.def_interner.push_type_alias(&unresolved, resolved_generics);
+                context.def_interner.push_type_alias(&unresolved, resolved_generics, gate);
 
             context.def_interner.set_doc_comments(ReferenceId::Alias(type_alias_id), doc_comments);
 
@@ -1345,6 +1348,7 @@ pub fn collect_struct(
             let name = unresolved.struct_def.name.clone();
             let span = unresolved.struct_def.location.span;
             let attributes = unresolved.struct_def.attributes.clone();
+            let gate = field_gate(def_map, unresolved.module_id, &attributes);
             let local_id = module_id.local_id;
             let visibility = unresolved.struct_def.visibility;
             let comptime = unresolved.struct_def.comptime;
@@ -1360,6 +1364,7 @@ pub fn collect_struct(
                 local_id,
                 file_id,
                 is_struct,
+                gate,
             )
         }
         Err(error) => {
@@ -1468,6 +1473,7 @@ pub fn collect_enum(
             let name = unresolved.enum_def.name.clone();
             let span = unresolved.enum_def.location.span;
             let attributes = unresolved.enum_def.attributes.clone();
+            let gate = field_gate(def_map, unresolved.module_id, &attributes);
             let local_id = module_id.local_id;
             let visibility = unresolved.enum_def.visibility;
             let comptime = unresolved.enum_def.comptime;
@@ -1483,6 +1489,7 @@ pub fn collect_enum(
                 local_id,
                 file_id,
                 is_struct,
+                gate,
             )
         }
         Err(error) => {
@@ -1787,6 +1794,30 @@ fn predicate_gates_out(
     } else {
         !predicate.admits(gates.field)
     }
+}
+
+/// The `#[field(..)]` attribute that makes an item declared in `module` field-specific: one of
+/// the item's own `attributes`, or the nearest one on an enclosing module.
+pub(crate) fn field_gate(
+    def_map: &CrateDefMap,
+    module: LocalModuleId,
+    attributes: &[SecondaryAttribute],
+) -> Option<Location> {
+    let gate = |attributes: &[SecondaryAttribute]| {
+        let attribute = attributes
+            .iter()
+            .find(|attribute| matches!(attribute.kind, SecondaryAttributeKind::Field(_)))?;
+        Some(attribute.location)
+    };
+    let mut module = Some(module);
+    gate(attributes).or_else(|| {
+        std::iter::from_fn(|| {
+            let data = &def_map[module?];
+            module = data.parent;
+            Some(data)
+        })
+        .find_map(|data| gate(&data.attributes))
+    })
 }
 
 /// Whether a `#[field(..)]` attribute keeps its item out of this build; such an item is dropped before anything about it is interned.

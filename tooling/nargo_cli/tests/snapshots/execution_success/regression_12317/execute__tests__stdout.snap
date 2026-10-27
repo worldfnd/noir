@@ -2,4 +2,4 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: stdout
 ---
-[regression_12317] Circuit output: 0x01
+[regression_12317] Circuit output: 1

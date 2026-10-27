@@ -2,7 +2,8 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-unconstrained fn main(b: Field) -> pub bool {
+unconstrained fn main(b: u128) -> pub bool {
+    let b: Field = b as Field;
     let mut a: bool = true;
     let mut running: bool = true;
     while running {

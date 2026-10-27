@@ -1,4 +1,4 @@
-fn main(array: [Field; 1], cond: bool) -> pub u32 {
+fn main(array: [u8; 1], cond: bool) -> pub u32 {
     let vector = array.as_vector();
     let mut vector = std::hint::black_box(vector);
     if cond {

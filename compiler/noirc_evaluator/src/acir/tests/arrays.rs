@@ -15,6 +15,108 @@ use crate::{
 };
 
 #[test]
+fn calldata_array_read_preserves_boolean_type_regression_7143() {
+    // #7144: reading a boolean from a calldata array as a `Field` made `not` use the wrong
+    // numeric type.
+    let src = "
+    acir(inline) fn main f0 {
+      call_data(0): array: v4, indices: [v1: 0]
+      b0(v0: u32, v1: [u1; 1]):
+        v2 = array_get v1, index u32 0 -> u1
+        v3 = cast v2 as Field
+        v4 = make_array [v3] : [Field; 1]
+        v5 = array_get v1, index v0 -> u1
+        v6 = not v5
+        return v6
+    }
+    ";
+    let program = ssa_to_acir_program(src);
+    assert!(program.functions[0].opcodes.iter().any(|opcode| {
+        matches!(
+            opcode,
+            Opcode::MemoryInit {
+                block_type: acvm::acir::circuit::opcodes::BlockType::CallData(0),
+                ..
+            }
+        )
+    }));
+    let output = *program.functions[0].return_values.0.iter().next().unwrap();
+    for input in [0, 1] {
+        let witness = solve_array_regression(&program, &[0, input]).unwrap();
+        assert_eq!(witness[&output], acvm::FieldElement::from(1 - input));
+    }
+}
+
+#[test]
+fn calldata_array_read_masks_inactive_narrow_value_regression_7612() {
+    // #7730: a false predicate reads the first calldata cell as a dummy. Here that `Field`
+    // exceeds u32, so it must be zeroed before the u32 comparison even though its assert is gated.
+    let src = "
+    acir(inline) fn main f0 {
+      call_data(0): array: v8, indices: [v4: 0]
+      b0(v0: [Field; 2], v1: u32, v2: u32, v3: u1):
+        v4 = make_array [v0, v1] : [([Field; 2], u32); 1]
+        v5 = array_get v0, index u32 0 -> Field
+        v6 = array_get v0, index u32 1 -> Field
+        v7 = cast v1 as Field
+        v8 = make_array [v5, v6, v7] : [Field; 3]
+        enable_side_effects v3
+        v9 = unchecked_mul v2, u32 2
+        v10 = unchecked_add v9, u32 1
+        v11 = array_get v4, index v10 -> u32
+        v12 = lt v11, u32 3
+        constrain v12 == u1 1
+        return
+    }
+    ";
+    let program = ssa_to_acir_program(src);
+    assert!(program.functions[0].opcodes.iter().any(|opcode| {
+        matches!(
+            opcode,
+            Opcode::MemoryInit {
+                block_type: acvm::acir::circuit::opcodes::BlockType::CallData(0),
+                ..
+            }
+        )
+    }));
+    // Unequal nested element sizes prevent choosing a statically type-compatible dummy slot.
+    // The inactive read's counter is 8 and the first field is 2^33.
+    solve_array_regression(&program, &[1 << 33, 0, 8, u128::from(u32::MAX), 0]).unwrap();
+    solve_array_regression(&program, &[1 << 33, 0, 2, 0, 1]).unwrap();
+    assert!(solve_array_regression(&program, &[1 << 33, 0, 8, 0, 1]).is_err());
+}
+
+fn solve_array_regression(
+    program: &acvm::acir::circuit::Program<acvm::FieldElement>,
+    inputs: &[u128],
+) -> Result<
+    acvm::acir::native_types::WitnessMap<acvm::FieldElement>,
+    acvm::pwg::ACVMStatus<acvm::FieldElement>,
+> {
+    use acvm::{
+        acir::native_types::{Witness, WitnessMap},
+        blackbox_solver::StubbedBlackBoxSolver,
+        pwg::{ACVM, ACVMStatus},
+    };
+
+    let mut initial_witness = WitnessMap::new();
+    for (index, input) in inputs.iter().enumerate() {
+        initial_witness.insert(Witness(index as u32), (*input).into());
+    }
+    let mut acvm = ACVM::new(
+        &StubbedBlackBoxSolver,
+        &program.functions[0].opcodes,
+        initial_witness,
+        &program.unconstrained_functions,
+        &[],
+    );
+    match acvm.solve() {
+        ACVMStatus::Solved => Ok(acvm.finalize()),
+        status => Err(status),
+    }
+}
+
+#[test]
 fn array_get_of_zero_length_element_emits_no_orphan_init() {
     // A dynamic `array_get` whose result is a zero-length nested array (`[u8; 0]`)
     // reads no memory slots, so ACIR gen must not initialize the source array's

@@ -2,6 +2,63 @@ use acvm::{acir::circuit::brillig::BrilligFunctionId, assert_circuit_snapshot};
 
 use crate::acir::tests::ssa_to_acir_program_with_debug_info;
 
+#[test]
+fn zero_length_dynamic_array_brillig_input_has_no_orphan_memory_block() {
+    use acvm::{
+        FieldElement,
+        acir::{
+            circuit::{Opcode, brillig::BrilligInputs},
+            native_types::{Witness, WitnessMap},
+        },
+        pwg::ACVMStatus,
+    };
+
+    use crate::{acir::tests::execute_ssa, ssa::ssa_gen::Ssa};
+
+    // A dynamic `array_set` into an array of empty arrays, passed to a Brillig call whose result
+    // is returned or discarded, must not become a `MemoryArray` input naming a block that was
+    // never initialized.
+    for terminator in ["return v5", "return"] {
+        let src = format!(
+            "acir(inline) fn main f0 {{
+              b0(v0: u32):
+                v1 = make_array [] : [Field; 0]
+                v2 = make_array [v1] : [[Field; 0]; 1]
+                v3 = array_set mut v2, index v0, value v1
+                v5 = call f1(v3) -> [[Field; 0]; 1]
+                {terminator}
+            }}
+            brillig(inline) fn id f1 {{
+              b0(v0: [[Field; 0]; 1]):
+                return v0
+            }}"
+        );
+        let (program, _) = ssa_to_acir_program_with_debug_info(&src);
+        let calls = program.functions[0]
+            .opcodes
+            .iter()
+            .filter_map(|opcode| match opcode {
+                Opcode::BrilligCall { inputs, .. } => Some(inputs),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1, "the regression must reach the Brillig call");
+        assert!(matches!(calls[0].as_slice(), [BrilligInputs::Array(input)] if input.is_empty()));
+        assert!(
+            !program.functions[0]
+                .opcodes
+                .iter()
+                .any(|opcode| matches!(opcode, Opcode::MemoryInit { .. })),
+            "an empty array has no backing memory block"
+        );
+
+        let mut initial_witness = WitnessMap::new();
+        initial_witness.insert(Witness(0), FieldElement::from(0u128));
+        let (status, _) = execute_ssa(Ssa::from_str(&src).unwrap(), initial_witness, None);
+        assert_eq!(status, ACVMStatus::Solved, "{terminator}");
+    }
+}
+
 // Test that given multiple calls to the same brillig function we generate only one bytecode
 // and the appropriate Brillig call opcodes are generated
 #[test]

@@ -5,8 +5,8 @@ struct Foo {
 }
 
 fn main(
-    dynamic_one: Field, // == 1
+    dynamic_one: u8, // == 1
 ) {
-    let foo_dynamic = Foo { field: dynamic_one, array: [1, 2, 3], vector: [].as_vector() };
+    let foo_dynamic = Foo { field: dynamic_one as Field, array: [1, 2, 3], vector: [].as_vector() };
     assert_constant(foo_dynamic);
 }

@@ -3,7 +3,7 @@
 // runtime-bound sibling loop, the fallback used to discard the sibling's genuine
 // `UnknownLoopBound` error and leave a residual loop, panicking in a later pass.
 // Compilation must instead report the loop bound error cleanly.
-fn main(n: u32, x: Field) {
+fn main(n: u32, x: u32) {
     for i in 0..2 {
         for j in 0..i {
             assert(j < 2);

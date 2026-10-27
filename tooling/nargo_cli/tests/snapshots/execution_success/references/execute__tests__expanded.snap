@@ -2,7 +2,8 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-fn main(mut x: Field) {
+fn main(x: u8) {
+    let mut x: Field = x as Field;
     add1(&mut x);
     assert(x == 3_Field);
     let mut s: S = S { y: x };

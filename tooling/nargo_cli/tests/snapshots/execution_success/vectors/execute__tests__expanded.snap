@@ -4,7 +4,9 @@ expression: expanded_code
 ---
 use std::vector;
 
-fn main(x: Field, y: pub Field) {
+fn main(x: u8, y: pub u8) {
+    let x: Field = x as Field;
+    let y: Field = y as Field;
     let mut vector: [Field] = [0_Field; 2].as_vector();
     assert(vector[0_u32] == 0_Field);
     assert(vector[0_u32] != 1_Field);

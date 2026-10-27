@@ -311,14 +311,14 @@ fn fold_attribute_is_refused_on_unconstrained_functions() {
 #[test]
 fn fold_attribute_is_refused_on_constrained_functions() {
     let src = r#"
-        fn main(x: Field) -> pub Field {
+        fn main(x: u32) -> pub u32 {
             foo(x)
         }
 
         #[fold]
         ^^^^^^^ #[fold] attribute on function foo is not supported
         ~~~~~~~ unsupported #[fold] attribute
-        fn foo(x: Field) -> Field {
+        fn foo(x: u32) -> u32 {
             x + 1
         }
     "#;
@@ -622,11 +622,11 @@ fn regression_10259() {
         // Safety: testing
         unsafe {
             foo(x)
-            ^^^^^^ Vector `[Field]` cannot be returned from an unconstrained runtime to a constrained runtime
+            ^^^^^^ Vector `[u32]` cannot be returned from an unconstrained runtime to a constrained runtime
         }
     }
 
-    fn main(x: Field) {
+    fn main(x: u32) {
         let xs = @[x, x + 1, x + 2];
         let _ = bar(xs);
     }

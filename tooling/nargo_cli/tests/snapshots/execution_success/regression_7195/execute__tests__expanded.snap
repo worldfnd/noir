@@ -16,7 +16,9 @@ unconstrained fn baz(x: Field) -> Field {
     x
 }
 
-fn main(x: Field, y: pub Field) {
+fn main(x: u8, y: pub u8) {
+    let x: Field = x as Field;
+    let y: Field = y as Field;
     // Safety: comment added by `nargo expand`
     let x: Field = unsafe { baz(x) };
     foo(x);

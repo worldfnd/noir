@@ -9,6 +9,11 @@ type K = Field;
 
 type V = Field;
 
+struct InputEntry {
+    key: u8,
+    value: u8,
+}
+
 struct Entry {
     key: Field,
     value: Field,
@@ -28,7 +33,10 @@ global ALLOCATE_HASHMAP: fn() -> UHashMap<K, V, BuildHasherDefault<Poseidon2Hash
     UHashMap::<Field, Field, BuildHasherDefault<Poseidon2Hasher>>::default()
 };
 
-unconstrained fn main(input: [Entry; 6]) {
+unconstrained fn main(input: [InputEntry; 6]) {
+    let input: [Entry; 6] = input.map(|entry: InputEntry| -> Entry {
+        Entry { key: entry.key as K, value: entry.value as V }
+    });
     test_sequential(input[0_u32].key, input[0_u32].value);
     test_multiple_equal_insert(input[1_u32].key, input[1_u32].value);
     test_value_override(input[2_u32].key, input[2_u32].value, input[3_u32].value);

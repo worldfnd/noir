@@ -2,7 +2,9 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-fn main(x: Field, y: Field) {
+fn main() {
+    let x: Field = std::hint::black_box(1_Field);
+    let y: Field = std::hint::black_box(2_Field);
     let flag: bool = (x == 1_Field) | (y == 2_Field);
     assert((flag | false) == flag);
 }

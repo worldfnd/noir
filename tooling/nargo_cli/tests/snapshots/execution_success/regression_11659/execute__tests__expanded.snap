@@ -41,11 +41,15 @@ fn absorb<let NUM_ITEMS: u32>(
     )
 }
 
-fn main(input: [Field; 12], input_len: u32) -> pub [Field; 4] {
+fn main(input: [u8; 12], input_len: u32) -> pub [[u8; 32]; 4] {
     let sponge: Poseidon2Sponge = Poseidon2Sponge {
         cache: [0_Field, 0_Field, 0_Field],
         state: [0_Field, 0_Field, 0_Field, 0_Field],
     };
-    let sponge: Poseidon2Sponge = absorb(sponge, input, input_len);
-    sponge.state
+    let sponge: Poseidon2Sponge = absorb(
+        sponge,
+        input.map(|x: u8| -> Field { x as Field }),
+        input_len,
+    );
+    sponge.state.map(|x: Field| -> [u8; 32] x.to_le_bytes())
 }

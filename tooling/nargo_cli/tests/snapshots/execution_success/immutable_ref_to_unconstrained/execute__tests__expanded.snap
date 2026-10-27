@@ -15,7 +15,8 @@ struct Foo {
     y: [u32; 3],
 }
 
-fn main(x: pub Field, y: pub u32) {
+fn main(x: pub u8, y: pub u32) {
+    let x: Field = x as Field;
     // Safety: comment added by `nargo expand`
     let result: Field = unsafe { read_ref(&x) };
     assert(result == x);

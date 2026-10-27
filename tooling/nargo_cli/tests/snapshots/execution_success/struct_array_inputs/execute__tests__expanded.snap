@@ -3,10 +3,10 @@ source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
 struct Foo {
-    bar: Field,
-    baz: Field,
+    bar: u8,
+    baz: u8,
 }
 
-fn main(foos: [Foo; 3]) -> pub Field {
+fn main(foos: [Foo; 3]) -> pub u8 {
     foos[2_u32].bar + foos[2_u32].baz
 }

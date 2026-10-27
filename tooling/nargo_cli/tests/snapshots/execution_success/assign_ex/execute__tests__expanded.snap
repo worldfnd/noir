@@ -2,11 +2,11 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-fn main(x: Field, y: Field) {
-    let mut z: Field = x + y;
-    assert(z == 3_Field);
+fn main(x: u8, y: u8) {
+    let mut z: u8 = x + y;
+    assert(z == 3_u8);
     z = x * y;
-    assert(z == 2_Field);
+    assert(z == 2_u8);
     regression_3057();
 }
 

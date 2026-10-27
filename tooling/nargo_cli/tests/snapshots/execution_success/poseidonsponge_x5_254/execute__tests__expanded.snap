@@ -4,8 +4,8 @@ expression: expanded_code
 ---
 use poseidon::poseidon;
 
-fn main(x: [Field; 7]) {
-    let result: Field = poseidon::bn254::sponge(x);
+fn main(x: [u8; 7]) {
+    let result: Field = poseidon::bn254::sponge(x.map(|x: u8| -> Field { x as Field }));
     assert(
         result
             == 3637726918731233354960448572465528704217843406233123660822069175839457651784_Field,

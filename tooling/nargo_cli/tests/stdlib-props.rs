@@ -91,15 +91,15 @@ fn fuzz_basic() {
 fn make_field_cast_test(size: u32, signed: bool) -> String {
     if signed {
         format!(
-            "fn main(x: i{size}) -> pub Field {{
-            x as u{size} as Field
+            "fn main(x: i{size}) -> pub u128 {{
+            (x as u{size} as Field) as u128
          }}
          "
         )
     } else {
         format!(
-            "fn main(x: u{size}) -> pub Field {{
-            x as Field
+            "fn main(x: u{size}) -> pub u128 {{
+            (x as Field) as u128
 }}"
         )
     }
@@ -252,9 +252,9 @@ fn fuzz_field_cast() {
 
 fn make_zero_extend_test(in_size: u32, out_size: u32) -> String {
     format!(
-        "fn main(x: u{in_size}) -> pub Field {{
+        "fn main(x: u{in_size}) -> pub u128 {{
         let y = x as u{out_size};
-        y as Field - x as Field
+        (y as Field - x as Field) as u128
 }}"
     )
 }
@@ -277,7 +277,7 @@ fn fuzz_zero_extend() {
 
 fn make_sign_unsigned_test(size: u32) -> String {
     format!(
-        "fn main(x: i{size}) -> pub Field {{
+        "fn main(x: i{size}) -> pub u8 {{
     let y = x as u{size};
     let z = y as i{size};
     assert(z == x);
@@ -302,11 +302,11 @@ fn fuzz_signed_unsigned_same_size() {
 
 fn make_sign_extend_test(in_size: u32, out_size: u32) -> String {
     format!(
-        "fn main(x: i{in_size}) -> pub Field {{
+        "fn main(x: i{in_size}) -> pub u{out_size} {{
          let neg = -x;
      let y = x as i{out_size};
      let neg_y = neg as i{out_size};
-     (neg_y+y) as u{out_size} as Field
+     (neg_y+y) as u{out_size}
 }}"
     )
 }

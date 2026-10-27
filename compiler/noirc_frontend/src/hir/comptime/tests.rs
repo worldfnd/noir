@@ -104,10 +104,9 @@ pub(super) fn interpret_expect_error(src: &str) -> InterpreterError {
 
 #[test]
 fn interpreter_works() {
-    let program = "comptime fn main() -> pub Field { 3 }";
+    let program = "comptime fn main() -> pub u32 { 3 }";
     let result = interpret(program);
-    let three = acvm::FieldValue::try_from_biguint(3u8.into(), acvm::FieldId::linked()).unwrap();
-    assert_eq!(result, Value::field(three));
+    assert_eq!(result, Value::u32(3));
 }
 
 #[test]

@@ -36,7 +36,7 @@ fn compile_warnings(source: &str) -> Vec<CustomDiagnostic> {
 
 #[test]
 fn constant_return_warns_without_allow() {
-    let source = "fn main() -> pub Field { 1 }";
+    let source = "fn main() -> pub u32 { 1 }";
     let warnings = compile_warnings(source);
     assert!(
         warnings.iter().any(|warning| warning.message.contains("constant")),
@@ -46,7 +46,7 @@ fn constant_return_warns_without_allow() {
 
 #[test]
 fn allow_constant_return_silences_the_warning() {
-    let source = "#[allow(constant_return)]\nfn main() -> pub Field { 1 }";
+    let source = "#[allow(constant_return)]\nfn main() -> pub u32 { 1 }";
     let warnings = compile_warnings(source);
     assert!(warnings.is_empty(), "expected no warnings, got {warnings:?}");
 }
@@ -55,7 +55,7 @@ fn allow_constant_return_silences_the_warning() {
 fn allow_of_a_different_lint_does_not_silence_constant_return() {
     // Silencing is keyed on the specific lint name, so an unrelated `#[allow]` must not
     // suppress the `constant_return` warning.
-    let source = "#[allow(dead_code)]\nfn main() -> pub Field { 1 }";
+    let source = "#[allow(dead_code)]\nfn main() -> pub u32 { 1 }";
     let warnings = compile_warnings(source);
     assert!(
         warnings.iter().any(|warning| warning.message.contains("constant")),
@@ -68,10 +68,10 @@ fn allow_constant_return_on_main_silences_a_constant_from_an_inlined_helper() {
     // The constant flows out of an inlined helper, but the return belongs to `main`,
     // so annotating `main` is what silences the warning.
     let source = r#"
-    fn helper() -> Field { 1 }
+    fn helper() -> u32 { 1 }
 
     #[allow(constant_return)]
-    fn main() -> pub Field { helper() }
+    fn main() -> pub u32 { helper() }
     "#;
     let warnings = compile_warnings(source);
     assert!(warnings.is_empty(), "expected no warnings, got {warnings:?}");
@@ -83,9 +83,9 @@ fn allow_constant_return_on_another_function_does_not_silence_main() {
     // must not leak into `main`'s constant return.
     let source = r#"
     #[allow(constant_return)]
-    fn helper(x: Field) -> Field { x + 1 }
+    fn helper(x: u32) -> u32 { x + 1 }
 
-    fn main(x: Field) -> pub Field {
+    fn main(x: u32) -> pub u32 {
         assert(helper(x) == x + 1);
         1
     }

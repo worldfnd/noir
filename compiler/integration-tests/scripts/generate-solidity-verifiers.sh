@@ -26,10 +26,4 @@ nargo --program-dir $assert_statement_dir compile
 $NARGO_BACKEND_PATH write_vk -b $assert_statement_dir/target/assert_statement.json -o $KEYS --verifier_target evm
 $NARGO_BACKEND_PATH write_solidity_verifier -k $KEYS/vk -o $contracts_dir/assert_statement.sol
 
-# Codegen verifier contract for recursion
-recursion_dir=$repo_root/compiler/integration-tests/circuits/recursion
-nargo --program-dir $recursion_dir compile
-$NARGO_BACKEND_PATH write_vk -b $recursion_dir/target/recursion.json -o $KEYS --verifier_target evm
-$NARGO_BACKEND_PATH write_solidity_verifier -k $KEYS/vk -o $contracts_dir/recursion.sol
-
 rm -rf $KEYS

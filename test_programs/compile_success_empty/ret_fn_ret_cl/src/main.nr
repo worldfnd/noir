@@ -21,7 +21,8 @@ fn ret_lambda() -> fn(Field) -> Field {
     cl
 }
 
-fn main(x: Field) {
+fn main() {
+    let x: Field = std::hint::black_box(1);
     let result_fn = ret_fn();
     assert(result_fn(x) == x + 1);
     // let result_closure = ret_closure();

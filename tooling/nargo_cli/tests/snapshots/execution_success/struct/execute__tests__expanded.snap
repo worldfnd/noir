@@ -57,7 +57,9 @@ fn get_dog() -> Animal {
 
 struct Unit {}
 
-fn main(x: Field, y: Field) {
+fn main(x: u8, y: u8) {
+    let x: Field = x as Field;
+    let y: Field = y as Field;
     let unit: Unit = Unit {};
     let first: Foo = Foo::default(x, y);
     let p: Pair = Pair { first: first, second: 1_Field };

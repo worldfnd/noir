@@ -21,6 +21,6 @@ comptime fn emit_private_type_api(_f: FunctionDefinition) -> Quoted {
 }
 
 #[emit_private_type_api]
-fn main() -> pub Field {
-    anchor()
+fn main() -> pub u8 {
+    anchor() as u8
 }

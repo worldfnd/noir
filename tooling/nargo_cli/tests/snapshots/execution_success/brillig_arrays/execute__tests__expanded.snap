@@ -2,7 +2,8 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-fn main(x: [Field; 3]) {
+fn main(x: [u8; 3]) {
+    let x: [Field; 3] = x.map(|v: u8| -> Field { v as Field });
     // Safety: comment added by `nargo expand`
     unsafe {
         read_array(x);

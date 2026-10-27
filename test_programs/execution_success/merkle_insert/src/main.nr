@@ -1,11 +1,18 @@
 fn main(
-    old_root: Field,
-    old_leaf: Field,
-    old_hash_path: [Field; 3],
-    new_root: pub Field,
-    leaf: Field,
-    index: Field,
+    old_root: [u8; 32],
+    old_leaf: [u8; 32],
+    old_hash_path: [[u8; 32]; 3],
+    new_root: pub [u8; 32],
+    leaf: [u8; 32],
+    index: u8,
 ) {
+    let old_root = Field::from_le_bytes_checked(old_root);
+    let old_leaf = Field::from_le_bytes_checked(old_leaf);
+    let old_hash_path = old_hash_path.map(|node| Field::from_le_bytes_checked(node));
+    let new_root = Field::from_le_bytes_checked(new_root);
+    let leaf = Field::from_le_bytes_checked(leaf);
+    let index = index as Field;
+
     assert(old_root == compute_merkle_root(old_leaf, index, old_hash_path));
 
     let calculated_root = compute_merkle_root(leaf, index, old_hash_path);

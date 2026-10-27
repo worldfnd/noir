@@ -3,9 +3,9 @@ source: tooling/nargo_cli/tests/execute.rs
 expression: stderr
 ---
 error: Attempt to divide by zero
-  ┌─ src/main.nr:3:20
+  ┌─ src/main.nr:5:20
   │
-3 │     let a: Field = x / y;
+5 │     let a: Field = x / y;
   │                    -----
   │
 

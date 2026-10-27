@@ -5,10 +5,17 @@ expression: expanded_code
 use std::embedded_curve_ops::{embedded_curve_add, EmbeddedCurvePoint};
 
 unconstrained fn main(
-    points: [EmbeddedCurvePoint; 5],
-    scalars: [Field; 5],
-) -> pub EmbeddedCurvePoint {
-    double_then_add_msm(points, scalars)
+    points: [(u8, [u8; 32]); 5],
+    scalars: [[u8; 32]; 5],
+) -> pub ([u8; 32], [u8; 32]) {
+    let points: [EmbeddedCurvePoint; 5] = points
+        .map(|(x, y): (u8, [u8; 32])| -> EmbeddedCurvePoint {
+            EmbeddedCurvePoint::new(x as Field, Field::from_le_bytes_checked(y))
+        });
+    let scalars: [Field; 5] =
+        scalars.map(|scalar: [u8; 32]| -> Field Field::from_le_bytes_checked(scalar));
+    let result: EmbeddedCurvePoint = double_then_add_msm(points, scalars);
+    (result.x.to_le_bytes(), result.y.to_le_bytes())
 }
 
 unconstrained fn double_then_add_msm<let N: u32>(

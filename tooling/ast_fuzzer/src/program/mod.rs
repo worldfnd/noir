@@ -278,27 +278,15 @@ impl Context {
                 if u.ratio(2, 5)? { types::ref_mut(typ) } else { typ }
             };
 
-            let visibility = if is_main {
-                match u.choose_index(5)? {
-                    0 | 1 => Visibility::Public,
-                    2 | 3 => Visibility::Private,
-                    _ => Visibility::CallData(p as u32),
-                }
-            } else {
-                Visibility::Private
-            };
+            // The frontend refuses the data bus, so `main` takes plain parameters.
+            let visibility =
+                if is_main && u.ratio(1, 2)? { Visibility::Public } else { Visibility::Private };
 
             params.push((id, is_mutable, name, Rc::new(typ), visibility));
         }
 
-        let return_visibility = if is_main {
-            if types::is_unit(&return_type) {
-                Visibility::Private
-            } else if u.ratio(4, 5)? {
-                Visibility::Public
-            } else {
-                Visibility::ReturnData
-            }
+        let return_visibility = if is_main && !types::is_unit(&return_type) {
+            Visibility::Public
         } else {
             Visibility::Private
         };

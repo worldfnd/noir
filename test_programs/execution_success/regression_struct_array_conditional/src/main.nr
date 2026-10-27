@@ -1,5 +1,5 @@
 struct foo {
-    value: Field,
+    value: u128,
     counter: u8,
     dummy: u8,
 }
@@ -18,10 +18,10 @@ fn main(x: [foo; 3], y: u32, z: u32) -> pub u8 {
     let mut b = [bar { value: 0, counter: 0, dummy: [0; 3] }; 3];
     let mut c = [bar_field { value: 0, counter: 0, dummy: [0; 3] }; 3];
     for i in 0..3 {
-        b[i].value = x[i].value;
+        b[i].value = x[i].value as Field;
         b[i].counter = x[i].counter;
         b[i].dummy[0] = x[i].dummy;
-        c[i].value = x[i].value;
+        c[i].value = x[i].value as Field;
         c[i].counter = x[i].counter;
         c[i].dummy[0] = x[i].dummy as Field;
     }

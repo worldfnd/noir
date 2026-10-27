@@ -40,7 +40,9 @@ impl<let N: u32> BigInt<N> {
     }
 }
 
-fn main(x: Field, y: Field) {
+fn main(x: u8, y: u8) {
+    let x: Field = x as Field;
+    let y: Field = y as Field;
     let bar1: Bar<Field> = Bar::<Field> { one: x, two: y, other: 0_Field };
     let bar2: Bar<[Field; 1]> = Bar::<[Field; 1]> { one: x, two: y, other: [0_Field] };
     foo(bar1);

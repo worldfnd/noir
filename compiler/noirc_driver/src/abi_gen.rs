@@ -54,21 +54,24 @@ fn build_abi_error_type(context: &Context, typ: ErrorType) -> AbiErrorType {
                 let length = len.evaluate_to_u32(span).expect("Cannot evaluate fmt length");
                 let item_types = match item_types.as_ref() {
                     Type::Tuple(item_types) => {
-                        vecmap(item_types, |typ| abi_type_from_hir_type(context, typ))
+                        vecmap(item_types, |typ| abi_type_from_hir_type(context, typ, false))
                     }
                     Type::Unit => Vec::new(),
                     _ => unreachable!("FmtString items must be a tuple or unit"),
                 };
                 AbiErrorType::FmtString { length, item_types }
             } else {
-                AbiErrorType::Custom(abi_type_from_hir_type(context, &typ))
+                AbiErrorType::Custom(abi_type_from_hir_type(context, &typ, false))
             }
         }
         ErrorType::String(string) => AbiErrorType::String { string },
     }
 }
 
-pub(super) fn abi_type_from_hir_type(context: &Context, typ: &Type) -> AbiType {
+/// The ABI type of `typ`. In the signature of an entry point (`main` or a contract function) every
+/// type is already known: the elaborator refuses an unbound type there. Elsewhere, as in an error
+/// payload, an integer literal whose type was never pinned down reads as the default.
+pub(super) fn abi_type_from_hir_type(context: &Context, typ: &Type, entry_point: bool) -> AbiType {
     match typ {
         Type::FieldElement => AbiType::Field,
         Type::Array(typ, size) => {
@@ -77,7 +80,10 @@ pub(super) fn abi_type_from_hir_type(context: &Context, typ: &Type) -> AbiType {
                 .evaluate_to_u32(span)
                 .expect("Cannot have variable sized arrays as a parameter to main");
             let typ = typ.as_ref();
-            AbiType::Array { length, typ: Box::new(abi_type_from_hir_type(context, typ)) }
+            AbiType::Array {
+                length,
+                typ: Box::new(abi_type_from_hir_type(context, typ, entry_point)),
+            }
         }
         Type::Integer(sign, width) => {
             let sign = match sign {
@@ -94,10 +100,15 @@ pub(super) fn abi_type_from_hir_type(context: &Context, typ: &Type) -> AbiType {
         Type::TypeVariable(binding) => {
             if binding.is_integer() || binding.is_integer_or_field() {
                 match &*binding.borrow() {
-                    TypeBinding::Bound(typ) => abi_type_from_hir_type(context, typ),
-                    TypeBinding::Unbound(_id, _kind) => {
-                        abi_type_from_hir_type(context, &Type::default_int_or_field_type())
+                    TypeBinding::Bound(typ) => abi_type_from_hir_type(context, typ, entry_point),
+                    TypeBinding::Unbound(..) if entry_point => {
+                        unreachable!("an entry point's types are bound before its ABI is built")
                     }
+                    TypeBinding::Unbound(_id, _kind) => abi_type_from_hir_type(
+                        context,
+                        &Type::default_int_or_field_type(),
+                        entry_point,
+                    ),
                 }
             } else {
                 unreachable!("{typ} cannot be used in the abi")
@@ -115,16 +126,19 @@ pub(super) fn abi_type_from_hir_type(context: &Context, typ: &Type) -> AbiType {
         Type::DataType(def, args) => {
             let struct_type = def.borrow();
             let fields = struct_type.get_fields(args).unwrap_or_default();
-            let fields =
-                vecmap(fields, |(name, typ, _)| (name, abi_type_from_hir_type(context, &typ)));
+            let fields = vecmap(fields, |(name, typ, _)| {
+                (name, abi_type_from_hir_type(context, &typ, entry_point))
+            });
             // For the ABI, we always want to resolve the struct paths from the root crate
             let path = context.fully_qualified_struct_path(context.root_crate_id(), struct_type.id);
             AbiType::Struct { fields, path }
         }
-        Type::Alias(def, args) => abi_type_from_hir_type(context, &def.borrow().get_type(args)),
-        Type::CheckedCast { to, .. } => abi_type_from_hir_type(context, to),
+        Type::Alias(def, args) => {
+            abi_type_from_hir_type(context, &def.borrow().get_type(args), entry_point)
+        }
+        Type::CheckedCast { to, .. } => abi_type_from_hir_type(context, to, entry_point),
         Type::Tuple(fields) => {
-            let fields = vecmap(fields, |typ| abi_type_from_hir_type(context, typ));
+            let fields = vecmap(fields, |typ| abi_type_from_hir_type(context, typ, entry_point));
             AbiType::Tuple { fields }
         }
         Type::Error
@@ -158,12 +172,14 @@ pub(super) fn compute_function_abi(
 
     let parameters = func_meta.parameters.0.clone();
     let return_type = match func_meta.return_type() {
-        Type::Unit => None,
+        typ if matches!(typ.follow_bindings(), Type::Unit) => None,
         other => Some(other),
     };
 
-    let parameters = into_abi_params(context, parameters);
-    let return_type = return_type.map(|typ| abi_type_from_hir_type(context, typ));
+    // Error payloads stay lenient (`build_abi_error_type`): they may hold an unpinned literal.
+    let entry_point = func_meta.is_entry_point;
+    let parameters = into_abi_params(context, parameters, entry_point);
+    let return_type = return_type.map(|typ| abi_type_from_hir_type(context, typ, entry_point));
     (parameters, return_type)
 }
 
@@ -179,10 +195,10 @@ fn get_param_name<'a>(pattern: &HirPattern, interner: &'a NodeInterner) -> &'a s
     }
 }
 
-fn into_abi_params(context: &Context, params: Vec<Param>) -> Vec<AbiParameter> {
+fn into_abi_params(context: &Context, params: Vec<Param>, entry_point: bool) -> Vec<AbiParameter> {
     vecmap(params, |(pattern, typ, vis)| {
         let param_name = get_param_name(&pattern, &context.def_interner).to_owned();
-        let as_abi = abi_type_from_hir_type(context, &typ);
+        let as_abi = abi_type_from_hir_type(context, &typ, entry_point);
         AbiParameter { name: param_name, typ: as_abi, visibility: to_abi_visibility(vis) }
     })
 }

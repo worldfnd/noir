@@ -1,7 +1,8 @@
 global G_A: (Field, bool, bool) = (1, true, true);
-unconstrained fn main() -> pub (Field, bool) {
+unconstrained fn main() -> pub ([u8; 32], bool) {
     let mut ctx_limit: u32 = 2;
-    func_5(((&mut [-1]), (&mut false)), G_A, (&mut ctx_limit))
+    let (value, flag) = func_5(((&mut [-1]), (&mut false)), G_A, (&mut ctx_limit));
+    (value.to_le_bytes(), flag)
 }
 unconstrained fn func_5(
     a: (&mut [Field; 1], &mut bool),

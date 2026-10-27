@@ -1,4 +1,6 @@
-fn main(x: Field, y: pub Field) {
+fn main(x: u8, y: pub u8) {
+    let x = x as Field;
+    let y = y as Field;
     assert(x != y, f"Expected x != y, but got both equal {x}");
     assert(x != y);
     let z = x + y;

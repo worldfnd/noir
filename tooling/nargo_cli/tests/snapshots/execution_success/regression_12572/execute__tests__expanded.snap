@@ -38,9 +38,11 @@ impl Default for Bundle {
     }
 }
 
-fn main(input: Field) -> pub Field {
+fn main(input: u8) -> pub u8 {
     let mut b: Bundle = <Bundle as Default>::default();
-    b.wrapped[0_u32].log.fields[0_u32] = input;
-    (b.wrapped[0_u32].log.fields[0_u32] + b.wrapped[0_u32].log.fields[1_u32])
-        + b.small[0_u32].fields[0_u32]
+    b.wrapped[0_u32].log.fields[0_u32] = input as Field;
+    (
+        (b.wrapped[0_u32].log.fields[0_u32] + b.wrapped[0_u32].log.fields[1_u32])
+            + b.small[0_u32].fields[0_u32]
+    ) as u8
 }

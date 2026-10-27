@@ -533,11 +533,11 @@ fn calling_immutable_self_method_on_mutable_ref_binds_generic_params() {
 #[test]
 fn brillig_mut_ref_from_acir() {
     let src = r#"
-    unconstrained fn mut_ref_identity(value: &mut Field) -> Field {
+    unconstrained fn mut_ref_identity(value: &mut u32) -> u32 {
         *value
     }
 
-    fn main(mut x: Field) {
+    fn main(mut x: u32) {
         // Safety: testing context
         let returned_x = unsafe { mut_ref_identity(&mut x) };
                                                    ^^^^^^ Cannot pass a mutable reference from a constrained runtime to an unconstrained runtime
@@ -550,14 +550,14 @@ fn brillig_mut_ref_from_acir() {
 #[test]
 fn brillig_complex_ref_from_acir() {
     let src = r#"
-    unconstrained fn read_double_ref(r: &&Field) -> Field {
+    unconstrained fn read_double_ref(r: &&u32) -> u32 {
         **r
     }
 
-    fn main(x: pub Field) {
+    fn main(x: pub u32) {
         // Safety:
         let result = unsafe { read_double_ref(&&x) };
-                                              ^^^ Cannot pass `&&Field` across the constrained/unconstrained boundary: only a direct immutable reference `&T` to a reference-free type is supported
+                                              ^^^ Cannot pass `&&u32` across the constrained/unconstrained boundary: only a direct immutable reference `&T` to a reference-free type is supported
         assert_eq(result, x);
     }
     "#;

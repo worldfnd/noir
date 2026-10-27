@@ -1,8 +1,10 @@
-fn main(x: Field, y: Field) -> pub Field {
+fn main(x: u8, y: u8) -> pub u8 {
+    let x = x as Field;
+    let y = y as Field;
     // Safety: testing context
     unsafe {
         let notes = create_notes(x, y);
-        sum_x(notes, x, y)
+        sum_x(notes, x, y) as u8
     }
 }
 

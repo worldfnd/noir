@@ -304,13 +304,13 @@ fn type_alias_to_numeric_as_generic() {
 
     pub struct Foo<T, let N: u32> {
         a: T,
-        b: [Field; N],
+        b: [u32; N],
     }
-    fn main(x: Field) {
+    fn main(x: u32) {
         let a = foo::<4>(x);
         assert(a.a == x);
     }
-    fn foo<let N:u32>(x: Field) -> Foo<Field, Double<N>> {
+    fn foo<let N:u32>(x: u32) -> Foo<u32, Double<N>> {
         Foo {
             a: x,
             b: [1; Double::<N>]
@@ -1194,7 +1194,7 @@ fn no_false_cycle_from_stale_current_item_after_type_alias() {
     // record a dependency from `B` to `A` (which would create a false A↔B cycle).
     let src = r#"
         type A = B;
-        type B = Field;
+        type B = u32;
 
         trait Dummy<T> {}
         trait Foo: Dummy<A> {}

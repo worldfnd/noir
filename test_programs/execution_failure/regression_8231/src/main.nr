@@ -1,4 +1,4 @@
-fn main() -> return_data u64 {
+fn main() -> pub u64 {
     let a = func_1(
         14689037232568219155,
         [

@@ -1,7 +1,7 @@
-fn main() -> pub [[Field; 1]; 1] {
+fn main() -> pub [[u32; 1]; 1] {
     let a = unsafe { foo([[0xcafebabe]]) };
     assert(a[0][0] == 0xcafebabe);
-    a
+    [[a[0][0] as u32]]
 }
 
 unconstrained fn foo(mut a: [[Field; 1]; 1]) -> [[Field; 1]; 1] {

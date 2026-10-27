@@ -3,8 +3,8 @@
 // Here `s * s` appears in both the loop body and after the loop;
 // hoisting it into the header would break loop unrolling, which only
 // maps header parameters (not instruction results) to final-iteration values.
-fn main(x: Field) {
-    let result = compute(x);
+fn main(x: u8) {
+    let result = compute(x as Field);
     assert(result != 0);
 }
 

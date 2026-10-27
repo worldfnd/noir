@@ -1,7 +1,7 @@
 // Tests a very simple program.
 //
 // The features being tested is basic conditional on brillig
-fn main(x: Field) {
+fn main(x: u8) {
     // Safety: testing context
     unsafe {
         assert(4 == conditional(x == 1));

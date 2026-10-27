@@ -6,7 +6,8 @@ type MyField = Field;
 
 type AliasOfAlias = MyField;
 
-fn main(x: Field) {
+fn main(x: u8) {
+    let x: Field = x as Field;
     let expected: [bool; 8] = x.to_le_bits();
     let bits: [bool; 8] = x.to_le_bits();
     assert(bits == expected);

@@ -713,7 +713,7 @@ fn errors_if_accessing_private_struct_member_inside_function_generated_at_compti
     let src = r#"
     mod foo {
         pub struct Foo {
-            foo_inner: Field,
+            foo_inner: u32,
         }
     }
 
@@ -727,7 +727,7 @@ fn errors_if_accessing_private_struct_member_inside_function_generated_at_compti
 
     comptime fn generate_inner_accessor(_s: TypeDefinition) -> Quoted {
         quote {
-            fn bar_get_foo_inner(x: Bar) -> Field {
+            fn bar_get_foo_inner(x: Bar) -> u32 {
                 x.bar_inner.foo_inner
                             ^^^^^^^^^ foo_inner is private and not visible from the current module
                             ~~~~~~~~~ foo_inner is private
@@ -877,7 +877,21 @@ fn only_one_private_error_when_name_in_types_and_values_namespace_collides() {
 }
 
 #[test]
-fn databus_only_allowed_in_main() {
+fn databus_is_refused_on_main() {
+    let src = "
+fn main(a: call_data(0) u32) -> return_data u32 {
+           ~~~~~~~~~~~~ unsupported call_data(0)
+           ^^^^^^^^^^^^ call_data(0) is not supported
+                                ~~~~~~~~~~~ unsupported return_data
+                                ^^^^^^^^^^^ return_data is not supported
+    a
+}
+    ";
+    check_errors(src);
+}
+
+#[test]
+fn databus_is_refused_on_helper_functions() {
     let src = "
 fn main(a: u32) -> pub u32 {
     let a = inner(a);
@@ -886,10 +900,10 @@ fn main(a: u32) -> pub u32 {
 }
 
 fn inner(a: call_data(0) u32) -> return_data u32 {
-            ~~~~~~~~~~~~ unnecessary call_data(0)
-            ^^^^^^^^^^^^ unnecessary call_data(0) attribute for function inner
-                                 ~~~~~~~~~~~ unnecessary return_data
-                                 ^^^^^^^^^^^ unnecessary return_data attribute for function inner
+            ~~~~~~~~~~~~ unsupported call_data(0)
+            ^^^^^^^^^^^^ call_data(0) is not supported
+                                 ~~~~~~~~~~~ unsupported return_data
+                                 ^^^^^^^^^^^ return_data is not supported
     a
 }
     ";
@@ -897,11 +911,11 @@ fn inner(a: call_data(0) u32) -> return_data u32 {
 }
 
 #[test]
-fn return_data_not_allowed_on_parameter() {
+fn return_data_is_refused_on_parameter() {
     let src = "
 fn main(a: return_data u32) -> pub u32 {
-           ~~~~~~~~~~~ return_data is only allowed on the return value
-           ^^^^^^^^^^^ return_data attribute is not allowed on a parameter
+           ~~~~~~~~~~~ unsupported return_data
+           ^^^^^^^^^^^ return_data is not supported
     a
 }
     ";
@@ -909,11 +923,11 @@ fn main(a: return_data u32) -> pub u32 {
 }
 
 #[test]
-fn call_data_not_allowed_on_return_value() {
+fn call_data_is_refused_on_return_value() {
     let src = "
 fn main(a: u32) -> call_data(0) u32 {
-                   ~~~~~~~~~~~~ call_data(0) is only allowed on a parameter
-                   ^^^^^^^^^^^^ call_data(0) attribute is not allowed on the return value
+                   ~~~~~~~~~~~~ unsupported call_data(0)
+                   ^^^^^^^^^^^^ call_data(0) is not supported
     a
 }
     ";
@@ -946,14 +960,14 @@ fn unnecessary_pub_on_argument() {
 #[test]
 fn unnecessary_pub_on_fold_function_parameter() {
     let src = "
-    fn main(x: Field) -> pub Field {
+    fn main(x: u32) -> pub u32 {
         foo(x)
     }
 
     #[fold]
     ^^^^^^^ #[fold] attribute on function foo is not supported
     ~~~~~~~ unsupported #[fold] attribute
-    fn foo(x: pub Field) -> Field {
+    fn foo(x: pub u32) -> u32 {
               ^^^ unnecessary pub keyword on parameter for function foo
               ~~~ unnecessary pub parameter
         x + 1
@@ -965,16 +979,16 @@ fn unnecessary_pub_on_fold_function_parameter() {
 #[test]
 fn unnecessary_pub_on_fold_function_return_type() {
     let src = "
-    fn main(x: Field) -> pub Field {
+    fn main(x: u32) -> pub u32 {
         foo(x)
     }
 
     #[fold]
     ^^^^^^^ #[fold] attribute on function foo is not supported
     ~~~~~~~ unsupported #[fold] attribute
-    fn foo(x: Field) -> pub Field {
-                        ^^^ unnecessary pub keyword on return type for function foo
-                        ~~~ unnecessary pub return type
+    fn foo(x: u32) -> pub u32 {
+                      ^^^ unnecessary pub keyword on return type for function foo
+                      ~~~ unnecessary pub return type
         x + 1
     }
     ";

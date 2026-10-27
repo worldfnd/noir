@@ -26,7 +26,7 @@ Noir does not natively support doc comments. You may be able to use [Rust doc co
 /*
   This is a block comment describing a complex function.
 */
-fn main(x : Field, y : pub Field) {
+fn main(x : u32, y : pub u32) {
     assert(x != y);
 }
 ```

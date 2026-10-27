@@ -2,11 +2,11 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-fn main(a: pub u32) -> pub Field {
+fn main(a: pub u32) -> pub u8 {
     if a == 0_u32 {
-        let c: [&mut Field] = [&mut 1_Field].as_vector();
-        1_Field / { *c[3_u32] }
+        let c: [&mut u8] = [&mut 1_u8].as_vector();
+        1_u8 / { *c[3_u32] }
     } else {
-        2_Field
+        2_u8
     }
 }

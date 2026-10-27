@@ -2,16 +2,24 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-struct Element {
-    a: Field,
-    b: Field,
-    c: Field,
-    d: Field,
-    e: Field,
+struct Element<T> {
+    a: T,
+    b: T,
+    c: T,
+    d: T,
+    e: T,
 }
 
-fn main(input: [Element; 256], condition: bool) {
-    let mut arr: [Element; 256] = input;
+fn main(input: [Element<u32>; 256], condition: bool) {
+    let mut arr: [Element<Field>; 256] = input.map(|x: Element<u32>| -> Element<Field> {
+        Element::<Field> {
+            a: x.a as Field,
+            b: x.b as Field,
+            c: x.c as Field,
+            d: x.d as Field,
+            e: x.e as Field,
+        }
+    });
     for i in 0_u32..256_u32 {
         if condition {
             arr[i].a = arr[i].a + 1_Field;

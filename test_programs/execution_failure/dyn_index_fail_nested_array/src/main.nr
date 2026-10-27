@@ -1,6 +1,6 @@
 struct Foo {
-    a: Field,
-    b: Field,
+    a: u8,
+    b: u8,
 }
 
 fn main(mut x: [Foo; 3], y: pub u32) {

@@ -38,7 +38,9 @@ impl<T> Bar<T> {
     }
 }
 
-fn main(x: Field, y: Field) {
+fn main(x: u8, y: u8) {
+    let x = x as Field;
+    let y = y as Field;
     let bar1: Bar<Field> = Bar { one: x, two: y, other: 0 };
     let bar2 = Bar { one: x, two: y, other: [0] };
 

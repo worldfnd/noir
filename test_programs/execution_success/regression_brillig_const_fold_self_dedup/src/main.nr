@@ -9,7 +9,8 @@
 // - A function call result used via array indexing (prevents simplification)
 // - `a < ((b as u128) <= (b as u128))` produces an lt/cast chain that,
 //   after simplification, creates a `not` matching the hoisted one
-unconstrained fn main(b: Field) -> pub bool {
+unconstrained fn main(b: u128) -> pub bool {
+    let b = b as Field;
     let mut a = true;
     let mut running = true;
     while running {

@@ -15,10 +15,10 @@ struct Foo {
     vector: [Field],
 }
 
-fn main(
-    dynamic_one: Field, // == 1
-    dynamic_two: Field, // == 2
-) {
+fn main() {
+    let dynamic_one: Field = std::hint::black_box(1);
+    let dynamic_two: Field = std::hint::black_box(2);
+
     // contents unknown at compile time
     // length known at compile time
     let dynamic_array_pair = [dynamic_one, dynamic_two];

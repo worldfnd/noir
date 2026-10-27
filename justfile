@@ -207,10 +207,10 @@ build-package PACKAGE: install-js-tools
 
 # Examples
 
-# Runs test for all examples
+# Runs test for all examples. `recursion` verifies proofs inside a circuit, which takes `Field` inputs at `main`.
 run-examples:
     set -e; \
-    for file in `ls {{ justfile_dir() }}/examples | grep -v solidity_verifier`; do \
+    for file in `ls {{ justfile_dir() }}/examples | grep -v -e solidity_verifier -e recursion`; do \
         just --justfile {{ justfile() }} run-example $file;  \
     done
 

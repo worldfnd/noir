@@ -4,12 +4,14 @@ global G_A: [Field] = [
     (-334812293488173760196216156611283261679),
 ]
     .as_vector();
-fn main(b: pub Field) -> pub Field {
-    if b == -284015218230919225711528337869756109769 {
+fn main(b: pub u8) -> pub u8 {
+    let b = b as Field;
+    let result = if b == -284015218230919225711528337869756109769 {
         -b
     } else if b == -64182487568962597178733740932221199270 {
         G_A[1887189234_u32]
     } else {
         b
-    }
+    };
+    result as u8
 }

@@ -2,7 +2,8 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-fn main(inp: Field) {
+fn main(inp: u8) {
+    let inp: Field = inp as Field;
     let mut x: Field = -1_Field;
     for _i in 0_u32..1_u32 {
         x = -1_Field;

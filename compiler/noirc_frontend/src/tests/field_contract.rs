@@ -10,7 +10,9 @@ use crate::test_utils::{
     GetProgramOptions, get_monomorphized, get_monomorphized_for_field, get_program_with_options,
     stdlib_src,
 };
-use crate::tests::{assert_no_errors, check_errors_with_options, get_program_errors_for_field};
+use crate::tests::{
+    assert_no_errors, check_errors, check_errors_with_options, get_program_errors_for_field,
+};
 use crate::validity::InvalidType;
 
 #[test]
@@ -147,8 +149,8 @@ fn narrowing_before_a_field_cast_is_accepted_under_every_field() {
 fn casts_to_field_through_an_inferred_type_follow_the_same_rule() {
     let src = "fn apply<T>(f: fn(T) -> Field, x: T) -> Field { f(x) }
 
-    fn main(x: u32) -> pub Field {
-        apply(|v| v as Field, x as u64)
+    fn main(x: u32) {
+        let _ = apply(|v| v as Field, x as u64);
     }";
     for field in FieldId::ALL {
         let result = get_monomorphized_for_field(src, field);
@@ -170,8 +172,8 @@ fn casts_to_field_through_an_inferred_type_follow_the_same_rule() {
 fn signed_casts_to_field_through_an_inferred_type_are_refused() {
     let src = "fn apply<T>(f: fn(T) -> Field, x: T) -> Field { f(x) }
 
-    fn main(x: i8) -> pub Field {
-        apply(|v| v as Field, x)
+    fn main(x: i8) {
+        let _ = apply(|v| v as Field, x);
     }";
     let error = get_monomorphized(src).expect_err("a signed source is never cast to Field");
     let diagnostic = CustomDiagnostic::from(error);
@@ -236,7 +238,7 @@ fn comptime_field_arithmetic_wraps_under_the_configured_field() {
 #[test]
 fn a_comptime_field_value_reaches_the_program_in_the_configured_field() {
     let largest = FieldConfig::new(FieldId::Goldilocks).modulus() - 1u8;
-    let src = format!("fn main() -> pub Field {{ comptime {{ {largest} + 1 }} }}");
+    let src = format!("fn main() {{ let _x: Field = comptime {{ {largest} + 1 }}; }}");
 
     for field in FieldId::ALL {
         let result =
@@ -244,7 +246,7 @@ fn a_comptime_field_value_reaches_the_program_in_the_configured_field() {
         let program = get_monomorphized_for_field(&src, field).unwrap().to_string();
         assert_eq!(
             program.trim(),
-            format!("fn main$f0() -> pub Field {{\n    {result}\n}}"),
+            format!("fn main$f0() -> () {{\n    let _x$l0 = {result}\n}}"),
             "{field}"
         );
     }
@@ -256,7 +258,7 @@ fn type_level_field_arithmetic_wraps_under_the_configured_field() {
         let largest = FieldConfig::new(field).modulus() - 1u8;
         let src = format!(
             "fn value<let N: Field>() -> Field {{ N }}
-             fn main() -> pub Field {{ value::<{largest}_Field + 1_Field>() }}"
+             fn main() {{ let _ = value::<{largest}_Field + 1_Field>(); }}"
         );
         let program = get_monomorphized_for_field(&src, field).unwrap().to_string();
         assert!(program.contains("fn value$f1() -> Field {\n    0\n}"), "{field}: {program}");
@@ -310,87 +312,32 @@ fn comptime_crypto_uses_the_configured_field() {
     }
 }
 
-/// The field-driven reason an entry point type is refused, looking past the aliases and struct
-/// fields that contain it.
-fn integer_exceeding_field(errors: &[CompilationError]) -> Option<(String, FieldId)> {
+/// The reason the first entry point type is refused, looking past the aliases and struct fields
+/// that contain it.
+fn entry_point_refusal(errors: &[CompilationError]) -> Option<InvalidType> {
     errors.iter().find_map(|error| match error {
         CompilationError::TypeError(TypeCheckError::InvalidTypeForEntryPoint {
             invalid_type,
             ..
-        }) => match invalid_type.innermost() {
-            InvalidType::IntegerExceedsField { typ, field } => Some((typ.to_string(), *field)),
-            _ => None,
-        },
+        }) => Some(invalid_type.innermost().clone()),
         _ => None,
     })
 }
 
-/// The lowerability reason an entry point type is refused, looking past the aliases and struct
-/// fields that contain it.
-fn integer_not_lowerable(errors: &[CompilationError]) -> Option<String> {
-    errors.iter().find_map(|error| match error {
-        CompilationError::TypeError(TypeCheckError::InvalidTypeForEntryPoint {
-            invalid_type,
-            ..
-        }) => match invalid_type.innermost() {
-            InvalidType::IntegerNotLowerable { typ } => Some(typ.to_string()),
-            _ => None,
-        },
-        _ => None,
-    })
-}
-
-/// One field element carries each integer across the entry point, as its unsigned bit pattern,
-/// so a type crosses only if every pattern it can hold is below the modulus. Of the nine
-/// lowerable types, bn254 and bls12_381 carry every one and Goldilocks stops at 32 bits.
+/// An entry point's values cross as bytes, the same on every field, so it takes and returns
+/// integers of every legal width, wherever its type holds them.
 #[test]
-fn entry_point_integers_must_fit_below_the_modulus() {
+fn every_legal_integer_width_crosses_main() {
     for field in FieldId::ALL {
-        let refused: &[&str] = match field {
-            FieldId::Goldilocks => &["u64", "u128", "i64"],
-            FieldId::Bn254 | FieldId::Bls12_381 => &[],
-        };
-        for (sign, widths) in [("u", &[8u32, 16, 32, 64, 128][..]), ("i", &[8, 16, 32, 64][..])] {
-            for &width in widths {
-                let typ = format!("{sign}{width}");
-                let fits = !refused.contains(&typ.as_str());
-                for src in [
-                    format!("fn main(x: {typ}) {{ assert(x == x); }}"),
-                    format!("fn main(x: pub {typ}) {{ assert(x == x); }}"),
-                    format!("fn main() -> pub {typ} {{ 0 }}"),
-                ] {
-                    let errors = get_program_errors_for_field(&src, field);
-                    if fits {
-                        assert!(errors.is_empty(), "{field}: `{src}`: {errors:?}");
-                    } else {
-                        assert_eq!(errors.len(), 1, "{field}: `{src}`: {errors:?}");
-                        assert_eq!(
-                            integer_exceeding_field(&errors),
-                            Some((typ.clone(), field)),
-                            "{field}: `{src}`: {errors:?}"
-                        );
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// An entry point carries only the integer types the circuit backend lowers, so the `Prover.toml`
-/// input language is a fixed list: any other width, however narrow, is refused at `main` under
-/// every field, wherever the type holds it, while a helper keeps every width.
-#[test]
-fn entry_point_integers_are_the_lowerable_types() {
-    for field in FieldId::ALL {
-        for typ in ["u2", "u24", "u34", "u253", "u16384", "i2", "i66", "i128"] {
+        for typ in ["u2", "u8", "u24", "u34", "u64", "u128", "u253", "u16384", "i2", "i64", "i66"] {
             for src in [
                 format!("fn main(x: {typ}) {{ assert(x == x); }}"),
                 format!("fn main(x: pub {typ}) {{ assert(x == x); }}"),
                 format!("fn main() -> pub {typ} {{ 0 }}"),
                 format!("fn main(x: [{typ}; 2]) {{ assert(x[0] == x[1]); }}"),
-                format!("fn main(x: (Field, {typ})) {{ assert(x.1 == x.1); }}"),
+                format!("fn main(x: (bool, {typ})) {{ assert(x.1 == x.1); }}"),
                 format!(
-                    "struct Pair {{ a: Field, b: {typ} }}
+                    "struct Pair {{ a: bool, b: {typ} }}
                      fn main(x: Pair) {{ assert(x.b == x.b); }}"
                 ),
                 format!(
@@ -399,101 +346,70 @@ fn entry_point_integers_are_the_lowerable_types() {
                 ),
             ] {
                 let errors = get_program_errors_for_field(&src, field);
-                assert_eq!(errors.len(), 1, "{field}: `{src}`: {errors:?}");
-                assert_eq!(
-                    integer_not_lowerable(&errors).as_deref(),
-                    Some(typ),
-                    "{field}: `{src}`: {errors:?}"
-                );
+                assert!(errors.is_empty(), "{field}: `{src}`: {errors:?}");
             }
-
-            let helper = format!(
-                "fn helper(x: {typ}) -> {typ} {{ x }}
-                 fn main(x: u8) -> pub u8 {{ helper(x as {typ}) as u8 }}"
-            );
-            let errors = get_program_errors_for_field(&helper, field);
-            assert!(errors.is_empty(), "{field}: `{helper}`: {errors:?}");
+        }
+        for src in [
+            "struct Wrapper<let N: u32> { inner: u<N> }
+             fn main(x: Wrapper<64>) { assert(x.inner == x.inner); }",
+            "fn main(x: u<2 * 32>) { assert(x == x); }",
+        ] {
+            let errors = get_program_errors_for_field(src, field);
+            assert!(errors.is_empty(), "{field}: `{src}`: {errors:?}");
         }
     }
 }
 
+/// `Field` crosses no entry point, wherever the type holds it.
 #[test]
-fn the_entry_point_diagnostic_lists_the_lowerable_types() {
-    let src = "
-    fn main(x: u24) {
-               ^^^ Invalid type found in the entry point to a program
-               ~~~ Integers the circuit backend does not lower are not valid entry point types. Found: u24
-        assert(x == x);
-    }
-    ";
-    let options = GetProgramOptions { allow_elaborator_errors: true, ..Default::default() };
-    check_errors_with_options(src, false, options);
-
-    let errors =
-        get_program_errors_for_field("fn main(x: u24) { assert(x == x); }", FieldId::Bn254);
-    let diagnostic = CustomDiagnostic::from(&errors[0]);
-    assert_eq!(
-        diagnostic.notes,
-        vec![
-            "Note: main and contract functions take and return only the integer types the circuit backend lowers: u8, u16, u32, u64, u128, i8, i16, i32 and i64. Widen or narrow the value inside the program."
-                .to_string()
-        ]
-    );
-}
-
-/// The rule reaches an integer wherever the entry point's type holds it, including a width that
-/// only a struct's generic argument or an arithmetic expression spells out.
-#[test]
-fn the_entry_point_rule_looks_through_every_aggregate() {
+fn field_is_refused_at_main_wherever_the_type_holds_it() {
     let programs = [
-        "fn main(x: [u64; 2]) { assert(x[0] == x[1]); }",
-        "fn main(x: (Field, i64)) { assert(x.1 == x.1); }",
-        "struct Pair { a: Field, b: u64 }
-         fn main(x: Pair) { assert(x.b == x.b); }",
-        "struct Inner { value: i64 }
+        "fn main(x: Field) { assert(x == x); }",
+        "fn main(x: pub Field) { assert(x == x); }",
+        "fn main() -> pub Field { 0 }",
+        "fn main(x: [Field; 2]) { assert(x[0] == x[1]); }",
+        "fn main(x: (u8, Field)) { assert(x.0 == x.0); }",
+        "struct Pair { a: u8, b: Field }
+         fn main(x: Pair) { assert(x.a == x.a); }",
+        "struct Inner { value: Field }
          struct Outer { inner: [Inner; 2] }
          fn main(x: Outer) { assert(x.inner[0].value == x.inner[1].value); }",
-        "type Word = u64;
+        "type Word = Field;
          fn main(x: Word) { assert(x == x); }",
-        "struct Wrapper<let N: u32> { inner: u<N> }
-         fn main(x: Wrapper<64>) { assert(x.inner == x.inner); }",
-        "fn main(x: u<2 * 32>) { assert(x == x); }",
-        "fn main() -> pub (Field, [u64; 1]) { (0, [0]) }",
-        "fn main() -> pub [u64; 0] { [] }",
+        "struct Wrapper<T> { inner: T }
+         fn main(x: Wrapper<Field>) { assert(x.inner == x.inner); }",
+        "fn main() -> pub (u8, [Field; 1]) { (0, [0]) }",
     ];
-    for src in programs {
-        let errors = get_program_errors_for_field(src, FieldId::Bn254);
-        assert!(errors.is_empty(), "bn254: `{src}`: {errors:?}");
-
-        let errors = get_program_errors_for_field(src, FieldId::Goldilocks);
-        assert_eq!(errors.len(), 1, "goldilocks: `{src}`: {errors:?}");
-        assert!(
-            matches!(integer_exceeding_field(&errors), Some((_, FieldId::Goldilocks))),
-            "goldilocks: `{src}`: {errors:?}"
-        );
+    for field in FieldId::ALL {
+        for src in programs {
+            let errors = get_program_errors_for_field(src, field);
+            assert_eq!(errors.len(), 1, "{field}: `{src}`: {errors:?}");
+            assert!(
+                matches!(entry_point_refusal(&errors), Some(InvalidType::Field(_))),
+                "{field}: `{src}`: {errors:?}"
+            );
+        }
     }
 }
 
-/// Only values that cross the entry point are carried in one field element and spelled as a
-/// lowerable type: helpers, test and fuzz functions and values computed inside the circuit keep
-/// every width.
+/// Only `main` and contract functions are entry points: helpers, test and fuzz functions keep
+/// `Field`, as do values computed inside the program.
 #[test]
 fn the_entry_point_rule_leaves_other_functions_alone() {
     let src = "
-        fn helper(x: u64, y: u24) -> u64 { x + y as u64 }
+        fn helper(x: Field, y: u24) -> Field { assert(y == y); x + 1 }
 
         #[test]
-        fn tested(x: u64, y: u24) { assert(x == x); assert(y == y); }
+        fn tested(x: Field, y: u24) { assert(x == x); assert(y == y); }
 
         #[fuzz]
-        fn fuzzed(x: u64, y: u24) { assert(x == x); assert(y == y); }
+        fn fuzzed(x: Field, y: u24) { assert(x == x); assert(y == y); }
 
-        fn main(x: u32, y: Field, z: bool) -> pub u32 {
-            let wide: u128 = (x as u128) << 64;
-            let sum = helper(x as u64, x as u24) + ((wide >> 64) as u64);
+        fn main(x: u32, z: bool) -> pub u32 {
+            let y = helper(2, x as u24);
             assert(y == y);
             assert(z == z);
-            sum as u32
+            x
         }
     ";
     for field in FieldId::ALL {
@@ -507,84 +423,240 @@ fn the_entry_point_rule_leaves_other_functions_alone() {
 fn contract_functions_follow_the_entry_point_rule() {
     let src = "
         contract Wallet {
-            pub fn balance(x: u64) -> pub u64 { x }
+            pub fn balance(x: u24) -> pub u64 { x as u64 }
 
             #[contract_library_method]
-            pub fn double(x: u64) -> u64 { x * 2 }
+            pub fn double(x: Field) -> Field { x * 2 }
         }
     ";
-    let errors = get_program_errors_for_field(src, FieldId::Bn254);
-    assert!(errors.is_empty(), "bn254: {errors:?}");
-
-    let errors = get_program_errors_for_field(src, FieldId::Goldilocks);
-    assert_eq!(errors.len(), 2, "goldilocks: {errors:?}");
-    for error in &errors {
-        assert!(
-            matches!(
-                integer_exceeding_field(std::slice::from_ref(error)),
-                Some((typ, FieldId::Goldilocks)) if typ == "u64"
-            ),
-            "goldilocks: {errors:?}"
-        );
+    for field in FieldId::ALL {
+        let errors = get_program_errors_for_field(src, field);
+        assert!(errors.is_empty(), "{field}: {errors:?}");
     }
 
     let src = "
         contract Wallet {
-            pub fn balance(x: u24) -> pub u24 { x }
-
-            #[contract_library_method]
-            pub fn double(x: u24) -> u24 { x * 2 }
+            pub fn balance(x: Field) -> pub Field { x }
         }
     ";
     for field in FieldId::ALL {
         let errors = get_program_errors_for_field(src, field);
         assert_eq!(errors.len(), 2, "{field}: {errors:?}");
         for error in &errors {
-            assert_eq!(
-                integer_not_lowerable(std::slice::from_ref(error)).as_deref(),
-                Some("u24"),
+            assert!(
+                matches!(
+                    entry_point_refusal(std::slice::from_ref(error)),
+                    Some(InvalidType::Field(_))
+                ),
                 "{field}: {errors:?}"
             );
         }
     }
 }
 
+/// An `#[abi(tag)]` global is not an input of `main`, so it keeps `Field`.
 #[test]
-fn the_entry_point_diagnostic_names_the_field_and_the_widest_width() {
+fn abi_tag_globals_keep_field() {
+    let src = "
+        contract Wallet {
+            #[abi(tag)]
+            global LIMIT: (Field, u24) = (1, 2);
+        }
+    ";
+    for field in FieldId::ALL {
+        let errors = get_program_errors_for_field(src, field);
+        assert!(errors.is_empty(), "{field}: {errors:?}");
+    }
+}
+
+#[test]
+fn the_entry_point_diagnostic_explains_the_field_rule() {
     let src = "
     struct Pair {
            ~~~~ Struct Pair has an invalid entry point type
-        a: Field,
-        b: u64,
+        a: u8,
+        b: Field,
         ~ Field b has an invalid entry point type
-        ~ Integers wider than 63 bits are not valid entry point types under goldilocks. Found: u64
+        ~ Field is not a valid entry point type. Found: Field
     }
 
-    fn main(x: Pair, y: i64) {
+    fn main(x: Pair) {
                ^^^^ Invalid type found in the entry point to a program
                ~~~~ This type has an invalid entry point type inside it
-                        ^^^ Invalid type found in the entry point to a program
-                        ~~~ Integers wider than 63 bits are not valid entry point types under goldilocks. Found: i64
-        assert(x.b == x.b);
-        assert(y == y);
+        assert(x.a == x.a);
     }
     ";
-    let options = GetProgramOptions {
-        allow_elaborator_errors: true,
-        ..GetProgramOptions::for_field(FieldId::Goldilocks)
-    };
+    let options = GetProgramOptions { allow_elaborator_errors: true, ..Default::default() };
     check_errors_with_options(src, false, options);
 
     let errors =
-        get_program_errors_for_field("fn main(x: u64) { assert(x == x); }", FieldId::Goldilocks);
+        get_program_errors_for_field("fn main(x: Field) { assert(x == x); }", FieldId::Bn254);
     let diagnostic = CustomDiagnostic::from(&errors[0]);
     assert_eq!(
         diagnostic.notes,
         vec![
-            "Note: under goldilocks, an integer that main or a contract function takes or returns must be at most 63 bits wide, so that each of its values is below the field modulus. Split a wider integer into narrower ones."
+            "Note: main and contract functions take and return no `Field`, so that a program's inputs are read the same way on every field. Use an integer type, or bytes such as `[u8; 32]` for a hash or a curve coordinate, and convert inside the program."
                 .to_string()
         ]
     );
+}
+
+/// A struct marked `#[field(..)]` is field-specific, so it crosses no entry point, directly, in a
+/// struct field or as the return, even though the gate admits the field the tests compile for
+/// (bn254).
+#[test]
+fn a_field_gated_struct_is_refused_at_main() {
+    let src = "
+    #[field(bn254)]
+    ~~~~~~~~~~~~~~~ Made field-specific here
+    struct Gated { x: u32 }
+
+    struct Outer { inner: Gated }
+           ~~~~~ Struct Outer has an invalid entry point type
+                   ~~~~~ Field inner has an invalid entry point type
+                   ~~~~~ A field-specific type is not a valid entry point type. Found: Gated
+
+    fn main(x: Gated, y: Outer) -> pub Gated {
+               ^^^^^ Invalid type found in the entry point to a program
+               ~~~~~ A field-specific type is not a valid entry point type. Found: Gated
+                         ^^^^^ Invalid type found in the entry point to a program
+                         ~~~~~ This type has an invalid entry point type inside it
+                                       ^^^^^ Invalid type found in the entry point to a program
+                                       ~~~~~ A field-specific type is not a valid entry point type. Found: Gated
+        assert(x.x == y.inner.x);
+        x
+    }
+    ";
+    check_errors(src);
+}
+
+#[test]
+fn a_field_gated_alias_is_refused_at_main() {
+    let src = "
+    #[field(bn254)]
+    ~~~~~~~~~~~~~~~ Made field-specific here
+    type Word = u32;
+
+    fn main(_x: Word) {}
+                ^^^^ Invalid type found in the entry point to a program
+                ~~~~ A field-specific type is not a valid entry point type. Found: Word
+    ";
+    check_errors(src);
+}
+
+/// A type declared in a module marked `#[field(..)]` is field-specific through that module.
+#[test]
+fn a_type_in_a_field_gated_module_is_refused_at_main() {
+    let src = "
+    #[field(bn254)]
+    ~~~~~~~~~~~~~~~ Made field-specific here
+    mod gated {
+        pub struct Inner { pub x: u32 }
+    }
+
+    fn main(_x: gated::Inner) {}
+                ^^^^^^^^^^^^ Invalid type found in the entry point to a program
+                ~~~~~~~~~~~~ A field-specific type is not a valid entry point type. Found: Inner
+    ";
+    check_errors(src);
+}
+
+/// Field-specific items stay usable inside the program and by test functions; only the entry
+/// point signature refuses them.
+#[test]
+fn field_gated_items_are_allowed_off_the_entry_point_signature() {
+    let src = "
+    #[field(bn254)]
+    struct Gated { x: u32 }
+
+    #[field(bn254)]
+    fn helper(g: Gated) -> u32 { g.x }
+
+    #[test]
+    fn tested(g: Gated) { assert(helper(g) == g.x); }
+
+    fn main(x: u32) -> pub u32 {
+        helper(Gated { x })
+    }
+    ";
+    assert_no_errors(src);
+}
+
+/// A program runs on every field, so neither `main` nor a contract with entry points may be
+/// marked `#[field(..)]`, on the function itself or on the enclosing contract.
+#[test]
+fn the_field_attribute_is_refused_on_entry_points() {
+    let main = "
+    #[field(bn254)]
+    ^^^^^^^^^^^^^^^ entry point function main cannot be field-specific
+    ~~~~~~~~~~~~~~~ #[field] attribute not allowed on an entry point
+    fn main() {}
+    ";
+    check_errors(main);
+
+    let contract_function = "
+    contract Wallet {
+        #[field(bn254)]
+        ^^^^^^^^^^^^^^^ entry point function balance cannot be field-specific
+        ~~~~~~~~~~~~~~~ #[field] attribute not allowed on an entry point
+        pub fn balance(x: u32) -> pub u32 { x }
+    }
+    ";
+    check_errors(contract_function);
+
+    let contract = "
+    #[field(bn254)]
+    ^^^^^^^^^^^^^^^ entry point function balance cannot be field-specific
+    ~~~~~~~~~~~~~~~ #[field] attribute not allowed on an entry point
+    contract Wallet {
+        pub fn balance(x: u32) -> pub u32 { x }
+    }
+    ";
+    check_errors(contract);
+}
+
+/// A gate is found through enclosing modules, aliases and generic instantiations, under every
+/// field, including the one it selects.
+#[test]
+fn field_gates_are_found_through_modules_aliases_and_generics() {
+    for field in FieldId::ALL {
+        for declarations in [
+            "#[field(FIELD)] mod outer { pub mod inner { pub struct Gated { pub x: u32 } } }
+             type Gated = outer::inner::Gated;",
+            "#[field(FIELD)] mod outer { pub mod inner { pub type Word = u32; } }
+             type Gated = outer::inner::Word;",
+        ] {
+            let src = format!(
+                "{} struct Wrapper<T> {{ value: T }}
+                 fn main(_x: [Wrapper<(bool, Gated)>; 1]) {{}}",
+                declarations.replace("FIELD", field.name())
+            );
+            let errors = get_program_errors_for_field(&src, field);
+            assert_eq!(errors.len(), 1, "{field}: `{src}`: {errors:?}");
+            assert!(
+                matches!(entry_point_refusal(&errors), Some(InvalidType::FieldGated { .. })),
+                "{field}: `{src}`: {errors:?}"
+            );
+        }
+    }
+}
+
+/// Unit's no-return meaning does not erase a field-specific alias from the written signature.
+#[test]
+fn a_unit_return_still_checks_field_gates_on_its_aliases() {
+    for field in FieldId::ALL {
+        let source = format!(
+            "#[field({})] type Nothing = (); type Other = Nothing;
+             fn main() -> pub Other {{}}",
+            field.name()
+        );
+        let errors = get_program_errors_for_field(&source, field);
+        assert_eq!(errors.len(), 1, "{field}: {errors:?}");
+        assert!(
+            matches!(entry_point_refusal(&errors), Some(InvalidType::FieldGated { .. })),
+            "{field}: {errors:?}"
+        );
+    }
 }
 
 /// `Expr::as_integer` reads a literal into a `Field`, which must be canonical in the configured

@@ -1,6 +1,6 @@
 fn main(
-    dynamic_one: Field, // == 1
-    dynamic_two: Field, // == 2
+    dynamic_one: u8, // == 1
+    dynamic_two: u8, // == 2
 ) {
     // length unknown at compile time
     let mut dynamic_built_vector_pair = [].as_vector();

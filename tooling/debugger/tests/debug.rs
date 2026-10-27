@@ -117,9 +117,13 @@ mod tests {
             .expect("Could not start debugger");
 
         let expected_lines_by_command: Vec<VecDeque<&str>> = vec![
-            VecDeque::from(["fn main(x: Field, y: pub Field) {"]),
-            VecDeque::from(["fn main(x: Field, y: pub Field) {"]),
-            VecDeque::from(["fn main(x: Field, y: pub Field) {"]),
+            VecDeque::from(["fn main(x: u8, y: pub u8) {"]),
+            VecDeque::from(["fn main(x: u8, y: pub u8) {"]),
+            VecDeque::from(["fn main(x: u8, y: pub u8) {"]),
+            VecDeque::from(["let x = x as Field;"]),
+            VecDeque::from(["let x = x as Field;"]),
+            VecDeque::from(["let y = y as Field;"]),
+            VecDeque::from(["let y = y as Field;"]),
             VecDeque::from([
                 "let x = unsafe { baz(x) };",
                 "unconstrained fn baz(x: Field) -> Field {",

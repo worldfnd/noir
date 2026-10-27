@@ -1,11 +1,11 @@
 struct Point {
-    x: Field,
-    y: Field,
+    x: u8,
+    y: u8,
 }
 
 impl Point {
     fn serialize(self) -> [Field; 2] {
-        [self.x, self.y]
+        [self.x as Field, self.y as Field]
     }
 }
 

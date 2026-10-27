@@ -3,7 +3,11 @@
 // The features being tested are:
 // Binary addition, multiplication, division, constant modulo
 // x = 3, y = 4, z = 5
-fn main(x: Field, y: Field, z: Field) -> pub Field {
+fn main(x: u8, y: u8, z: u8) -> pub u8 {
+    let x = x as Field;
+    let y = y as Field;
+    let z = z as Field;
+
     //cast
     assert(y as u8 % 2 == 0);
 
@@ -11,5 +15,5 @@ fn main(x: Field, y: Field, z: Field) -> pub Field {
     let b = a - y; // 6 - 4 = 2
     let c = b * z; // 2 * 5 = 10
     let d = c / a; // 10 / 6 (This uses field inversion, so we test it by multiplying by `a`)
-    d * a
+    (d * a) as u8
 }

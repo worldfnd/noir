@@ -5,7 +5,9 @@ expression: expanded_code
 use poseidon::{poseidon2::Poseidon2Hasher, poseidon::PoseidonHasher};
 use std::hash::Hasher;
 
-fn main(x: Field, y: pub Field) {
+fn main() {
+    let x: Field = std::hint::black_box(1_Field);
+    let y: Field = std::hint::black_box(2_Field);
     let mut hasher: PoseidonHasher = PoseidonHasher::default();
     hasher.write(x);
     hasher.write(y);

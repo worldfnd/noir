@@ -16,7 +16,8 @@ struct MyStruct {
     foo: Bar,
 }
 
-fn main(x: [Field; 2]) {
+fn main(x: [u8; 2]) {
+    let x: [Field; 2] = x.map(|x: u8| -> Field { x as Field });
     let a: Foo<Field> = [1_Field, 2_Field];
     assert(a[0_u32] != x[0_u32]);
     let b: Bar = 2_Field;

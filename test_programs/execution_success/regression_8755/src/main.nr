@@ -1,5 +1,5 @@
-unconstrained fn main() -> pub Field {
-    func_2([(0, &mut -292434322542114415011969994633470574393)])
+unconstrained fn main() -> pub [u8; 32] {
+    func_2([(0, &mut -292434322542114415011969994633470574393)]).to_le_bytes()
 }
 unconstrained fn func_2(mut b: [(u32, &mut Field); 1]) -> Field {
     let mut idx_e: u32 = 0;

@@ -4,7 +4,9 @@ expression: expanded_code
 ---
 global EXPONENTIATE: [[Field; 2]; 2] = [[0x01, 0x01], [0x00, 0x00]];
 
-fn main(x: Field, y: pub Field) {
+fn main(x: u8, y: pub u8) {
+    let x: Field = x as Field;
+    let y: Field = y as Field;
     let mut acc: Field = 0_Field;
     for i in 0_u32..2_u32 {
         for j in 0_u32..2_u32 {

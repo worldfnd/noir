@@ -14,4 +14,4 @@ impl HasSize for Packet {
 
 global N: u32 = 4;
 
-fn main(_a: [Field; 4]) {}
+fn main(_a: [u8; 4]) {}

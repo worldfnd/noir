@@ -2,7 +2,7 @@
 // We want to check that this ordering is maintained
 struct myStruct {
     foo: u32,
-    bar: Field,
+    bar: u8,
 }
 
 fn main(y: pub myStruct) {

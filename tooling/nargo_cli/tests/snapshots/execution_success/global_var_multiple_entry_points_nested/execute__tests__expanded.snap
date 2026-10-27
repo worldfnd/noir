@@ -6,7 +6,9 @@ global TWO: Field = 0x02;
 
 global THREE: Field = 0x03;
 
-fn main(x: Field, y: pub Field) {
+fn main(x: u8, y: pub u8) {
+    let x: Field = x as Field;
+    let y: Field = y as Field;
     // Safety: comment added by `nargo expand`
     unsafe {
         entry_point_one(x, y);

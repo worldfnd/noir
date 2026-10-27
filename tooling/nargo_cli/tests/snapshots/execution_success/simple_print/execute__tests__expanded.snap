@@ -2,7 +2,7 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-fn main(x: Field, y: pub Field) {
+fn main(x: u8, y: pub u8) {
     println(x);
     println([x, y]);
 }

@@ -1,10 +1,10 @@
 struct Bar {
-    inner: [Field; 3],
+    inner: [u16; 3],
 }
 
 struct Foo {
-    a: Field,
-    b: [Field; 3],
+    a: u16,
+    b: [u16; 3],
     bar: Bar,
 }
 

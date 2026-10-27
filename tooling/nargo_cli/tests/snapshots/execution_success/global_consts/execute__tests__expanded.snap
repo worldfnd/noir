@@ -59,7 +59,11 @@ unconstrained fn calculate_global_value() -> Field {
 
 global CALCULATED_GLOBAL: Field = 0x2a;
 
-fn main(a: [Field; 32], b: [Field; 32], c: pub [Field; 3], d: [Field; 5]) {
+fn main(a: [u8; 32], b: [u8; 32], c: pub [u8; 3], d: [u8; 5]) {
+    let a: [Field; 32] = a.map(|v: u8| -> Field { v as Field });
+    let b: [Field; 32] = b.map(|v: u8| -> Field { v as Field });
+    let c: [Field; 3] = c.map(|v: u8| -> Field { v as Field });
+    let d: [Field; 5] = d.map(|v: u8| -> Field { v as Field });
     let test_struct: Dummy = Dummy { x: d, y: c };
     for i in 0_u32..foo::MAGIC_NUMBER {
         assert(c[i] == (foo::MAGIC_NUMBER as Field));

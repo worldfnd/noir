@@ -7,7 +7,8 @@ struct myStruct {
     foo_arr: [Field; 2],
 }
 
-fn main(x: Field) {
+fn main(x: u8) {
+    let x: Field = x as Field;
     // Safety: comment added by `nargo expand`
     unsafe {
         assert(x == identity(x));

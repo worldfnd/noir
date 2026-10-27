@@ -1,4 +1,5 @@
-fn main(x: Field, active: bool) {
+fn main(x: u8, active: bool) {
+    let x = x as Field;
     let mut x1 = false;
     // Safety:)
     unsafe {

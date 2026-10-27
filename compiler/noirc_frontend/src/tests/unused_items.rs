@@ -371,7 +371,7 @@ fn errors_on_unused_function() {
     contract some_contract {
         // This function is unused, but it's a contract entrypoint
         // so it should not produce a warning
-        fn foo() -> pub Field {
+        fn foo() -> pub u32 {
             1
         }
     }
@@ -495,11 +495,11 @@ fn does_not_warn_on_unused_function_if_it_has_an_export_attribute() {
 fn no_warning_on_inner_struct_when_parent_is_used() {
     let src = r#"
     struct Bar {
-        inner: [Field; 3],
+        inner: [u32; 3],
     }
 
     struct Foo {
-        a: Field,
+        a: u32,
         bar: Bar,
     }
 

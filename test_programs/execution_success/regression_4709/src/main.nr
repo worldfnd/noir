@@ -3842,13 +3842,13 @@ global EXPONENTIATE: [[Field; 257]; 257] = [
     ],
 ];
 
-fn main(x: Field, y: pub Field) {
+fn main(x: u8, y: pub u8) {
     let mut acc: Field = 0;
     for i in 0..257 {
         for j in 0..257 {
             acc += EXPONENTIATE[i][j];
         }
     }
-    assert(!acc.lt(x));
+    assert(!acc.lt(x as Field));
     assert(x != y);
 }

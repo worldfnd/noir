@@ -4,9 +4,10 @@ expression: expanded_code
 ---
 global G_A: (Field, bool, bool) = (0x01, true, true);
 
-unconstrained fn main() -> pub (Field, bool) {
+unconstrained fn main() -> pub ([u8; 32], bool) {
     let mut ctx_limit: u32 = 2_u32;
-    func_5((&mut [-1_Field], &mut false), G_A, &mut ctx_limit)
+    let (value, flag): (Field, bool) = func_5((&mut [-1_Field], &mut false), G_A, &mut ctx_limit);
+    (value.to_le_bytes(), flag)
 }
 
 unconstrained fn func_5(

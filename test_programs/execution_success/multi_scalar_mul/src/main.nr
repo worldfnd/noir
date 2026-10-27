@@ -5,10 +5,14 @@ use std::embedded_curve_ops::EmbeddedCurvePoint;
 
 // `main` must be marked unconstrained as the function uses `break` internally
 unconstrained fn main(
-    points: [EmbeddedCurvePoint; 5],
-    scalars: [Field; 5],
-) -> pub EmbeddedCurvePoint {
-    double_then_add_msm(points, scalars)
+    points: [(u8, [u8; 32]); 5],
+    scalars: [[u8; 32]; 5],
+) -> pub ([u8; 32], [u8; 32]) {
+    let points =
+        points.map(|(x, y)| EmbeddedCurvePoint::new(x as Field, Field::from_le_bytes_checked(y)));
+    let scalars = scalars.map(|scalar| Field::from_le_bytes_checked(scalar));
+    let result = double_then_add_msm(points, scalars);
+    (result.x.to_le_bytes(), result.y.to_le_bytes())
 }
 
 unconstrained fn double_then_add_msm<let N: u32>(

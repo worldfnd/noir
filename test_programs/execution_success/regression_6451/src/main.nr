@@ -1,4 +1,5 @@
-fn main(x: Field) {
+fn main(x: u8) {
+    let x = x as Field;
     // Regression test for #6451
     let y = unsafe { empty(x) };
     let mut value = 0;

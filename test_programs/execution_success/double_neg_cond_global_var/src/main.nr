@@ -1,6 +1,7 @@
 // Regression from issue #7964 (https://github.com/noir-lang/noir/issues/7964)
 global G_A: bool = false;
-fn main(a: Field) -> pub Field {
+fn main(a: u8) -> pub u8 {
+    let a = a as Field;
     if (
         (
             if (!G_A) {
@@ -15,8 +16,8 @@ fn main(a: Field) -> pub Field {
                 <= (a as u128)
         ) as bool
     ) {
-        (-(-a))
+        (-(-a)) as u8
     } else {
-        (-(-a))
+        (-(-a)) as u8
     }
 }

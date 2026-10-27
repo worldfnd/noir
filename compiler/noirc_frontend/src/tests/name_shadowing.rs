@@ -6,14 +6,14 @@ use super::get_program_errors;
 #[test]
 fn resolve_shadowing() {
     let src = r#"
-        fn main(x : Field) {
+        fn main(x : u32) {
             let x = foo(x);
             let x = x;
             let (x, _) = (x, x);
             let _ = x;
         }
 
-        fn foo(x : Field) -> Field {
+        fn foo(x : u32) -> u32 {
             x
         }
     "#;

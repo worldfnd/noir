@@ -2,7 +2,8 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-fn main(x: Field) -> pub [u8; 31] {
+fn main(x: u32) -> pub [u8; 31] {
+    let x: Field = x as Field;
     let byte_array: [u8; 31] = x.to_be_bytes();
     let mut bytes: [u8; 31] = [0_u8; 31];
     for i in 0_u32..31_u32 {

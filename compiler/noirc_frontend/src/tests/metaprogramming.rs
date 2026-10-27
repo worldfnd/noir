@@ -33,7 +33,7 @@ fn comptime_let() {
 #[test]
 fn comptime_code_rejects_dynamic_variable() {
     let src = r#"
-    fn main(x: Field) {
+    fn main(x: u32) {
         comptime let my_var = (x - x) + 2;
                                ^ Non-comptime variable `x` referenced in comptime code
                                ~ Non-comptime variables can't be used in comptime code
@@ -41,6 +41,56 @@ fn comptime_code_rejects_dynamic_variable() {
     }
     "#;
     check_errors(src);
+}
+
+/// A type spliced into `main` at comptime is checked like a written one: a fresh type variable is
+/// never bound, so `main` refuses it.
+#[test]
+fn error_on_fresh_type_variable_spliced_into_main() {
+    let stdlib = r#"
+    #[builtin(fresh_type_variable)]
+    pub comptime fn fresh_type_variable() -> Type {}
+    "#;
+    let src = r#"
+    #[make_main]
+    ~~~~~~~~~~~~ While running this function attribute
+    pub fn placeholder() {}
+
+    comptime fn make_main(_f: FunctionDefinition) -> Quoted {
+        let t = fresh_type_variable();
+        quote {
+            fn main(_x: $t) {}
+                         ^ Invalid type found in the entry point to a program
+                         ~ An unbound type is not a valid entry point type. Found: _
+        }
+    }
+    "#;
+    check_errors_with_stdlib(src, [stdlib]);
+}
+
+/// An attribute that reads `main`'s parameters resolves its signature before the program's struct
+/// fields are resolved, so the entry point check resolves them itself and still finds a `Field`.
+#[test]
+fn error_on_field_in_struct_resolved_early_by_an_attribute_on_main() {
+    let src = r#"
+    #[inspect]
+    fn main(_a: A) {}
+                ^ Invalid type found in the entry point to a program
+                ~ This type has an invalid entry point type inside it
+
+    comptime fn inspect(f: FunctionDefinition) {
+        let _ = f.parameters();
+    }
+
+    struct A { b: B }
+           ~ Struct A has an invalid entry point type
+               ~ Field b has an invalid entry point type
+    struct B { x: Field }
+           ~ Struct B has an invalid entry point type
+               ~ Field x has an invalid entry point type
+               ~ Field is not a valid entry point type. Found: Field
+    "#;
+    check_errors_with_stdlib(src, [META_API_STDLIB]);
 }
 
 #[test]
@@ -56,11 +106,11 @@ fn comptime_type_in_runtime_code() {
 fn comptime_type_in_constructor_in_runtime_code() {
     let source = r#"
     comptime struct MetaOnly {
-        value: Field,
+        value: u32,
     }
 
     struct RuntimeStruct {
-        value: Field,
+        value: u32,
     }
 
     comptime type MetaAlias = RuntimeStruct;
@@ -69,7 +119,7 @@ fn comptime_type_in_constructor_in_runtime_code() {
         x
     }
 
-    fn main() -> pub Field {
+    fn main() -> pub u32 {
         let direct = id(MetaOnly { value: 10 });
                         ^^^^^^^^ Comptime-only type `MetaOnly` cannot be used in non-comptime function
         let alias = MetaAlias { value: 32 };
@@ -2183,9 +2233,9 @@ fn comptime_as_witness_returns_unit() {
         pub fn as_witness(_x: Field) {}
     "#;
     let src = r#"
-    fn main() -> pub Field {
-                     ^^^^^ expected type Field, found type ()
-                     ~~~~~ expected Field because of return type
+    fn main() -> pub u32 {
+                     ^^^ expected type u32, found type ()
+                     ~~~ expected u32 because of return type
         let x = comptime {
             as_witness(1)
         };
@@ -2343,10 +2393,10 @@ fn comptime_signed_modulo_by_minus_one_overflow() {
 #[test]
 fn comptime_right_shift_overflow() {
     let src = r#"
-    fn main(x: Field) -> pub Field {
+    fn main(x: u32) -> pub u32 {
         let y = comptime { 1 >> 32 };
                            ^^^^^^^ Attempt to bit-shift with overflow
-        x + y as Field
+        x + y as u32
     }
     "#;
     check_errors(src);
@@ -3125,13 +3175,13 @@ fn qualified_self_assoc_in_macro_inside_comptime_block_inside_impl_method() {
 fn resolve_does_not_let_comptime_local_escape_into_runtime() {
     let src = r#"
     comptime fn emit(_f: FunctionDefinition) -> Quoted {
-        let secret = 42;
+        let secret: u32 = 42;
         let _ = secret;
         let typed = quote { secret }.as_expr().unwrap().resolve(Option::none());
                             ^^^^^^ Comptime variable `secret` cannot be used in runtime code
                             ~~~~~~ `secret` was resolved in a comptime scope that is no longer in scope here
         quote {
-            fn generated() -> Field {
+            fn generated() -> u32 {
                 $typed
             }
         }
@@ -3139,7 +3189,7 @@ fn resolve_does_not_let_comptime_local_escape_into_runtime() {
 
     #[emit]
     ~~~~~~~ While running this function attribute
-    fn main() -> pub Field {
+    fn main() -> pub u32 {
         generated()
     }
     "#;
@@ -3149,7 +3199,7 @@ fn resolve_does_not_let_comptime_local_escape_into_runtime() {
 #[test]
 fn resolve_revalidates_unconstrained_call_spliced_into_constrained() {
     let src = r#"
-    unconstrained fn helper() -> Field {
+    unconstrained fn helper() -> u32 {
         0
     }
 
@@ -3157,7 +3207,7 @@ fn resolve_revalidates_unconstrained_call_spliced_into_constrained() {
         let call = quote { helper() }.as_expr().unwrap().resolve(Option::none());
                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Call to unconstrained function from constrained function is unsafe and must be in an unconstrained function or unsafe block
         quote {
-            fn generated() -> Field {
+            fn generated() -> u32 {
                 $call
             }
         }
@@ -3165,7 +3215,7 @@ fn resolve_revalidates_unconstrained_call_spliced_into_constrained() {
 
     #[emit]
     ~~~~~~~ While running this function attribute
-    fn main() -> pub Field {
+    fn main() -> pub u32 {
         generated()
     }
     "#;
@@ -3296,7 +3346,7 @@ fn resolve_revalidates_break_spliced_into_constrained() {
 #[test]
 fn resolve_revalidates_unconstrained_call_nested_in_block() {
     let src = r#"
-    unconstrained fn helper() -> Field {
+    unconstrained fn helper() -> u32 {
         0
     }
 
@@ -3304,7 +3354,7 @@ fn resolve_revalidates_unconstrained_call_nested_in_block() {
         let body = quote { { helper() } }.as_expr().unwrap().resolve(Option::none());
                              ^^^^^^^^ Call to unconstrained function from constrained function is unsafe and must be in an unconstrained function or unsafe block
         quote {
-            fn generated() -> Field {
+            fn generated() -> u32 {
                 $body
             }
         }
@@ -3312,7 +3362,7 @@ fn resolve_revalidates_unconstrained_call_nested_in_block() {
 
     #[emit]
     ~~~~~~~ While running this function attribute
-    fn main() -> pub Field {
+    fn main() -> pub u32 {
         generated()
     }
     "#;
@@ -3324,14 +3374,14 @@ fn resolve_revalidates_unconstrained_call_nested_in_block() {
 #[test]
 fn resolve_allows_unconstrained_call_spliced_into_unsafe_block() {
     let src = r#"
-    unconstrained fn helper() -> Field {
+    unconstrained fn helper() -> u32 {
         0
     }
 
     comptime fn emit(_f: FunctionDefinition) -> Quoted {
         let call = quote { helper() }.as_expr().unwrap().resolve(Option::none());
         quote {
-            fn generated() -> Field {
+            fn generated() -> u32 {
                 // Safety: test
                 unsafe { $call }
             }
@@ -3339,7 +3389,7 @@ fn resolve_allows_unconstrained_call_spliced_into_unsafe_block() {
     }
 
     #[emit]
-    fn main() -> pub Field {
+    fn main() -> pub u32 {
         generated()
     }
     "#;
@@ -3381,7 +3431,7 @@ fn resolve_does_not_let_comptime_local_escape_via_assignment_lvalue() {
 #[test]
 fn resolve_allows_unconstrained_call_in_resolved_unsafe_block() {
     let src = r#"
-    unconstrained fn helper() -> Field {
+    unconstrained fn helper() -> u32 {
         0
     }
 
@@ -3402,7 +3452,7 @@ fn resolve_allows_unconstrained_call_in_resolved_unsafe_block() {
             .resolve(Option::some(scope));
 
         quote {
-            fn generated() -> Field {
+            fn generated() -> u32 {
                 $call
             }
         }
@@ -3411,7 +3461,7 @@ fn resolve_allows_unconstrained_call_in_resolved_unsafe_block() {
     fn constrained_scope() {}
 
     #[emit]
-    fn main() -> pub Field {
+    fn main() -> pub u32 {
         generated()
     }
     "#;

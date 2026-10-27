@@ -2,7 +2,7 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-fn main(a: bool) -> pub ((u32, Field), (u32, Field)) {
+fn main(a: bool) -> pub ((u32, u32), (u32, u32)) {
     let s0: [Field] = if a {
         [10_Field, 20_Field].as_vector()
     } else {
@@ -10,5 +10,5 @@ fn main(a: bool) -> pub ((u32, Field), (u32, Field)) {
     };
     let (s1, f): ([Field], Field) = s0.pop_back();
     let s2: [Field] = s0.push_back(60_Field);
-    ((s1.len(), f), (s2.len(), s2[2_u32]))
+    ((s1.len(), f as u32), (s2.len(), s2[2_u32] as u32))
 }

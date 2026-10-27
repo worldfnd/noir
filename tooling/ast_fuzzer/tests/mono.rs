@@ -9,13 +9,15 @@
 use std::path::Path;
 
 use nargo::parse_all;
-use noir_ast_fuzzer::{Config, DisplayAstAsNoir, arb_program};
+use noir_ast_fuzzer::{Config, DisplayAstAsNoir, arb_program, program_abi};
+use noirc_abi::bytes;
 use noirc_driver::{CompileOptions, file_manager_with_stdlib, prepare_crate};
 use noirc_errors::CustomDiagnostic;
 use noirc_frontend::{
     elaborator::UnstableFeature,
     hir::Context,
     monomorphization::{ast::Program, monomorphize},
+    shared::Visibility,
 };
 
 mod common;
@@ -25,6 +27,36 @@ mod common;
 /// Kept low because each case runs the full frontend (parse + elaborate +
 /// monomorphize) and so is far more expensive than the other fuzz tests.
 const CI_CASES: u32 = 50;
+
+#[test]
+fn generated_main_uses_the_byte_abi() {
+    common::run_fuzz(
+        |u| {
+            let program = arb_program(u, Config::default())?;
+            let main = program.main();
+            for (_, _, name, _, visibility) in &main.parameters {
+                assert!(
+                    matches!(visibility, Visibility::Public | Visibility::Private),
+                    "generated main parameter {name} uses unsupported visibility {visibility:?}"
+                );
+            }
+            assert!(
+                matches!(main.return_visibility, Visibility::Public | Visibility::Private),
+                "generated main return uses unsupported visibility {:?}",
+                main.return_visibility
+            );
+            let abi = program_abi(&program);
+            bytes::check_abi(&abi).unwrap_or_else(|error| {
+                panic!(
+                    "generated main has an invalid byte ABI: {error}\n{}",
+                    DisplayAstAsNoir(&program)
+                )
+            });
+            Ok(())
+        },
+        CI_CASES,
+    );
+}
 
 #[test]
 fn arb_ast_roundtrip() {

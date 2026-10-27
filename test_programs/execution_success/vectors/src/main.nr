@@ -1,6 +1,8 @@
 use std::vector;
 
-fn main(x: Field, y: pub Field) {
+fn main(x: u8, y: pub u8) {
+    let x = x as Field;
+    let y = y as Field;
     let mut vector = [0; 2].as_vector();
     assert(vector[0] == 0);
     assert(vector[0] != 1);

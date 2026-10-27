@@ -1,3 +1,3 @@
-fn main(x: pub Field) -> pub Field {
+fn main(x: pub u8) -> pub u8 {
     x
 }

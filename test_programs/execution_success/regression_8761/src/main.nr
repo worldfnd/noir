@@ -1,4 +1,4 @@
-fn main() -> pub Field {
+fn main() -> pub u8 {
     let mut d: [&mut bool; 1] = [(&mut false)];
 
     for _ in 0..1 {} // Without this it compiles

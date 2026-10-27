@@ -4,10 +4,10 @@ expression: expanded_code
 ---
 struct myStruct {
     foo: u32,
-    bar: Field,
+    bar: u8,
 }
 
 fn main(y: pub myStruct) {
     assert(y.foo == 5_u32);
-    assert(y.bar == 7_Field);
+    assert(y.bar == 7_u8);
 }

@@ -24,7 +24,7 @@ In order to use the REPL debugger, first you need to install recent enough versi
 Let's debug a simple circuit:
 
 ```rust
-fn main(x : Field, y : pub Field) {
+fn main(x : u32, y : pub u32) {
     assert(x != y);
 }
 ```
@@ -38,7 +38,7 @@ You should be seeing this in your terminal:
 ```
 [main] Starting debugger
 At ~/noir-examples/recursion/circuits/main/src/main.nr:1:9
-  1 -> fn main(x : Field, y : pub Field) {
+  1 -> fn main(x : u32, y : pub u32) {
   2        assert(x != y);
   3    }
 >
@@ -130,24 +130,24 @@ We currently have no vars in context, since we are at the entry point of the pro
 ```
 > vars
 > next
-At ~/noir-examples/recursion/circuits/main/src/main.nr:1:20
-  1 -> fn main(x : Field, y : pub Field) {
+At ~/noir-examples/recursion/circuits/main/src/main.nr:1:18
+  1 -> fn main(x : u32, y : pub u32) {
   2        assert(x != y);
   3    }
 > vars
-x:Field = 0x01
+x:UnsignedInteger { width: 32 } = 1
 ```
 
 As a result of stepping, the variable `x`, whose initial value comes from the witness map, is now in context and returned by `vars`.
 
 ```
 > next
-  1    fn main(x : Field, y : pub Field) {
+  1    fn main(x : u32, y : pub u32) {
   2 ->     assert(x != y);
   3    }
 > vars
-y:Field = 0x02
-x:Field = 0x01
+y:UnsignedInteger { width: 32 } = 2
+x:UnsignedInteger { width: 32 } = 1
 ```
 
 Stepping again we can finally see both variables and their values. And now we can see that the next assertion should succeed.

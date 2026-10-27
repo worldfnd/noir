@@ -65,23 +65,28 @@ returned.
 
 ## Main function
 
-If you're writing a binary, the `main` function is the starting point of your program. You can pass all types of expressions to it, as long as they have a fixed size at compile time:
+If you're writing a binary, the `main` function is the starting point of your program. Its inputs and return value are read and written as bytes, the same on every field, so `main` takes and returns integers, `bool`, strings, and fixed-size arrays, tuples and structs of them:
 
-Valid signatures (fixed-size types):
+Valid signatures:
 
-- `fn main(x: Field)` - a single `Field`.
-- `fn main(x: [Field; 2])` - a fixed-size array whose length is known at compile time.
-- `fn main(x: (Field, bool))` - a tuple of two fixed-size elements.
+- `fn main(x: u32)` - an integer of any width from 2 to 16384 bits, signed or unsigned. On BN254, `nargo compile` and `nargo execute` lower `u8`, `u16`, `u32`, `u64`, `u128`, `i8`, `i16`, `i32` and `i64`; other widths need a backend that lowers them.
+- `fn main(x: [u8; 32])` - a fixed-size array whose length is known at compile time, such as the bytes of a hash.
+- `fn main(x: (u64, bool))` - a tuple of two fixed-size elements.
 - `fn main(x: str<5>)` - a string whose length is known at compile time.
 
-Invalid signatures (variable-size types):
+Invalid signatures:
 
-- `fn main(x: [Field])` - can't compile, has variable size.
+- `fn main(x: Field)` - a `Field` is refused, as is any type that contains one. Take an integer or bytes and convert to `Field` inside the program, for example with `Field::from_le_bytes_checked(bytes)`.
+- `fn main(x: [u32])` - can't compile, has variable size.
+- `fn main(x: [u32; 0])` - an empty array or empty string parameter is refused. They may still be returned.
+- A type marked `#[field(..)]`, or declared in a module marked `#[field(..)]`, is refused; pass its contents as integers or bytes and build it inside.
+
+The `Field` and `#[field(..)]` rules apply to `main` and contract functions only: other functions, and test and fuzz functions, may take and return `Field`.
 
 Keep in mind [tests](../tooling/tests.md) don't differentiate between `main` and any other function. The following snippet passes tests, but won't compile or prove:
 
 ```rust
-fn main(x : [Field]) {
+fn main(x : [u32]) {
     assert(x[0] == 1);
 }
 
@@ -110,11 +115,11 @@ arguments.
 Below we show how to call the `foo` function from the `main` function using a call expression:
 
 ```rust
-fn main(x : Field, y : Field) {
+fn main(x : u32, y : u32) {
     let z = foo(x);
 }
 
-fn foo(x : Field) -> Field {
+fn foo(x : u32) -> u32 {
     x + x
 }
 ```

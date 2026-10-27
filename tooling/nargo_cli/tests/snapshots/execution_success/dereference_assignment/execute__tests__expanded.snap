@@ -10,8 +10,8 @@ fn id(r: &mut Field) -> &mut Field {
     r
 }
 
-fn main(x: Field) {
-    let mut a: Field = x;
+fn main(x: u8) {
+    let mut a: Field = x as Field;
     {
         let deref_0: &mut Field = &mut a;
         *deref_0 = a + 10_Field;

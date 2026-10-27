@@ -3,12 +3,12 @@ source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
 struct Bar {
-    inner: [Field; 3],
+    inner: [u16; 3],
 }
 
 struct Foo {
-    a: Field,
-    b: [Field; 3],
+    a: u16,
+    b: [u16; 3],
     bar: Bar,
 }
 
@@ -18,53 +18,53 @@ struct FooParent {
 }
 
 fn main(mut x: [Foo; 4], y: pub u32) {
-    assert(x[y - 3_u32].a == 1_Field);
-    assert(x[y - 3_u32].b == [2_Field, 3_Field, 20_Field]);
-    assert(x[y - 2_u32].a == 4_Field);
-    assert(x[y - 2_u32].b == [5_Field, 6_Field, 21_Field]);
-    assert(x[y - 1_u32].a == 7_Field);
-    assert(x[y - 1_u32].b == [8_Field, 9_Field, 22_Field]);
-    assert(x[y].a == 10_Field);
-    assert(x[y].b == [11_Field, 12_Field, 23_Field]);
-    assert(x[y].bar.inner == [109_Field, 110_Field, 111_Field]);
+    assert(x[y - 3_u32].a == 1_u16);
+    assert(x[y - 3_u32].b == [2_u16, 3_u16, 20_u16]);
+    assert(x[y - 2_u32].a == 4_u16);
+    assert(x[y - 2_u32].b == [5_u16, 6_u16, 21_u16]);
+    assert(x[y - 1_u32].a == 7_u16);
+    assert(x[y - 1_u32].b == [8_u16, 9_u16, 22_u16]);
+    assert(x[y].a == 10_u16);
+    assert(x[y].b == [11_u16, 12_u16, 23_u16]);
+    assert(x[y].bar.inner == [109_u16, 110_u16, 111_u16]);
     if y != 2_u32 {
-        x[y].a = 50_Field;
+        x[y].a = 50_u16;
     } else {
-        x[y].a = 100_Field;
+        x[y].a = 100_u16;
     };
-    assert(x[3_u32].a == 50_Field);
+    assert(x[3_u32].a == 50_u16);
     if y == 2_u32 {
-        x[y - 1_u32].b = [50_Field, 51_Field, 52_Field];
+        x[y - 1_u32].b = [50_u16, 51_u16, 52_u16];
     } else {
-        x[y - 1_u32].b = [100_Field, 101_Field, 102_Field];
+        x[y - 1_u32].b = [100_u16, 101_u16, 102_u16];
     };
-    assert(x[2_u32].b == [100_Field, 101_Field, 102_Field]);
-    assert(x[y - 3_u32].bar.inner == [100_Field, 101_Field, 102_Field]);
-    assert(x[y - 2_u32].bar.inner == [103_Field, 104_Field, 105_Field]);
-    assert(x[y - 1_u32].bar.inner == [106_Field, 107_Field, 108_Field]);
-    assert(x[y].bar.inner == [109_Field, 110_Field, 111_Field]);
+    assert(x[2_u32].b == [100_u16, 101_u16, 102_u16]);
+    assert(x[y - 3_u32].bar.inner == [100_u16, 101_u16, 102_u16]);
+    assert(x[y - 2_u32].bar.inner == [103_u16, 104_u16, 105_u16]);
+    assert(x[y - 1_u32].bar.inner == [106_u16, 107_u16, 108_u16]);
+    assert(x[y].bar.inner == [109_u16, 110_u16, 111_u16]);
     let foo_parent_one: FooParent = FooParent { array: [0_Field, 1_Field, 2_Field], foos: x };
     let foo_parent_two: FooParent = FooParent { array: [3_Field, 4_Field, 5_Field], foos: x };
     let mut foo_parents: [FooParent; 2] = [foo_parent_one, foo_parent_two];
-    assert(foo_parents[y - 3_u32].foos[y - 3_u32].b == [2_Field, 3_Field, 20_Field]);
-    assert(foo_parents[y - 3_u32].foos[y - 2_u32].b == [5_Field, 6_Field, 21_Field]);
-    assert(foo_parents[y - 3_u32].foos[y - 1_u32].b == [100_Field, 101_Field, 102_Field]);
-    assert(foo_parents[y - 3_u32].foos[y].b == [11_Field, 12_Field, 23_Field]);
-    assert(foo_parents[y - 3_u32].foos[y].a == 50_Field);
-    assert(foo_parents[1_u32].foos[1_u32].b == [5_Field, 6_Field, 21_Field]);
+    assert(foo_parents[y - 3_u32].foos[y - 3_u32].b == [2_u16, 3_u16, 20_u16]);
+    assert(foo_parents[y - 3_u32].foos[y - 2_u32].b == [5_u16, 6_u16, 21_u16]);
+    assert(foo_parents[y - 3_u32].foos[y - 1_u32].b == [100_u16, 101_u16, 102_u16]);
+    assert(foo_parents[y - 3_u32].foos[y].b == [11_u16, 12_u16, 23_u16]);
+    assert(foo_parents[y - 3_u32].foos[y].a == 50_u16);
+    assert(foo_parents[1_u32].foos[1_u32].b == [5_u16, 6_u16, 21_u16]);
     if y == 2_u32 {
-        foo_parents[y - 2_u32].foos[y - 2_u32].b = [10_Field, 9_Field, 8_Field];
+        foo_parents[y - 2_u32].foos[y - 2_u32].b = [10_u16, 9_u16, 8_u16];
     } else {
-        foo_parents[y - 2_u32].foos[y - 2_u32].b = [20_Field, 19_Field, 18_Field];
+        foo_parents[y - 2_u32].foos[y - 2_u32].b = [20_u16, 19_u16, 18_u16];
     };
-    assert(foo_parents[1_u32].foos[1_u32].b == [20_Field, 19_Field, 18_Field]);
-    assert(foo_parents[1_u32].foos[1_u32].b[2_u32] == 18_Field);
+    assert(foo_parents[1_u32].foos[1_u32].b == [20_u16, 19_u16, 18_u16]);
+    assert(foo_parents[1_u32].foos[1_u32].b[2_u32] == 18_u16);
     if y == 3_u32 {
-        foo_parents[y - 2_u32].foos[y - 2_u32].b[y - 1_u32] = 5000_Field;
+        foo_parents[y - 2_u32].foos[y - 2_u32].b[y - 1_u32] = 5000_u16;
     } else {
-        foo_parents[y - 2_u32].foos[y - 2_u32].b[y - 1_u32] = 1000_Field;
+        foo_parents[y - 2_u32].foos[y - 2_u32].b[y - 1_u32] = 1000_u16;
     };
-    assert(foo_parents[1_u32].foos[1_u32].b[2_u32] == 5000_Field);
+    assert(foo_parents[1_u32].foos[1_u32].b[2_u32] == 5000_u16);
     foo_parents[y - 2_u32].foos[y - 3_u32].b = foo_parents[y - 2_u32].foos[y - 2_u32].b;
-    assert(foo_parents[1_u32].foos[0_u32].b == [20_Field, 19_Field, 5000_Field]);
+    assert(foo_parents[1_u32].foos[0_u32].b == [20_u16, 19_u16, 5000_u16]);
 }
