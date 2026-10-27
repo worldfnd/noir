@@ -322,7 +322,7 @@ fn error_on_returning_empty_unit_array() {
     let src = r#"
     fn main() -> pub [(); 0] {
                      ^^^^^^^ Invalid type found in the entry point to a program
-                     ~~~~~~~ Empty array is not a valid entry point type. Found: [(); 0]
+                     ~~~~~~~ Unit is not a valid entry point type
         [(); 0]
     }
     "#;
@@ -342,97 +342,53 @@ fn error_on_returning_non_empty_unit_array() {
 }
 
 #[test]
-fn error_on_returning_empty_array() {
+fn no_error_on_returning_empty_array() {
     let src = r#"
     fn main() -> pub [u32; 0] {
-                     ^^^^^^^^ Invalid type found in the entry point to a program
-                     ~~~~~~~~ Empty array is not a valid entry point type. Found: [u32; 0]
         []
-    }
-    "#;
-    check_errors(src);
-}
-
-#[test]
-fn error_on_returning_empty_array_with_empty_nested_array() {
-    let src = r#"
-    fn main() -> pub [[u32; 0]; 0] {
-                     ^^^^^^^^^^^^^ Invalid type found in the entry point to a program
-                     ~~~~~~~~~~~~~ Empty array is not a valid entry point type. Found: [[u32; 0]; 0]
-        []
-    }
-    "#;
-    check_errors(src);
-}
-
-#[test]
-fn error_on_returning_non_empty_array_with_empty_nested_array() {
-    let src = r#"
-    fn main() -> pub [[u32; 0]; 1] {
-                     ^^^^^^^^^^^^^ Invalid type found in the entry point to a program
-                     ~~~~~~~~~~~~~ Empty array is not a valid entry point type. Found: [u32; 0]
-        [[]]
-    }
-    "#;
-    check_errors(src);
-}
-
-#[test]
-fn error_on_returning_empty_array_with_tuple_of_empty_arrays() {
-    let src = r#"
-    fn main() -> pub [([u32; 0], [u32; 0]); 0] {
-                     ^^^^^^^^^^^^^^^^^^^^^^^^^ Invalid type found in the entry point to a program
-                     ~~~~~~~~~~~~~~~~~~~~~~~~~ Empty array is not a valid entry point type. Found: [([u32; 0], [u32; 0]); 0]
-        []
-    }
-    "#;
-    check_errors(src);
-}
-
-/// A test function is not an entry point of a program, so its return may still be empty.
-#[test]
-fn no_error_on_returning_empty_values_from_test_function() {
-    let src = r#"
-    fn main() {}
-
-    #[test]
-    fn empty_array() -> [u32; 0] {
-        []
-    }
-
-    #[test]
-    fn empty_array_with_empty_nested_array() -> [[u32; 0]; 0] {
-        []
-    }
-
-    #[test]
-    fn non_empty_array_with_empty_nested_array() -> [[u32; 0]; 1] {
-        [[]]
-    }
-
-    #[test]
-    fn empty_array_with_tuple_of_empty_arrays() -> [([u32; 0], [u32; 0]); 0] {
-        []
-    }
-
-    #[test]
-    fn empty_string() -> str<0> {
-        ""
     }
     "#;
     assert_no_errors(src);
 }
 
 #[test]
-fn error_on_returning_string_with_zero_length() {
+fn no_error_on_returning_empty_array_with_empty_nested_array() {
+    let src = r#"
+    fn main() -> pub [[u32; 0]; 0] {
+        []
+    }
+    "#;
+    assert_no_errors(src);
+}
+
+#[test]
+fn no_error_on_returning_non_empty_array_with_empty_nested_array() {
+    let src = r#"
+    fn main() -> pub [[u32; 0]; 1] {
+        [[]]
+    }
+    "#;
+    assert_no_errors(src);
+}
+
+#[test]
+fn no_error_on_returning_empty_array_with_tuple_of_empty_arrays() {
+    let src = r#"
+    fn main() -> pub [([u32; 0], [u32; 0]); 0] {
+        []
+    }
+    "#;
+    assert_no_errors(src);
+}
+
+#[test]
+fn no_error_on_returning_string_with_zero_length() {
     let src = r#"
     fn main() -> pub str<0> {
-                     ^^^^^^ Invalid type found in the entry point to a program
-                     ~~~~~~ Empty string is not a valid entry point type. Found: str<0>
         ""
     }
     "#;
-    check_errors(src);
+    assert_no_errors(src);
 }
 
 #[test]
@@ -730,36 +686,24 @@ fn error_on_unbound_associated_type_in_main() {
 }
 
 #[test]
-fn error_on_empty_struct_in_main() {
+fn no_error_on_empty_struct_in_main() {
     let src = r#"
     struct Empty {}
 
-    fn main(_x: Empty) -> pub Empty {
-                ^^^^^ Invalid type found in the entry point to a program
-                ~~~~~ A struct with no fields is not a valid entry point type. Found: Empty
-                              ^^^^^ Invalid type found in the entry point to a program
-                              ~~~~~ A struct with no fields is not a valid entry point type. Found: Empty
+    fn main(_x: Empty, _a: A) -> pub Empty {
         Empty {}
     }
-    "#;
-    check_errors(src);
-}
-
-/// `main` may name a struct whose fields use a struct defined after it: the fields are known by
-/// the time the entry point is checked, so the struct is not mistaken for an empty one.
-#[test]
-fn no_error_on_struct_with_later_defined_field_type_in_main() {
-    let src = r#"
-    fn main(_a: A) {}
 
     struct A { b: B }
-    struct B { x: u32 }
+    struct B {}
     "#;
     assert_no_errors(src);
 }
 
+/// `main` may name a struct whose fields use a struct defined after it: those fields are resolved
+/// before the entry point is checked, so a `Field` inside them is still found.
 #[test]
-fn error_on_struct_with_later_defined_empty_field_type_in_main() {
+fn error_on_field_in_later_defined_struct_in_main() {
     let src = r#"
     fn main(_a: A) {}
                 ^ Invalid type found in the entry point to a program
@@ -768,8 +712,10 @@ fn error_on_struct_with_later_defined_empty_field_type_in_main() {
     struct A { b: B }
            ~ Struct A has an invalid entry point type
                ~ Field b has an invalid entry point type
-               ~ A struct with no fields is not a valid entry point type. Found: B
-    struct B {}
+    struct B { x: Field }
+           ~ Struct B has an invalid entry point type
+               ~ Field x has an invalid entry point type
+               ~ Field is not a valid entry point type. Found: Field
     "#;
     check_errors(src);
 }
@@ -843,8 +789,6 @@ fn error_on_empty_string_in_call_data_param() {
                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Invalid type found in the entry point to a program
                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Empty string is not a valid entry point type. Found: str<0>
     ) -> pub [(bool, str<3>, str<0>, u32); 0] {
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Invalid type found in the entry point to a program
-             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Empty array is not a valid entry point type. Found: [(bool, str<3>, str<0>, u32); 0]
         []
     }
     "#;
@@ -856,7 +800,7 @@ fn error_on_empty_array_param_with_call_data() {
     let src = r#"
     fn main(_empty: [u32; 0], value_1: u32, value_2: call_data(0) u32) {
                     ^^^^^^^^ Invalid type found in the entry point to a program
-                    ~~~~~~~~ Empty array is not a valid entry point type. Found: [u32; 0]
+                    ~~~~~~~~ Invalid entry point type: [u32; 0]
                                                      ^^^^^^^^^^^^ call_data(0) is not supported
                                                      ~~~~~~~~~~~~ unsupported call_data(0)
         assert_eq(value_1 + 1, value_2);
@@ -871,9 +815,7 @@ fn error_on_empty_nested_array_param() {
     let src = r#"
     fn main(a: [[u32; 0]; 1], b: bool) -> pub [u32; 0] {
                ^^^^^^^^^^^^^ Invalid type found in the entry point to a program
-               ~~~~~~~~~~~~~ Empty array is not a valid entry point type. Found: [u32; 0]
-                                              ^^^^^^^^ Invalid type found in the entry point to a program
-                                              ~~~~~~~~ Empty array is not a valid entry point type. Found: [u32; 0]
+               ~~~~~~~~~~~~~ Invalid entry point type: [u32; 0]
         if (b) {
             a[0]
         } else {
@@ -889,7 +831,7 @@ fn error_on_empty_composite_array_param_and_out_of_bounds_index() {
     let src = r#"
     fn main(empty_input: [(u32, u32); 0]) {
                          ^^^^^^^^^^^^^^^ Invalid type found in the entry point to a program
-                         ~~~~~~~~~~~~~~~ Empty array is not a valid entry point type. Found: [(u32, u32); 0]
+                         ~~~~~~~~~~~~~~~ Invalid entry point type: [(u32, u32); 0]
         let empty_array: [(Field, Field); 0] = [];
         let _ = empty_input[0];
                             ^ Index 0 is out of bounds for this array of length 0

@@ -1,6 +1,0 @@
-[package]
-name = "empty_return"
-type = "bin"
-authors = [""]
-
-[dependencies]

@@ -173,6 +173,24 @@ fn rejects_a_return_at_the_byte_limit() {
     check_monomorphization_error(src);
 }
 
+/// An empty value takes no bytes but counts as one against the limit, as in `noirc_abi::bytes`, so
+/// that a few bytes cannot declare unboundedly many values.
+#[test]
+fn empty_values_count_as_one_byte_against_the_byte_limit() {
+    // 65535 * 65537 == 2^32 - 1
+    let src = "unconstrained fn main() -> pub [[[u8; 0]; 65535]; 65537] { [[[]; 65535]; 65537] }";
+    let result = get_monomorphized(src);
+    assert!(result.is_ok(), "{result:?}");
+
+    let src = r#"
+    unconstrained fn main() -> pub [[[u8; 0]; 65536]; 65536] {
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^ The return value takes 4294967296 bytes, which reaches the limit of 4294967296
+        [[[]; 65536]; 65536]
+    }
+    "#;
+    check_monomorphization_error(src);
+}
+
 /// The parameters and the return are separate byte blobs, each under its own limit.
 #[test]
 fn inputs_and_return_are_limited_separately() {

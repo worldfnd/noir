@@ -221,7 +221,9 @@ fn entry_point_field_count_saturating(typ: &ast::Type) -> u64 {
     }
 }
 
-/// Number of bytes `typ` takes in an entry point's byte encoding (see [`ast::MAX_INPUT_BYTES`]).
+/// Number of bytes `typ` takes in an entry point's byte encoding, as counted against
+/// [`ast::MAX_INPUT_BYTES`]: an empty array, string or struct takes none but counts as one, as in
+/// `noirc_abi::bytes`.
 ///
 /// Computed with saturating `u64` arithmetic, like [`entry_point_field_count_saturating`]. A
 /// `Field` and types that cannot appear at an entry point contribute nothing; they are rejected
@@ -230,6 +232,8 @@ fn entry_point_byte_size_saturating(typ: &ast::Type) -> u64 {
     match typ {
         ast::Type::Integer(_, bits) => u64::from(bits.div_ceil(8)),
         ast::Type::Bool => 1,
+        ast::Type::Array(0, _) | ast::Type::String(0) => 1,
+        ast::Type::Tuple(fields) if fields.is_empty() => 1,
         ast::Type::Array(length, element) => {
             u64::from(*length).saturating_mul(entry_point_byte_size_saturating(element))
         }

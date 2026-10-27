@@ -6,11 +6,10 @@ use crate::{NamedGeneric, Type, TypeBinding, ast::Ident, recursion::TypeRecursio
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ProgramBoundary {
     /// `main` or a contract function. Its inputs and return cross as bytes, the same on every
-    /// field, so they carry no `Field`, no empty value, and no type that is unbound or
-    /// field-specific.
+    /// field, so they carry no `Field` and no type that is unbound or field-specific.
     EntryPoint,
-    /// A test or fuzz function, the return of a `#[fold]` or `#[no_predicates]` function, or an
-    /// `#[abi(tag)]` global: any sized type, `Field` included.
+    /// A test or fuzz function, the return of a `#[no_predicates]` function, or an `#[abi(tag)]`
+    /// global: any sized type, `Field` included.
     Harness,
 }
 
@@ -35,8 +34,6 @@ pub enum InvalidType {
     /// A type that is still unbound, so it has no size at the boundary, as it was spelled when it
     /// was checked: inference may bind it later, and the diagnostic must not show that binding.
     Unbound(String),
-    /// A struct with no fields.
-    EmptyStruct(Type),
     /// A struct, enum or alias marked `#[field(..)]`, itself or through an enclosing module.
     FieldGated {
         typ: Type,
@@ -124,12 +121,6 @@ impl InvalidType {
                     location,
                 );
             }
-            InvalidType::EmptyStruct(typ) => {
-                diagnostic.add_secondary(
-                    format!("A struct with no fields is not a valid {context} type. Found: {typ}"),
-                    location,
-                );
-            }
             InvalidType::FieldGated { typ, gate } => {
                 diagnostic.add_secondary(
                     format!("A field-specific type is not a valid {context} type. Found: {typ}"),
@@ -170,11 +161,11 @@ impl InvalidType {
 impl Type {
     /// Returns this type, or a nested one, that cannot cross `boundary`.
     ///
-    /// Every boundary refuses unsized types, such as vectors and named generics, and types that
-    /// make no sense as a program input, such as references. An [`ProgramBoundary::EntryPoint`]
-    /// also refuses `Field`, unbound types, empty values (outputs included, except `()`, which
-    /// means "no return") and field-specific types. Integers of any width cross; the backend
-    /// decides which widths it lowers.
+    /// Every boundary refuses unsized types, such as vectors and named generics, types that make
+    /// no sense as a program input, such as references, and zero-length arrays and strings as
+    /// inputs. An [`ProgramBoundary::EntryPoint`] also refuses `Field`, unbound types and
+    /// field-specific types. Integers of any width cross; the backend decides which widths it
+    /// lowers.
     ///
     /// This function should match the same check done in `create_value_from_type` in `acir_gen`.
     /// If this function does not catch a case where a type should be valid, it will later lead to a
@@ -188,7 +179,7 @@ impl Type {
     ) -> Option<InvalidType> {
         fn helper(
             this: &Type,
-            allow_empty: bool,
+            allow_empty_arrays: bool,
             allow_unit: bool,
             boundary: ProgramBoundary,
             mut type_recursion_context: TypeRecursionContext,
@@ -221,9 +212,13 @@ impl Type {
                 | Type::Vector(_)
                 | Type::TraitAsType(..) => Some(InvalidType::Primitive(this.clone())),
 
-                Type::CheckedCast { to, .. } => {
-                    helper(to, allow_empty, allow_unit, boundary, type_recursion_context.recur())
-                }
+                Type::CheckedCast { to, .. } => helper(
+                    to,
+                    allow_empty_arrays,
+                    allow_unit,
+                    boundary,
+                    type_recursion_context.recur(),
+                ),
 
                 Type::Alias(alias, generics) => {
                     let alias = alias.borrow();
@@ -233,7 +228,7 @@ impl Type {
                     if type_recursion_context.insert_alias(alias.id, generics.clone()) {
                         if let Some(invalid_type) = helper(
                             &alias.get_type(generics),
-                            allow_empty,
+                            allow_empty_arrays,
                             allow_unit,
                             boundary,
                             type_recursion_context.recur(),
@@ -251,38 +246,46 @@ impl Type {
                     }
                 }
 
-                Type::Array(element, length) => match length.evaluate_to_u32(Location::dummy()) {
-                    Ok(0) if !allow_empty => Some(InvalidType::EmptyArray(this.clone())),
-                    Ok(_) => helper(
-                        length,
-                        allow_empty,
-                        false,
-                        boundary,
-                        type_recursion_context.clone().recur(),
-                    )
-                    .or_else(|| {
+                Type::Array(element, length) => {
+                    if !length_is_valid_for_entry_point(length, allow_empty_arrays) {
+                        Some(InvalidType::Primitive(this.clone()))
+                    } else {
                         helper(
-                            element,
-                            allow_empty,
+                            length,
+                            allow_empty_arrays,
+                            false,
+                            boundary,
+                            type_recursion_context.clone().recur(),
+                        )
+                        .or_else(|| {
+                            helper(
+                                element,
+                                allow_empty_arrays,
+                                false,
+                                boundary,
+                                type_recursion_context.recur(),
+                            )
+                        })
+                    }
+                }
+                Type::String(length) => {
+                    if !length_is_valid_for_entry_point(length, allow_empty_arrays) {
+                        Some(InvalidType::EmptyString(this.clone()))
+                    } else {
+                        helper(
+                            length,
+                            allow_empty_arrays,
                             false,
                             boundary,
                             type_recursion_context.recur(),
                         )
-                    }),
-                    Err(_) => Some(InvalidType::Primitive(this.clone())),
-                },
-                Type::String(length) => {
-                    if !length_is_valid_for_entry_point(length, allow_empty) {
-                        Some(InvalidType::EmptyString(this.clone()))
-                    } else {
-                        helper(length, allow_empty, false, boundary, type_recursion_context.recur())
                     }
                 }
                 Type::Tuple(elements) => {
                     for element in elements {
                         if let Some(invalid_type) = helper(
                             element,
-                            allow_empty,
+                            allow_empty_arrays,
                             false,
                             boundary,
                             type_recursion_context.clone().recur(),
@@ -302,13 +305,10 @@ impl Type {
                         let definition = definition.borrow();
 
                         if let Some(fields) = definition.get_fields(generics) {
-                            if entry_point && !allow_empty && fields.is_empty() {
-                                return Some(InvalidType::EmptyStruct(this.clone()));
-                            }
                             for (field_name, field, _) in fields {
                                 if let Some(invalid_type) = helper(
                                     &field,
-                                    allow_empty,
+                                    allow_empty_arrays,
                                     false,
                                     boundary,
                                     type_recursion_context.clone().recur(),
@@ -325,9 +325,6 @@ impl Type {
                                 }
                             }
                             None
-                        } else if definition.is_struct() {
-                            // A struct whose fields aren't resolved yet is judged once they are.
-                            None
                         } else {
                             // Arbitrarily disallow enums from program input, though we may support them later
                             Some(InvalidType::Enum(this.clone()))
@@ -338,20 +335,20 @@ impl Type {
                 }
                 Type::InfixExpr(lhs, _, rhs, _) => helper(
                     lhs,
-                    allow_empty,
+                    allow_empty_arrays,
                     false,
                     boundary,
                     type_recursion_context.clone().recur(),
                 )
                 .or_else(|| {
-                    helper(rhs, allow_empty, false, boundary, type_recursion_context.recur())
+                    helper(rhs, allow_empty_arrays, false, boundary, type_recursion_context.recur())
                 }),
                 Type::TypeVariable(type_var)
                 | Type::NamedGeneric(NamedGeneric { type_var, .. }) => {
                     if let TypeBinding::Bound(typ) = &*type_var.borrow() {
                         helper(
                             typ,
-                            allow_empty,
+                            allow_empty_arrays,
                             allow_unit,
                             boundary,
                             type_recursion_context.recur(),
@@ -368,9 +365,8 @@ impl Type {
             }
         }
 
-        // A harness may return an empty value; an entry point takes and returns none.
-        let allow_empty = output && boundary == ProgramBoundary::Harness;
-        helper(self, allow_empty, output, boundary, TypeRecursionContext::default())
+        // Zero-length arrays and strings may be returned, but not taken.
+        helper(self, output, output, boundary, TypeRecursionContext::default())
     }
 
     /// Returns this type, or a nested one, if this type can be used as a parameter to an ACIR

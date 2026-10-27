@@ -22,7 +22,7 @@ use crate::shared::Signedness;
 use crate::validity::InvalidType;
 
 /// The note on an invalid entry point type that has no note of its own.
-pub(crate) const ENTRY_POINT_TYPES_NOTE: &str = "Note: vectors, references, or any type containing them may not be used in main, contract functions, test functions, fuzz functions or foldable functions. Neither may empty arrays or empty strings, except in the return of a test, fuzz or foldable function.";
+pub(crate) const ENTRY_POINT_TYPES_NOTE: &str = "Note: vectors, references, empty arrays, empty strings, or any type containing them may not be used in main, contract functions, test functions, fuzz functions or foldable functions.";
 
 /// Rust also only shows 3 maximum, even for short patterns.
 pub const MAX_MISSING_CASES: usize = 3;
@@ -784,9 +784,6 @@ impl<'a> From<&'a TypeCheckError> for Diagnostic {
                     }
                     InvalidType::Unbound(_) => {
                         "Note: every type that main or a contract function takes or returns must be known before the program runs. Name the type instead of leaving it to inference.".to_string()
-                    }
-                    InvalidType::EmptyStruct(_) => {
-                        "Note: main and contract functions take and return no empty values. Remove the parameter, or return `()` for no return value.".to_string()
                     }
                     InvalidType::FieldGated { .. } => {
                         "Note: main and contract functions take and return only types that every field compiles, so a type marked `#[field(..)]`, itself or through an enclosing module, cannot cross them.".to_string()

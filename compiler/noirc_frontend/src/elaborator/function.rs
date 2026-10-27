@@ -652,8 +652,8 @@ impl Elaborator<'_> {
     }
 
     /// Checks that `typ` can cross `boundary` (see [`Type::program_validity`]): only sized types
-    /// cross any boundary, and an entry point also refuses `Field`, empty values, and unbound or
-    /// field-specific types. The caller defines any deferred data types in `typ` first, so their
+    /// cross any boundary, and an entry point also refuses `Field` and unbound or field-specific
+    /// types. The caller defines any deferred data types in `typ` first, so their
     /// fields are known.
     fn check_if_type_is_valid_for_program(
         typ: &Type,
