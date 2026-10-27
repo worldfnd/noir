@@ -622,12 +622,11 @@ fn regression_10259() {
         // Safety: testing
         unsafe {
             foo(x)
-            ^^^^^^ Vector `[Field]` cannot be returned from an unconstrained runtime to a constrained runtime
+            ^^^^^^ Vector `[u32]` cannot be returned from an unconstrained runtime to a constrained runtime
         }
     }
 
     fn main(x: u32) {
-        let x = x as Field;
         let xs = @[x, x + 1, x + 2];
         let _ = bar(xs);
     }

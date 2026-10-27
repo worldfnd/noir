@@ -104,7 +104,7 @@ pub(super) fn interpret_expect_error(src: &str) -> InterpreterError {
 
 #[test]
 fn interpreter_works() {
-    let program = "comptime fn main() -> pub u32 { let three: Field = 3; three as u32 }";
+    let program = "comptime fn main() -> pub u32 { 3 }";
     let result = interpret(program);
     assert_eq!(result, Value::u32(3));
 }

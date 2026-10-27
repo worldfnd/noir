@@ -550,15 +550,14 @@ fn brillig_mut_ref_from_acir() {
 #[test]
 fn brillig_complex_ref_from_acir() {
     let src = r#"
-    unconstrained fn read_double_ref(r: &&Field) -> Field {
+    unconstrained fn read_double_ref(r: &&u32) -> u32 {
         **r
     }
 
     fn main(x: pub u32) {
-        let x = x as Field;
         // Safety:
         let result = unsafe { read_double_ref(&&x) };
-                                              ^^^ Cannot pass `&&Field` across the constrained/unconstrained boundary: only a direct immutable reference `&T` to a reference-free type is supported
+                                              ^^^ Cannot pass `&&u32` across the constrained/unconstrained boundary: only a direct immutable reference `&T` to a reference-free type is supported
         assert_eq(result, x);
     }
     "#;

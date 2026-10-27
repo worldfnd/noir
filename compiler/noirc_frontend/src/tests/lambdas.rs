@@ -613,15 +613,15 @@ fn nested_lambda_does_not_underflow_on_comptime_local_capture() {
 #[test]
 fn global_captured_closure_cannot_be_inlined() {
     let src = r#"
-    global ADD_ONE: fn[(Field,)](Field) -> Field = {
-           ^^^^^^^ Cannot inline values of type `fn[(Field,)](Field) -> Field` into this position
+    global ADD_ONE: fn[(u32,)](u32) -> u32 = {
+           ^^^^^^^ Cannot inline values of type `fn[(u32,)](u32) -> u32` into this position
            ~~~~~~~ Cannot inline value `(closure)`
         let offset = 1;
-        |x: Field| x + offset
+        |x: u32| x + offset
     };
 
     fn main(x: u32) -> pub u32 {
-        ADD_ONE(x as Field) as u32
+        ADD_ONE(x)
     }
     "#;
     check_monomorphization_error(src);
@@ -632,15 +632,15 @@ fn macro_unquote_captured_closure_cannot_be_inlined() {
     let src = r#"
     comptime fn make_adder() -> Quoted {
         let offset = 1;
-        let f = |x: Field| x + offset;
+        let f = |x: u32| x + offset;
         quote { $f }
-                 ^ Cannot inline values of type `fn[(Field,)](Field) -> Field` into this position
+                 ^ Cannot inline values of type `fn[(u32,)](u32) -> u32` into this position
                  ~ Cannot inline value `(closure)`
     }
 
     fn main(x: u32) -> pub u32 {
         let f = make_adder!();
-        f(x as Field) as u32
+        f(x)
     }
     "#;
     check_errors(src);

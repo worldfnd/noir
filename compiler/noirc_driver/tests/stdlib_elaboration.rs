@@ -257,7 +257,7 @@ fn generic_builtins_leave_the_stdlib_compiling_under_every_field() {
 
 #[test]
 fn bn254_crypto_is_gated_by_the_configured_field() {
-    let source = "fn main(x: u32) -> pub bool { std::hash::pedersen_hash([x as Field]) != 0 }";
+    let source = "fn main() { let _ = std::hash::pedersen_hash([1]); }";
     for field in FieldId::ALL {
         let errors = elaborate(source, field);
         if field == FieldId::Bn254 {

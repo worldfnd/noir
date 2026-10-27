@@ -304,14 +304,13 @@ fn type_alias_to_numeric_as_generic() {
 
     pub struct Foo<T, let N: u32> {
         a: T,
-        b: [Field; N],
+        b: [u32; N],
     }
     fn main(x: u32) {
-        let x = x as Field;
         let a = foo::<4>(x);
         assert(a.a == x);
     }
-    fn foo<let N:u32>(x: Field) -> Foo<Field, Double<N>> {
+    fn foo<let N:u32>(x: u32) -> Foo<u32, Double<N>> {
         Foo {
             a: x,
             b: [1; Double::<N>]

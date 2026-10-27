@@ -100,11 +100,11 @@ fn dynamic_custom_error_type_is_preserved() {
     // selector is genuinely emitted and must remain in the ABI.
     let source = r#"
     struct MyError {
-        code: Field,
+        code: u32,
     }
 
     fn main(x: pub u32) {
-        assert(x == 0, MyError { code: x as Field });
+        assert(x == 0, MyError { code: x });
     }
     "#;
 

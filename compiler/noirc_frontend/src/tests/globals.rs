@@ -543,15 +543,14 @@ fn comptime_global_used_in_runtime_code() {
     let src = r#"
     fn bar() {}
 
-    unconstrained fn baz(x: Field) {
+    unconstrained fn baz(x: u32) {
         assert_eq(x, 5);
         bar()
     }
 
-    pub comptime global foo_global: fn(Field) = |x: Field| baz(x);
+    pub comptime global foo_global: fn(u32) = |x: u32| baz(x);
 
     fn main(x: u32) {
-        let x = x as Field;
         foo_global(x);
         ^^^^^^^^^^ Comptime global `foo_global` used in non-comptime code
         ~~~~~~~~~~ Consider using a comptime function or block
@@ -579,17 +578,16 @@ fn comptime_global_closure_cannot_be_inlined_into_runtime() {
     let src = r#"
     fn bar() {}
 
-    unconstrained fn baz(x: Field) {
+    unconstrained fn baz(x: u32) {
         assert_eq(x, 5);
         bar()
     }
 
-    pub comptime global foo_global: fn(Field) = |x: Field| baz(x);
+    pub comptime global foo_global: fn(u32) = |x: u32| baz(x);
 
     fn main(x: u32) {
-        let x = x as Field;
         let _ = comptime { foo_global }(x);
-                ^^^^^^^^^^^^^^^^^^^^^^^ Cannot inline values of type `fn(Field) -> ()` into this position
+                ^^^^^^^^^^^^^^^^^^^^^^^ Cannot inline values of type `fn(u32) -> ()` into this position
                 ~~~~~~~~~~~~~~~~~~~~~~~ Cannot inline value `(closure)`
     }
     "#;

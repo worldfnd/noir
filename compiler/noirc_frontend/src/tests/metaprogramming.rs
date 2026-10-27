@@ -68,6 +68,31 @@ fn error_on_fresh_type_variable_spliced_into_main() {
     check_errors_with_stdlib(src, [stdlib]);
 }
 
+/// An attribute that reads `main`'s parameters resolves its signature before the program's struct
+/// fields are resolved, so the entry point check resolves them itself and still finds a `Field`.
+#[test]
+fn error_on_field_in_struct_resolved_early_by_an_attribute_on_main() {
+    let src = r#"
+    #[inspect]
+    fn main(_a: A) {}
+                ^ Invalid type found in the entry point to a program
+                ~ This type has an invalid entry point type inside it
+
+    comptime fn inspect(f: FunctionDefinition) {
+        let _ = f.parameters();
+    }
+
+    struct A { b: B }
+           ~ Struct A has an invalid entry point type
+               ~ Field b has an invalid entry point type
+    struct B { x: Field }
+           ~ Struct B has an invalid entry point type
+               ~ Field x has an invalid entry point type
+               ~ Field is not a valid entry point type. Found: Field
+    "#;
+    check_errors_with_stdlib(src, [META_API_STDLIB]);
+}
+
 #[test]
 fn comptime_type_in_runtime_code() {
     let source = "
@@ -3150,13 +3175,13 @@ fn qualified_self_assoc_in_macro_inside_comptime_block_inside_impl_method() {
 fn resolve_does_not_let_comptime_local_escape_into_runtime() {
     let src = r#"
     comptime fn emit(_f: FunctionDefinition) -> Quoted {
-        let secret = 42;
+        let secret: u32 = 42;
         let _ = secret;
         let typed = quote { secret }.as_expr().unwrap().resolve(Option::none());
                             ^^^^^^ Comptime variable `secret` cannot be used in runtime code
                             ~~~~~~ `secret` was resolved in a comptime scope that is no longer in scope here
         quote {
-            fn generated() -> Field {
+            fn generated() -> u32 {
                 $typed
             }
         }
@@ -3165,7 +3190,7 @@ fn resolve_does_not_let_comptime_local_escape_into_runtime() {
     #[emit]
     ~~~~~~~ While running this function attribute
     fn main() -> pub u32 {
-        generated() as u32
+        generated()
     }
     "#;
     check_errors_with_stdlib(src, [META_API_STDLIB]);
