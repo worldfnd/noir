@@ -31,5 +31,5 @@ fn main(pair: (u8, u8), x: [(u8, u8, u8); 2], struct_pair: (Foo, Bar)) -> pub (u
     assert(u == pair.0 + 1);
     assert(v == pair.0);
 
-    (u, v)
+    (u, v as u8)
 }

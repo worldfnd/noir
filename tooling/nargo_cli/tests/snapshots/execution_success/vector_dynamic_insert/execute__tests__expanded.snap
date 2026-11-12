@@ -3,33 +3,32 @@ source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
 fn main(x: u32, array: [u8; 5]) {
-    let array: [Field; 5] = array.map(|v: u8| -> Field { v as Field });
     insert(x, array);
     insert_dynamic_array(x, array);
 }
 
-fn insert(x: u32, array: [Field; 5]) {
-    let mut vector: [Field] = array.as_vector();
+fn insert(x: u32, array: [u8; 5]) {
+    let mut vector: [u8] = array.as_vector();
     assert(x == 5_u32);
-    vector = vector.insert(x - 2_u32, 10_Field);
+    vector = vector.insert(x - 2_u32, 10_u8);
     assert(vector.len() == 6_u32);
-    let expected: [Field] = [1_Field, 2_Field, 3_Field, 10_Field, 4_Field, 5_Field].as_vector();
+    let expected: [u8] = [1_u8, 2_u8, 3_u8, 10_u8, 4_u8, 5_u8].as_vector();
     for i in 0_u32..6_u32 {
         assert(vector[i] == expected[i]);
     }
 }
 
-fn insert_dynamic_array(x: u32, array: [Field; 5]) {
-    let mut value_to_insert: [Field; 5] = array;
-    value_to_insert[x - 1_u32] = 10_Field;
-    let mut vector: [[Field; 5]] = [array, array, array].as_vector();
+fn insert_dynamic_array(x: u32, array: [u8; 5]) {
+    let mut value_to_insert: [u8; 5] = array;
+    value_to_insert[x - 1_u32] = 10_u8;
+    let mut vector: [[u8; 5]] = [array, array, array].as_vector();
     vector = vector.insert(x - 3_u32, value_to_insert);
     assert(vector.len() == 4_u32);
-    let expected: [[Field; 5]] = [
-        [1_Field, 2_Field, 3_Field, 4_Field, 5_Field],
-        [1_Field, 2_Field, 3_Field, 4_Field, 5_Field],
-        [1_Field, 2_Field, 3_Field, 4_Field, 10_Field],
-        [1_Field, 2_Field, 3_Field, 4_Field, 5_Field],
+    let expected: [[u8; 5]] = [
+        [1_u8, 2_u8, 3_u8, 4_u8, 5_u8],
+        [1_u8, 2_u8, 3_u8, 4_u8, 5_u8],
+        [1_u8, 2_u8, 3_u8, 4_u8, 10_u8],
+        [1_u8, 2_u8, 3_u8, 4_u8, 5_u8],
     ]
         .as_vector();
     for i in 0_u32..3_u32 {

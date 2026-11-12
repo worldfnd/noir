@@ -1,10 +1,9 @@
 fn main(x: u32, array: [u8; 5]) {
-    let array = array.map(|v| v as Field);
     insert(x, array);
     insert_dynamic_array(x, array);
 }
 
-fn insert(x: u32, array: [Field; 5]) {
+fn insert(x: u32, array: [u8; 5]) {
     let mut vector = array.as_vector();
 
     assert_eq(x, 5);
@@ -16,7 +15,7 @@ fn insert(x: u32, array: [Field; 5]) {
     }
 }
 
-fn insert_dynamic_array(x: u32, array: [Field; 5]) {
+fn insert_dynamic_array(x: u32, array: [u8; 5]) {
     let mut value_to_insert = array;
     value_to_insert[x - 1] = 10;
     let mut vector = [array, array, array].as_vector();

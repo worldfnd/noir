@@ -2,5 +2,5 @@
 //
 // The features being tested is comparison
 fn main(x: u8, y: u8) {
-    assert(x < y);
+    assert(x as u32 < y as u32);
 }

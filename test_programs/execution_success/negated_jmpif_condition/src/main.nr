@@ -1,4 +1,4 @@
-fn main(x: u8) {
+fn main(mut x: u8) {
     let mut q = 0;
 
     if x != 10 {

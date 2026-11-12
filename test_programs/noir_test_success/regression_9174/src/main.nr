@@ -11,7 +11,7 @@ fn main(a: bool, b: bool, c: u32) -> pub (u32, u32) {
                 func_1_proxy(
                     if a {
                         if b {
-                            func_1_proxy(0)
+                            func_1_proxy(0) as u32
                         } else {
                             766482358_u32
                         }
