@@ -400,10 +400,7 @@ impl Elaborator<'_> {
         if !func.attributes().has_contract_library_method() {
             let output = true;
             let boundary = Self::program_boundary(is_entry_point, func.is_test_or_fuzz());
-            if boundary.is_some() {
-                self.define_deferred_data_types_in(&return_type);
-            }
-            if let Err(err) = Self::check_if_type_is_valid_for_program(
+            if let Err(err) = self.check_if_type_is_valid_for_program(
                 &return_type,
                 boundary,
                 func.has_inline_attribute(),
@@ -600,10 +597,7 @@ impl Elaborator<'_> {
 
             let output = false;
             let boundary = Self::program_boundary(is_entry_point, is_test_or_fuzz);
-            if boundary.is_some() {
-                self.define_deferred_data_types_in(&typ);
-            }
-            if let Err(err) = Self::check_if_type_is_valid_for_program(
+            if let Err(err) = self.check_if_type_is_valid_for_program(
                 &typ,
                 boundary,
                 has_inline_attribute,
@@ -680,19 +674,20 @@ impl Elaborator<'_> {
 
     /// Checks that `typ` can cross `boundary` (see [`Type::program_validity`]): only sized types
     /// cross any boundary, and an entry point also refuses `Field` and unbound or field-specific
-    /// types. The caller defines any deferred data types in `typ` first, so their
-    /// fields are known.
+    /// types. Any deferred data types in `typ` are defined first, so their fields are known.
     fn check_if_type_is_valid_for_program(
+        &mut self,
         typ: &Type,
         boundary: Option<ProgramBoundary>,
         has_inline_attribute: bool,
         output: bool,
         location: Location,
     ) -> Result<(), TypeCheckError> {
-        if let Some(boundary) = boundary
-            && let Some(invalid_type) = typ.program_validity(output, boundary)
-        {
-            return Err(TypeCheckError::InvalidTypeForEntryPoint { invalid_type, location });
+        if let Some(boundary) = boundary {
+            self.define_deferred_data_types_in(typ);
+            if let Some(invalid_type) = typ.program_validity(output, boundary) {
+                return Err(TypeCheckError::InvalidTypeForEntryPoint { invalid_type, location });
+            }
         }
 
         if has_inline_attribute

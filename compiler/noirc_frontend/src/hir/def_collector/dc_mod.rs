@@ -1809,14 +1809,9 @@ pub(crate) fn field_gate(
             .find(|attribute| matches!(attribute.kind, SecondaryAttributeKind::Field(_)))?;
         Some(attribute.location)
     };
-    let mut module = Some(module);
     gate(attributes).or_else(|| {
-        std::iter::from_fn(|| {
-            let data = &def_map[module?];
-            module = data.parent;
-            Some(data)
-        })
-        .find_map(|data| gate(&data.attributes))
+        std::iter::successors(Some(module), |module| def_map[*module].parent)
+            .find_map(|module| gate(&def_map[module].attributes))
     })
 }
 
