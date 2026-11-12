@@ -79,6 +79,7 @@ Invalid signatures:
 - `fn main(x: Field)` - a `Field` is refused, as is any type that contains one. Take an integer or bytes and convert to `Field` inside the program, for example with `Field::from_le_bytes_checked(bytes)`.
 - `fn main(x: [u32])` - can't compile, has variable size.
 - `fn main(x: [u32; 0])` - an empty array or empty string parameter is refused. They may still be returned.
+- `fn main(_: u32, _: u32)` - a parameter's name is the key of its input, so each name, `_` included, is used once.
 - A type marked `#[field(..)]`, or declared in a module marked `#[field(..)]`, is refused; pass its contents as integers or bytes and build it inside.
 
 The `Field` and `#[field(..)]` rules apply to `main` and contract functions only: other functions, and test and fuzz functions, may take and return `Field`.
