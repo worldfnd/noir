@@ -1,6 +1,6 @@
 // Simple program for testing the logging
 // of single witnesses and witness arrays.
-fn main(x: Field, y: pub Field) {
+fn main(x: u8, y: pub u8) {
     std::println(x);
     std::println([x, y]);
 }

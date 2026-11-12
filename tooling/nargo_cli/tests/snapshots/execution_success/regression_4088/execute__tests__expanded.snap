@@ -7,12 +7,12 @@ trait Serialize<let N: u32> {
 }
 
 struct ValueNote {
-    value: Field,
+    value: u8,
 }
 
 impl Serialize<1> for ValueNote {
     fn serialize(self) -> [Field; 1] {
-        [self.value]
+        [self.value as Field]
     }
 }
 

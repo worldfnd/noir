@@ -118,6 +118,8 @@ fn foo() -> u32 {
 
 If the field name is not known to Noir, it will discard the function. Field names are case insensitive.
 
+An entry point's signature must be independent of the field, so `main` and the functions of a contract cannot carry a `field` attribute, nor sit in a module or contract that does, and the types they take or return cannot be field-specific either: a struct, enum or type alias marked `#[field(..)]`, or declared in a module marked `#[field(..)]`, is refused in an entry point's signature. The function body may still use field-specific operations.
+
 ### `fuzz`
 
 Marks the functions for fuzzing. See [Fuzzer](../tooling/fuzzer.md) for more details.

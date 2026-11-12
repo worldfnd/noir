@@ -8,12 +8,12 @@
 // `get` is a separate unconstrained function taking an opaque vector, so its
 // length is not known at the indexing site and the access is not folded into a
 // compile-time out-of-bounds error before reaching the offset pass.
-unconstrained fn get(v: [Field]) -> Field {
+unconstrained fn get(v: [u32]) -> u32 {
     v[4294967295]
 }
 
-fn main() -> pub Field {
-    let v: [Field] = [1, 2, 3].as_vector();
+fn main() -> pub u32 {
+    let v: [u32] = [1, 2, 3].as_vector();
     // Safety: testing an out-of-bounds vector access
     unsafe { get(v) }
 }

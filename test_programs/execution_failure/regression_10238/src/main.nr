@@ -1,4 +1,4 @@
-fn main(b: i64) -> pub Field {
+fn main(b: i64) -> pub u8 {
     if ((6863985126385003285_i64 - b) != 0) {
         10
     } else {

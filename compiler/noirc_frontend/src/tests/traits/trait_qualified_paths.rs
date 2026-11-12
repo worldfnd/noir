@@ -214,12 +214,12 @@ fn allows_renaming_trait_during_import() {
             fn foo(_: Self) {}
         }
 
-        impl Foo for Field {}
+        impl Foo for u32 {}
     }
 
     use trait_mod::Foo as FooTrait;
 
-    fn main(x: Field) {
+    fn main(x: u32) {
         x.foo();
     }
     "#;
@@ -235,14 +235,14 @@ fn renaming_trait_avoids_name_collisions() {
             fn foo(_: Self) {}
         }
 
-        impl Foo for Field {}
+        impl Foo for u32 {}
     }
 
     use trait_mod::Foo as FooTrait;
 
     pub struct Foo {}
 
-    fn main(x: Field) {
+    fn main(x: u32) {
         x.foo();
     }
     "#;

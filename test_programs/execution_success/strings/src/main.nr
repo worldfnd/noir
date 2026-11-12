@@ -1,7 +1,7 @@
 // Test global string literals
 global HELLO_WORLD: str<11> = "hello world";
 
-fn main(message: pub str<11>, y: Field, hex_as_string: str<4>, hex_as_field: Field) {
+fn main(message: pub str<11>, y: u8, hex_as_string: str<4>, hex_as_field: u8) {
     assert(hex_as_string == "0x41");
     // assert(hex_as_string != 0x41); This will fail with a type mismatch between str[4] and Field
     assert(hex_as_field == 0x41);

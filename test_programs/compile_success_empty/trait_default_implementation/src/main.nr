@@ -17,7 +17,8 @@ impl MyDefault for Foo {
     }
 }
 
-fn main(x: Field) {
+fn main(x: u64) {
+    let x = x as Field;
     let first = Foo::method2(x);
     assert(first == x);
 }

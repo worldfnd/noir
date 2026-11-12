@@ -1,6 +1,5 @@
 ---
 source: tooling/nargo_cli/tests/execute.rs
-assertion_line: 381
 expression: expanded_code
 ---
 use std::{
@@ -10,9 +9,11 @@ use std::{
     ops::Add,
 };
 
-fn main(priv_key: Field, pub_x: pub Field, pub_y: pub Field) {
+fn main(priv_key: u8, pub_x: pub u8, pub_y: pub [u8; 32]) {
+    let pub_x: Field = pub_x as Field;
+    let pub_y: Field = Field::from_le_bytes_checked(pub_y);
     let g1: EmbeddedCurvePoint = EmbeddedCurvePoint::generator();
-    let scalar: EmbeddedCurveScalar = EmbeddedCurveScalar { lo: priv_key, hi: 0_Field };
+    let scalar: EmbeddedCurveScalar = EmbeddedCurveScalar { lo: priv_key as Field, hi: 0_Field };
     let res: EmbeddedCurvePoint = multi_scalar_mul([g1], [scalar]);
     assert(res.x == pub_x);
     assert(res.y == pub_y);

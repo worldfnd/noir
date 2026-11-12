@@ -1,8 +1,8 @@
 // Regression test: Brillig crash with mutable references inside arrays in a loop.
 // "value is not typed as Brillig usize" when dereferencing after loop mutation.
-fn main() -> pub [Field; 1] {
+fn main() -> pub [u8; 1] {
     unsafe {
-        foo()
+        foo().map(|x| x as u8)
     }
 }
 

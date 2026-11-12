@@ -3,16 +3,16 @@ source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
 contract Foo {
-    fn double(x: Field) -> pub Field {
-        x * 2_Field
+    fn double(x: u32) -> pub u32 {
+        x * 2_u32
     }
 
-    fn triple(x: Field) -> pub Field {
-        x * 3_Field
+    fn triple(x: u32) -> pub u32 {
+        x * 3_u32
     }
 
-    fn quadruple(x: Field) -> pub Field {
-        x * 4_Field
+    fn quadruple(x: u32) -> pub u32 {
+        x * 4_u32
     }
 
     #[contract_library_method]

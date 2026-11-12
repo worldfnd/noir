@@ -1,4 +1,4 @@
-fn main(arr: [Field; 3]) {
+fn main(arr: [u8; 3]) {
     let c = || {
         let mut a = arr;
         a[0] = 10;

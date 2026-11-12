@@ -1,7 +1,9 @@
 mod consts;
 use consts::EXPONENTIATE;
 
-fn main(x: Field, y: pub Field) {
+fn main(x: u8, y: pub u8) {
+    let x = x as Field;
+    let y = y as Field;
     // Safety: testing context
     unsafe {
         assert(entry_point_only_const_global(x) == 2);

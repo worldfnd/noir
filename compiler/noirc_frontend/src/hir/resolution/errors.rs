@@ -147,6 +147,8 @@ pub enum ResolverError {
     NoPredicatesAttributeOnEntryPoint { ident: Ident, location: Location },
     #[error("#[fold] attribute is not supported")]
     FoldAttributeUnsupported { ident: Ident, location: Location },
+    #[error("#[field] attribute is not allowed on entry point functions")]
+    FieldAttributeOnEntryPoint { ident: Ident, location: Location },
     #[error("#[inline_never] attribute is only allowed on unconstrained functions")]
     InlineNeverAttributeOnConstrained { ident: Ident, location: Location },
     #[error("The unquote operator '$' can only be used within a quote expression")]
@@ -248,15 +250,8 @@ pub enum ResolverError {
     BuiltinWithBody { location: Location },
     #[error("Identifier `{ident}` is bound more than once in the same pattern")]
     PatternBoundMoreThanOnce { ident: Ident },
-    #[error("{visibility} attribute is only allowed on entry point functions")]
-    DataBusOnNonEntryPoint { visibility: String, name: String, location: Location },
-    #[error("{visibility} attribute is not allowed on {position}")]
-    DataBusOnWrongPosition {
-        visibility: String,
-        position: &'static str,
-        allowed: &'static str,
-        location: Location,
-    },
+    #[error("{visibility} is not supported")]
+    DataBusUnsupported { visibility: String, location: Location },
     #[error("Associated type in `impl` without body")]
     AssociatedTypeInImplWithoutBody { ident: Ident },
     #[error("#[varargs] can only be applied to comptime functions")]
@@ -340,6 +335,7 @@ impl ResolverError {
             | ResolverError::NoPredicatesAttributeOnUnconstrained { location, .. }
             | ResolverError::NoPredicatesAttributeOnEntryPoint { location, .. }
             | ResolverError::FoldAttributeUnsupported { location, .. }
+            | ResolverError::FieldAttributeOnEntryPoint { location, .. }
             | ResolverError::InlineNeverAttributeOnConstrained { location, .. }
             | ResolverError::OracleNameClashesWithStdlib { location, .. }
             | ResolverError::OracleMarkedAsConstrained { location, .. }
@@ -366,8 +362,7 @@ impl ResolverError {
             | ResolverError::VarargsLastParameterIsNotAVector { location }
             | ResolverError::UnnecessaryPub { location, .. }
             | ResolverError::NecessaryPub { location, .. }
-            | ResolverError::DataBusOnNonEntryPoint { location, .. }
-            | ResolverError::DataBusOnWrongPosition { location, .. }
+            | ResolverError::DataBusUnsupported { location, .. }
             | ResolverError::RemovedType { location, .. }
             | ResolverError::UnsupportedIntegerWidth { location, .. }
             | ResolverError::MaximumRecursionDepthExceeded { location, .. } => *location,
@@ -824,6 +819,16 @@ impl<'a> From<&'a ResolverError> for Diagnostic {
                 diag.add_note("The `#[no_predicates]` attribute is used to prevent inlining of a function into the entry point, but applying it to the entry point itself has no effect".to_owned());
                 diag
             }
+            ResolverError::FieldAttributeOnEntryPoint { ident, location } => {
+                let mut diag = Diagnostic::simple_error(
+                    format!("entry point function {ident} cannot be field-specific"),
+                    "#[field] attribute not allowed on an entry point".to_string(),
+                    *location,
+                );
+
+                diag.add_note("A program runs on every field, so neither its entry points nor an enclosing module or contract may be marked `#[field(..)]`".to_owned());
+                diag
+            }
             ResolverError::FoldAttributeUnsupported { ident, location } => {
                 let mut diag = Diagnostic::simple_error(
                     format!("#[fold] attribute on function {ident} is not supported"),
@@ -1150,23 +1155,15 @@ impl<'a> From<&'a ResolverError> for Diagnostic {
                     ident.location(),
                 )
             }
-            ResolverError::DataBusOnNonEntryPoint { visibility, name, location } => {
+            ResolverError::DataBusUnsupported { visibility, location } => {
                 let mut diag = Diagnostic::simple_error(
-                    format!("unnecessary {visibility} attribute for function {name}"),
-                    format!("unnecessary {visibility}"),
+                    format!("{visibility} is not supported"),
+                    format!("unsupported {visibility}"),
                     *location,
                 );
-                diag.add_note(
-                    format!("The {visibility} attribute only has effects for the entry-point function of a program. Thus, adding it to other function can be deceiving and should be removed)"));
+                diag.add_note("A program's inputs and return are read as bytes, so the data bus is not supported; use a plain parameter, or `pub` for a public one".to_owned());
                 diag
-            },
-            ResolverError::DataBusOnWrongPosition { visibility, position, allowed, location } => {
-                Diagnostic::simple_error(
-                    format!("{visibility} attribute is not allowed on {position}"),
-                    format!("{visibility} is only allowed on {allowed}"),
-                    *location,
-                )
-            },
+            }
             ResolverError::AssociatedTypeInImplWithoutBody { ident } => {
                 Diagnostic::simple_error(
                     "Associated type in impl without body".to_string(),

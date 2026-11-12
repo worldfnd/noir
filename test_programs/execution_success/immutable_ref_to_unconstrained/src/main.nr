@@ -13,7 +13,8 @@ struct Foo {
     y: [u32; 3],
 }
 
-fn main(x: pub Field, y: pub u32) {
+fn main(x: pub u8, y: pub u32) {
+    let x = x as Field;
     // Safety:
     let result = unsafe { read_ref(&x) };
     assert_eq(result, x);

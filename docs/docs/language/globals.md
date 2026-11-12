@@ -38,7 +38,7 @@ If they are initialized to a literal integer, globals can be used to specify an 
 ```rust
 global N: u32 = 2;
 
-fn main(y : [Field; N]) {
+fn main(y : [u32; N]) {
     assert(y[0] == y[1])
 }
 ```

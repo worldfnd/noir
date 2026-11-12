@@ -12,7 +12,9 @@ type Three: u32 = Two + One;
 global N: u32 = 100;
 type AliasN<let N: u32>: u32 = N;
 
-fn main(x: Field) {
+fn main(x: u8) {
+    let x = x as Field;
+
     // Test composed aliases in type positions (array sizes)
     let arr: [Field; Quadruple::<2>] = [0; 8];
     assert(arr.len() == 8);

@@ -52,7 +52,7 @@ fn struct_array_len() {
             }
         }
 
-        fn main(xs: [Field; 2]) {
+        fn main(xs: [u32; 2]) {
             let ys = Array {
                 inner: xs,
             };

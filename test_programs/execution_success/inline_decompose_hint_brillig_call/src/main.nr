@@ -3,7 +3,7 @@ use std::{
     ops::Add,
 };
 
-fn main() -> pub Field {
+fn main() -> pub [u8; 32] {
     let pre_address = 0x23d95e303879a5d0bbef78ecbc335e559da37431f6dcd11da54ed375c2846813;
     let (a, b) = std::field::bn254::decompose(pre_address);
     let curve = EmbeddedCurveScalar { lo: a, hi: b };
@@ -13,5 +13,5 @@ fn main() -> pub Field {
         y: 0x273bbffd678edce8fe30e0deafc4f66d58357c06fd4a820285294b9746c3be95,
     };
     let address_point = key.add(point);
-    address_point.x
+    address_point.x.to_le_bytes()
 }

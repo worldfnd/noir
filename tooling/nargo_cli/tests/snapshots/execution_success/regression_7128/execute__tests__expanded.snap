@@ -2,7 +2,8 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-fn main(in0: Field) -> pub Field {
+fn main(in0: u8) -> pub u8 {
+    let in0: Field = in0 as Field;
     let mut out0: Field = 0_Field;
     let tmp1: Field = in0;
     if out0 == out0 {
@@ -16,5 +17,5 @@ fn main(in0: Field) -> pub Field {
     if 0_Field.lt(in0) { tmp2 = 1_Field; };
     out0 = tmp2 - tmp1;
     assert(out0 == 0_Field, "completeness violation");
-    out0
+    out0 as u8
 }

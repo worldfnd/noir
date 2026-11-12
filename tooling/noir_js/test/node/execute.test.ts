@@ -1,7 +1,6 @@
 import assert_lt_json from '../noir_compiled_examples/assert_lt/target/assert_lt.json' assert { type: 'json' };
 import assert_msg_json from '../noir_compiled_examples/assert_msg_runtime/target/assert_msg_runtime.json' assert { type: 'json' };
 import assert_raw_payload_json from '../noir_compiled_examples/assert_raw_payload/target/assert_raw_payload.json' assert { type: 'json' };
-import databus_json from '../noir_compiled_examples/databus/target/databus.json' assert { type: 'json' };
 import assert_inside_brillig_nested_json from '../noir_compiled_examples/assert_inside_brillig_nested/target/assert_inside_brillig_nested.json' assert { type: 'json' };
 
 import { Noir, ErrorWithPayload } from '@noir-lang/noir_js';
@@ -11,7 +10,6 @@ import { expect } from 'chai';
 const assert_lt_program = assert_lt_json as CompiledCircuit;
 const assert_msg_runtime = assert_msg_json as CompiledCircuit;
 const assert_raw_payload = assert_raw_payload_json as CompiledCircuit;
-const databus_program = databus_json as CompiledCircuit;
 const assert_inside_brillig_nested = assert_inside_brillig_nested_json as CompiledCircuit;
 
 it('executes a single-ACIR program correctly', async () => {
@@ -88,14 +86,4 @@ it('circuit with a raw assert payload should fail with the decoded payload', asy
       y: '0x05',
     });
   }
-});
-
-it('successfully decodes the return values from a program using the databus', async () => {
-  const inputs = {
-    x: '3',
-    y: '4',
-    z: [1, 2, 3, 4],
-  };
-  const { returnValue } = await new Noir(databus_program).execute(inputs);
-  expect(returnValue).to.be.eq('0x09');
 });

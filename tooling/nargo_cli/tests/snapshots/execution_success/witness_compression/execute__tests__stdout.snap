@@ -2,4 +2,4 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: stdout
 ---
-[witness_compression] Circuit output: 0x03
+[witness_compression] Circuit output: 3

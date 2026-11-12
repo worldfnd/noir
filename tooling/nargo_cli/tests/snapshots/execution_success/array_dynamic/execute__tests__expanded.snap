@@ -9,7 +9,7 @@ fn main(
     index: [u32; 5],
     index2: [u32; 5],
     offset: u32,
-    sublen: Field,
+    sublen: u8,
 ) {
     let idx: u32 = (z - (5_u32 * t)) - 5_u32;
     dyn_array(x, idx, idx - 3_u32);

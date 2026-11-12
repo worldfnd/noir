@@ -2,4 +2,4 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: stdout
 ---
-[regression_while_condition_alias] Circuit output: 0x05
+[regression_while_condition_alias] Circuit output: 5

@@ -2,4 +2,4 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: stdout
 ---
-[regression_1457_array_set_nested_shared] Circuit output: ([[0x00]], [0x07])
+[regression_1457_array_set_nested_shared] Circuit output: ([[0]], [7])

@@ -53,12 +53,12 @@ fn get_d_method_interface() -> MethodInterface<D> {
     MethodInterface { some_method_on_t_d: d_method }
 }
 // ---
-fn main(input: Field) -> pub Field {
+fn main(input: u8) -> pub u16 {
     let b: B<C<D>> = B::new(new_concrete_c_over_d);
     let c: C<D> = b.get_t_c(); // PrivateMutable<Note>
-    let d: D = D { d: input }; // Note
+    let d: D = D { d: input as Field }; // Note
     let output = c.call_method_of_t_d(d);
 
-    output
+    output as u16
 }
 // ---

@@ -2,7 +2,7 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-fn main(x: Field, y: Field, expected_hash: Field) {
-    let hash: Field = std::hash::pedersen_hash([x, y]);
-    assert(hash == expected_hash);
+fn main(x: u8, y: u8, expected_hash: [u8; 32]) {
+    let hash: Field = std::hash::pedersen_hash([x as Field, y as Field]);
+    assert(hash.to_le_bytes() == expected_hash);
 }

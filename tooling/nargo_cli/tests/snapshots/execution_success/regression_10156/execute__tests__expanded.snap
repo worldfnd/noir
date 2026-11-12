@@ -2,7 +2,7 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-pub fn main() -> pub Field {
+pub fn main() -> pub u8 {
     println(foo);
     println(std::as_witness);
     println(std::hash::blake2s::<10>);
@@ -10,7 +10,7 @@ pub fn main() -> pub Field {
     unsafe { unconstrained_take_as_witness(std::as_witness); };
     take_as_witness(std::as_witness);
     std::as_witness(foo());
-    take_foo(foo)
+    take_foo(foo) as u8
 }
 
 fn foo() -> Field {

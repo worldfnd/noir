@@ -2,4 +2,4 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: stdout
 ---
-[regression_9907] Circuit output: [[0xcafebabe]]
+[regression_9907] Circuit output: [[3405691582]]

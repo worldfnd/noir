@@ -12,7 +12,8 @@ mod foo {
 
 use foo::Trait;
 
-fn main(x: Field) {
+fn main(x: u64) {
+    let x = x as Field;
     let _ = foo::Trait::me(x);
     let _ = Trait::me(x);
 }

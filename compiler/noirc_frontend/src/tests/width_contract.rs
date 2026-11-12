@@ -511,10 +511,10 @@ fn casts_to_field_follow_the_field_rule_at_every_width() {
         let src = if generic {
             format!(
                 "fn to_field<let N: u32>(x: u<N>) -> Field {{ x as Field }}
-                 fn main(x: u8) -> pub Field {{ to_field(x as u{bits}) }}"
+                 fn main(x: u8) {{ let _ = to_field(x as u{bits}); }}"
             )
         } else {
-            format!("fn main(x: u8) -> pub Field {{ (x as u{bits}) as Field }}")
+            format!("fn main(x: u8) {{ let _ = (x as u{bits}) as Field; }}")
         };
         for field in FieldId::ALL {
             let fits = FieldConfig::new(field).fits_unsigned(bits);

@@ -13,7 +13,9 @@ impl MyDefault for Foo {
     }
 }
 
-fn main(x: Field, y: Field) {
+fn main(x: u64, y: u64) {
+    let x = x as Field;
+    let y = y as Field;
     let first = Foo::my_default(x, y);
     assert(first.bar == x);
 }

@@ -11,7 +11,7 @@
 // `x[0]` and `z[0]` observes the mutation: the correct output is `[1, 9]`, while the
 // missing clone yields `[9, 9]` (or, in a debug build, the array_set RC invariant fires
 // before execution).
-unconstrained fn main(cond: bool, brk: bool) -> pub [Field; 2] {
+unconstrained fn main(cond: bool, brk: bool) -> pub [u8; 2] {
     let mut x = [1];
     let mut z = [0];
     loop {
@@ -27,5 +27,5 @@ unconstrained fn main(cond: bool, brk: bool) -> pub [Field; 2] {
             x
         };
     }
-    [x[0], z[0]]
+    [x[0] as u8, z[0] as u8]
 }

@@ -13,7 +13,7 @@ use crate::test_utils::{
 #[test]
 fn last_use_in_if_branches() {
     let src = "
-    unconstrained fn main(d: [Field; 2]) {
+    unconstrained fn main(d: [u32; 2]) {
         if len(d) == 2 {              // use 1 of d
             if len(d) == 2 {          // use 2 of d
                 assert(eq(d, [5, 6]));  // use 3 of d
@@ -23,18 +23,18 @@ fn last_use_in_if_branches() {
         }
     }
 
-    fn eq(lhs: [Field; 2], rhs: [Field; 2]) -> bool {
+    fn eq(lhs: [u32; 2], rhs: [u32; 2]) -> bool {
         (lhs[0] == rhs[0]) & (lhs[1] == rhs[1])
     }
 
-    fn len(arr: [Field; 2]) -> u32 {
+    fn len(arr: [u32; 2]) -> u32 {
         2
     }
     ";
 
     let program = get_monomorphized(src).unwrap();
     insta::assert_snapshot!(program, @r"
-    unconstrained fn main$f0(d$l0: [Field; 2]) -> () {
+    unconstrained fn main$f0(d$l0: [u32; 2]) -> () {
         if (len$f1(d$l0.clone()) == 2) {
             if (len$f1(d$l0.clone()) == 2) {
                 assert(eq$f2(d$l0, [5, 6]));
@@ -43,10 +43,10 @@ fn last_use_in_if_branches() {
             assert(eq$f2(d$l0, [5, 6]));
         }
     }
-    unconstrained fn len$f1(arr$l1: [Field; 2]) -> u32 {
+    unconstrained fn len$f1(arr$l1: [u32; 2]) -> u32 {
         2
     }
-    unconstrained fn eq$f2(lhs$l2: [Field; 2], rhs$l3: [Field; 2]) -> bool {
+    unconstrained fn eq$f2(lhs$l2: [u32; 2], rhs$l3: [u32; 2]) -> bool {
         ((lhs$l2[0] == rhs$l3[0]) & (lhs$l2[1] == rhs$l3[1]))
     }
     ");
@@ -55,7 +55,7 @@ fn last_use_in_if_branches() {
 #[test]
 fn does_not_move_into_loop() {
     let src = "
-    unconstrained fn main(param: [Field; 2]) {
+    unconstrained fn main(param: [u32; 2]) {
         let local1 = [0];
         let local2 = [1];
         loop {
@@ -72,7 +72,7 @@ fn does_not_move_into_loop() {
 
     let program = get_monomorphized(src).unwrap();
     insta::assert_snapshot!(program, @r"
-    unconstrained fn main$f0(param$l0: [Field; 2]) -> () {
+    unconstrained fn main$f0(param$l0: [u32; 2]) -> () {
         let local1$l1 = [0];
         let local2$l2 = [1];
         loop {
@@ -83,7 +83,7 @@ fn does_not_move_into_loop() {
         };
         use_var$f2(local2$l2);
     }
-    unconstrained fn use_var$f1(_x$l3: [Field; 2]) -> () {
+    unconstrained fn use_var$f1(_x$l3: [u32; 2]) -> () {
     }
     unconstrained fn use_var$f2(_x$l4: [Field; 1]) -> () {
     }
@@ -121,7 +121,7 @@ fn can_move_within_loop() {
 #[test]
 fn borrows_on_nested_index() {
     let src = "
-    unconstrained fn main(x: Field, y: pub Field) {
+    unconstrained fn main(x: u32, y: pub u32) {
         let EXPONENTIATE: [[[Field; 2]; 2]; 2] = [[[1, 1], [0, 0]], [[1, 1], [0, 0]]];
         let mut acc: Field = 0;
         for i in 0..2 {
@@ -136,7 +136,7 @@ fn borrows_on_nested_index() {
     let program = get_monomorphized(src).unwrap();
     // We expect no clones
     insta::assert_snapshot!(program, @r"
-    unconstrained fn main$f0(x$l0: Field, y$l1: pub Field) -> () {
+    unconstrained fn main$f0(x$l0: u32, y$l1: pub u32) -> () {
         let EXPONENTIATE$l2 = [[[1, 1], [0, 0]], [[1, 1], [0, 0]]];
         let mut acc$l3 = 0;
         for i$l4 in 0 .. 2 {
@@ -304,10 +304,10 @@ fn clone_global_nested_array_used_as_call_arg() {
 #[test]
 fn regression_9907() {
     let src = "
-   unconstrained fn main() -> pub [[Field; 1]; 1] {
+   unconstrained fn main() -> pub [[u32; 1]; 1] {
         foo([[0xcafebabe]])
     }
-    unconstrained fn foo(mut a: [[Field; 1]; 1]) -> [[Field; 1]; 1] {
+    unconstrained fn foo(mut a: [[u32; 1]; 1]) -> [[u32; 1]; 1] {
         let mut b = bar(a)[0];
 
         let mut x = 0;
@@ -316,7 +316,7 @@ fn regression_9907() {
         b[0] = 0xdeadbeef;
         a
     }
-    unconstrained fn bar(mut a: [[Field; 1]; 1]) -> [[Field; 1]; 1] {
+    unconstrained fn bar(mut a: [[u32; 1]; 1]) -> [[u32; 1]; 1] {
         a
     }
     ";
@@ -324,10 +324,10 @@ fn regression_9907() {
     let program = get_monomorphized(src).unwrap();
     // There are clones on both bar input and output
     insta::assert_snapshot!(program, @r"
-    unconstrained fn main$f0() -> pub [[Field; 1]; 1] {
+    unconstrained fn main$f0() -> pub [[u32; 1]; 1] {
         foo$f1([[3405691582]])
     }
-    unconstrained fn foo$f1(mut a$l0: [[Field; 1]; 1]) -> [[Field; 1]; 1] {
+    unconstrained fn foo$f1(mut a$l0: [[u32; 1]; 1]) -> [[u32; 1]; 1] {
         let mut b$l1 = bar$f2(a$l0.clone())[0].clone();
         let mut x$l2 = 0;
         while (x$l2 != 0) {
@@ -335,7 +335,7 @@ fn regression_9907() {
         b$l1[0] = 3735928559;
         a$l0
     }
-    unconstrained fn bar$f2(mut a$l3: [[Field; 1]; 1]) -> [[Field; 1]; 1] {
+    unconstrained fn bar$f2(mut a$l3: [[u32; 1]; 1]) -> [[u32; 1]; 1] {
         a$l3
     }
     ");
@@ -348,7 +348,7 @@ fn handle_reference_expression_cases() {
     // tuples, array literals, calls) materialize a fresh temporary, so cloning is
     // expected even though the temporary may be immediately consumed.
     let src = "
-        unconstrained fn main(mut a: [Field; 1]) {
+        unconstrained fn main(mut a: [u32; 1]) {
             let _ = { a }[0]; // block — `{ a }` materializes a fresh temporary
             let _ = (*&mut a)[0]; // * — dereferencing names a place
 
@@ -367,7 +367,7 @@ fn handle_reference_expression_cases() {
 
     let program = get_monomorphized(src).unwrap();
     insta::assert_snapshot!(program, @r"
-    unconstrained fn main$f0(mut a$l0: [Field; 1]) -> () {
+    unconstrained fn main$f0(mut a$l0: [u32; 1]) -> () {
         let _$l1 = {
             a$l0.clone()
         }[0];
@@ -379,10 +379,10 @@ fn handle_reference_expression_cases() {
         let _$l9 = lambda$f2(a$l0.clone())[0];
         let _$l10 = (a$l0, tuple$l3, nested$l5)
     }
-    unconstrained fn lambda$f1(x$l7: [Field; 1]) -> [Field; 1] {
+    unconstrained fn lambda$f1(x$l7: [u32; 1]) -> [u32; 1] {
         x$l7
     }
-    unconstrained fn lambda$f2(x$l8: [Field; 1]) -> [Field; 1] {
+    unconstrained fn lambda$f2(x$l8: [u32; 1]) -> [u32; 1] {
         x$l8
     }
     ");
@@ -1175,24 +1175,24 @@ fn reference_passed_to_call_does_not_prevent_move() {
     // After `foo` returns, `array` is no longer aliased, so the final `array` can be
     // moved into `use_array` (no clone needed).
     let src = "
-    unconstrained fn main(mut array: [Field; 3]) {
+    unconstrained fn main(mut array: [u32; 3]) {
         foo(&mut array);
         use_array(array);
     }
 
-    fn foo(_: &mut [Field; 3]) {}
-    fn use_array(_: [Field; 3]) {}
+    fn foo(_: &mut [u32; 3]) {}
+    fn use_array(_: [u32; 3]) {}
     ";
 
     let program = get_monomorphized(src).unwrap();
     insta::assert_snapshot!(program, @r"
-    unconstrained fn main$f0(mut array$l0: [Field; 3]) -> () {
+    unconstrained fn main$f0(mut array$l0: [u32; 3]) -> () {
         foo$f1((&mut array$l0));;
         use_array$f2(array$l0);
     }
-    unconstrained fn foo$f1(_$l1: &mut [Field; 3]) -> () {
+    unconstrained fn foo$f1(_$l1: &mut [u32; 3]) -> () {
     }
-    unconstrained fn use_array$f2(_$l2: [Field; 3]) -> () {
+    unconstrained fn use_array$f2(_$l2: [u32; 3]) -> () {
     }
     ");
 }
@@ -1203,62 +1203,62 @@ fn reference_passed_to_call_returning_reference_prevents_move() {
     // and stored in a binding that outlives the call. So `array` must be treated as
     // aliased and subsequent copies must clone.
     let src = "
-    unconstrained fn main(mut array: [Field; 3]) {
-        let _r: &mut [Field; 3] = identity(&mut array);
+    unconstrained fn main(mut array: [u32; 3]) {
+        let _r: &mut [u32; 3] = identity(&mut array);
         let y = array;
         use_array(y);
     }
 
-    fn identity(x: &mut [Field; 3]) -> &mut [Field; 3] { x }
-    fn use_array(_: [Field; 3]) {}
+    fn identity(x: &mut [u32; 3]) -> &mut [u32; 3] { x }
+    fn use_array(_: [u32; 3]) {}
     ";
 
     let program = get_monomorphized(src).unwrap();
     insta::assert_snapshot!(program, @r"
-    unconstrained fn main$f0(mut array$l0: [Field; 3]) -> () {
+    unconstrained fn main$f0(mut array$l0: [u32; 3]) -> () {
         let _r$l1 = identity$f1((&mut array$l0));
         let y$l2 = array$l0.clone();
         use_array$f2(y$l2);
     }
-    unconstrained fn identity$f1(x$l3: &mut [Field; 3]) -> &mut [Field; 3] {
+    unconstrained fn identity$f1(x$l3: &mut [u32; 3]) -> &mut [u32; 3] {
         x$l3
     }
-    unconstrained fn use_array$f2(_$l4: [Field; 3]) -> () {
+    unconstrained fn use_array$f2(_$l4: [u32; 3]) -> () {
     }
     ");
 }
 
 #[test]
 fn reference_passed_alongside_mut_ref_to_ref_prevents_move() {
-    // `call(&mut array, &mut z)` where `z: &mut [Field; 3]` — the second argument has type
-    // `&mut &mut [Field; 3]`, so the callee could write `array`'s reference into `*z`,
+    // `call(&mut array, &mut z)` where `z: &mut [u32; 3]` — the second argument has type
+    // `&mut &mut [u32; 3]`, so the callee could write `array`'s reference into `*z`,
     // making `array` aliased beyond the call. Therefore `array` must be cloned on copy.
     let src = "
-    unconstrained fn main(mut array: [Field; 3]) {
+    unconstrained fn main(mut array: [u32; 3]) {
         let mut z = &mut [1, 2, 3];
         call(&mut array, &mut z);
         let y = array;
         use_array(y);
     }
 
-    fn call(x: &mut [Field; 3], y: &mut &mut [Field; 3]) {
+    fn call(x: &mut [u32; 3], y: &mut &mut [u32; 3]) {
         *y = x;
     }
-    fn use_array(_: [Field; 3]) {}
+    fn use_array(_: [u32; 3]) {}
     ";
 
     let program = get_monomorphized(src).unwrap();
     insta::assert_snapshot!(program, @r"
-    unconstrained fn main$f0(mut array$l0: [Field; 3]) -> () {
+    unconstrained fn main$f0(mut array$l0: [u32; 3]) -> () {
         let mut z$l1 = (&mut [1, 2, 3]);
         call$f1((&mut array$l0), (&mut z$l1));;
         let y$l2 = array$l0.clone();
         use_array$f2(y$l2);
     }
-    unconstrained fn call$f1(x$l3: &mut [Field; 3], y$l4: &mut &mut [Field; 3]) -> () {
+    unconstrained fn call$f1(x$l3: &mut [u32; 3], y$l4: &mut &mut [u32; 3]) -> () {
         *y$l4 = x$l3
     }
-    unconstrained fn use_array$f2(_$l5: [Field; 3]) -> () {
+    unconstrained fn use_array$f2(_$l5: [u32; 3]) -> () {
     }
     ");
 }
@@ -1266,30 +1266,30 @@ fn reference_passed_alongside_mut_ref_to_ref_prevents_move() {
 #[test]
 fn reference_passed_alongside_struct_with_mut_ref_to_ref_prevents_move() {
     // `call(&mut array, container)` where `container: Container` holds a field of type
-    // `&mut &mut [Field; 3]`. Even though the second argument is not directly `&mut &mut T`,
-    // the callee can reach the inner `&mut &mut [Field; 3]` through the struct field and
+    // `&mut &mut [u32; 3]`. Even though the second argument is not directly `&mut &mut T`,
+    // the callee can reach the inner `&mut &mut [u32; 3]` through the struct field and
     // write `array`'s reference into it. So `array` must be cloned on copy.
     let src = "
     struct Container {
-        slot: &mut &mut [Field; 3],
+        slot: &mut &mut [u32; 3],
     }
-    unconstrained fn main(mut array: [Field; 3]) {
-        let mut z: &mut [Field; 3] = &mut [1, 2, 3];
+    unconstrained fn main(mut array: [u32; 3]) {
+        let mut z: &mut [u32; 3] = &mut [1, 2, 3];
         let container = Container { slot: &mut z };
         call(&mut array, container);
         let y = array;
         use_array(y);
     }
 
-    fn call(x: &mut [Field; 3], c: Container) {
+    fn call(x: &mut [u32; 3], c: Container) {
         *(c.slot) = x;
     }
-    fn use_array(_: [Field; 3]) {}
+    fn use_array(_: [u32; 3]) {}
     ";
 
     let program = get_monomorphized(src).unwrap();
     insta::assert_snapshot!(program, @r"
-    unconstrained fn main$f0(mut array$l0: [Field; 3]) -> () {
+    unconstrained fn main$f0(mut array$l0: [u32; 3]) -> () {
         let mut z$l1 = (&mut [1, 2, 3]);
         let container$l3 = {
             let slot$l2 = (&mut z$l1);
@@ -1299,10 +1299,10 @@ fn reference_passed_alongside_struct_with_mut_ref_to_ref_prevents_move() {
         let y$l4 = array$l0.clone();
         use_array$f2(y$l4);
     }
-    unconstrained fn call$f1(x$l5: &mut [Field; 3], c$l6: (&mut &mut [Field; 3],)) -> () {
+    unconstrained fn call$f1(x$l5: &mut [u32; 3], c$l6: (&mut &mut [u32; 3],)) -> () {
         *c$l6.0 = x$l5
     }
-    unconstrained fn use_array$f2(_$l7: [Field; 3]) -> () {
+    unconstrained fn use_array$f2(_$l7: [u32; 3]) -> () {
     }
     ");
 }
@@ -1312,12 +1312,12 @@ fn call_with_extract_tuple_field_args_does_not_prevent_move() {
     // Mirrors the `try_resize` pattern in UHashMap: `insert(&mut new_map, entry.0, entry.1)`
     // where `entry` is a tuple. The arguments `entry.0` and `entry.1` are `ExtractTupleField`
     // expressions. Even though their types cannot be resolved as Ident/Unary, they are plain
-    // Field values — not capable of storing a reference — so the conservative fallback must NOT
+    // u32 values — not capable of storing a reference — so the conservative fallback must NOT
     // trigger, and `new_map` must be movable at `*dest = new_map` (no clone).
     let src = "
-    unconstrained fn main(mut dest: [Field; 3]) {
-        let mut new_map: [Field; 3] = [0, 0, 0];
-        let entries: [(Field, Field); 2] = [(1, 2), (3, 4)];
+    unconstrained fn main(mut dest: [u32; 3]) {
+        let mut new_map: [u32; 3] = [0, 0, 0];
+        let entries: [(u32, u32); 2] = [(1, 2), (3, 4)];
         for i in 0..2 {
             let entry = entries[i];
             insert(&mut new_map, entry.0, entry.1);
@@ -1325,14 +1325,14 @@ fn call_with_extract_tuple_field_args_does_not_prevent_move() {
         dest = new_map;
     }
 
-    fn insert(map: &mut [Field; 3], key: Field, value: Field) {
+    fn insert(map: &mut [u32; 3], key: u32, value: u32) {
         map[0] = key + value;
     }
     ";
 
     let program = get_monomorphized(src).unwrap();
     insta::assert_snapshot!(program, @r"
-    unconstrained fn main$f0(mut dest$l0: [Field; 3]) -> () {
+    unconstrained fn main$f0(mut dest$l0: [u32; 3]) -> () {
         let mut new_map$l1 = [0, 0, 0];
         let entries$l2 = [(1, 2), (3, 4)];
         for i$l3 in 0 .. 2 {
@@ -1341,7 +1341,7 @@ fn call_with_extract_tuple_field_args_does_not_prevent_move() {
         };
         dest$l0 = new_map$l1
     }
-    unconstrained fn insert$f1(map$l5: &mut [Field; 3], key$l6: Field, value$l7: Field) -> () {
+    unconstrained fn insert$f1(map$l5: &mut [u32; 3], key$l6: u32, value$l7: u32) -> () {
         (*map$l5)[0] = (key$l6 + value$l7)
     }
     ");
@@ -1357,7 +1357,7 @@ fn no_confirmed_move_for_assignment_in_dead_loop() {
     // `x = [1,2,3]` is inside a loop that never runs, so the prior `let y = x`
     // must still clone `x`.
     let src = "
-    unconstrained fn main(arr: [Field; 3]) {
+    unconstrained fn main(arr: [u32; 3]) {
         let mut x = arr;
         let y = x;
         while (false) {
@@ -1372,7 +1372,7 @@ fn no_confirmed_move_for_assignment_in_dead_loop() {
     let program = get_monomorphized(src).unwrap();
     // `x` in `let y = x` must be cloned because the loop assignment is not guaranteed to execute.
     insta::assert_snapshot!(program, @r"
-    unconstrained fn main$f0(arr$l0: [Field; 3]) -> () {
+    unconstrained fn main$f0(arr$l0: [u32; 3]) -> () {
         let mut x$l1 = arr$l0;
         let y$l2 = x$l1.clone();
         while false {
@@ -1381,7 +1381,7 @@ fn no_confirmed_move_for_assignment_in_dead_loop() {
         use_var$f1(y$l2);;
         use_var$f1(x$l1);
     }
-    unconstrained fn use_var$f1(_x$l3: [Field; 3]) -> () {
+    unconstrained fn use_var$f1(_x$l3: [u32; 3]) -> () {
     }
     ");
 }
@@ -1391,7 +1391,7 @@ fn no_confirmed_move_before_loop_when_variable_will_be_used_in_loop() {
     // `x` is first seen inside the loop (in reverse), a fact which should prevent
     // it from being moved into `y` without a clone.
     let src = "
-    unconstrained fn main(arr: [Field; 3]) {
+    unconstrained fn main(arr: [u32; 3]) {
         let mut x = arr;
         let mut y = x;
         y[0] = 100;
@@ -1405,7 +1405,7 @@ fn no_confirmed_move_before_loop_when_variable_will_be_used_in_loop() {
     let program = get_monomorphized(src).unwrap();
     // `x` in `let y = x` must be cloned otherwise the `x` in the loop would see the modification.
     insta::assert_snapshot!(program, @r"
-    unconstrained fn main$f0(arr$l0: [Field; 3]) -> () {
+    unconstrained fn main$f0(arr$l0: [u32; 3]) -> () {
         let mut x$l1 = arr$l0;
         let mut y$l2 = x$l1.clone();
         y$l2[0] = 100;
@@ -1413,7 +1413,7 @@ fn no_confirmed_move_before_loop_when_variable_will_be_used_in_loop() {
             use_var$f1(x$l1.clone());
         }
     }
-    unconstrained fn use_var$f1(_x$l4: [Field; 3]) -> () {
+    unconstrained fn use_var$f1(_x$l4: [u32; 3]) -> () {
     }
     ");
 }
@@ -1423,7 +1423,7 @@ fn no_confirmed_move_for_assignment_in_unreachable_branch() {
     // `x = [1,2,3]` is reachable only through an `if false` branch; `let y = x`
     // must still clone.
     let src = "
-    unconstrained fn main(arr: [Field; 3]) {
+    unconstrained fn main(arr: [u32; 3]) {
         let mut x = arr;
         let y = x;
         if (false) {
@@ -1439,7 +1439,7 @@ fn no_confirmed_move_for_assignment_in_unreachable_branch() {
     ";
     let program = get_monomorphized(src).unwrap();
     insta::assert_snapshot!(program, @r"
-    unconstrained fn main$f0(arr$l0: [Field; 3]) -> () {
+    unconstrained fn main$f0(arr$l0: [u32; 3]) -> () {
         let mut x$l1 = arr$l0;
         let y$l2 = x$l1.clone();
         if false {
@@ -1450,7 +1450,7 @@ fn no_confirmed_move_for_assignment_in_unreachable_branch() {
         use_var$f1(y$l2);;
         use_var$f1(x$l1);
     }
-    unconstrained fn use_var$f1(_x$l3: [Field; 3]) -> () {
+    unconstrained fn use_var$f1(_x$l3: [u32; 3]) -> () {
     }
     ");
 }
@@ -1461,7 +1461,7 @@ fn no_confirmed_move_for_assignment_in_other_branch() {
     // `else` branch.  The two branches are mutually exclusive so the loop
     // assignment must not mark `y = x` as a confirmed move.
     let src = "
-    unconstrained fn main(arr: [Field; 3], i: u32) {
+    unconstrained fn main(arr: [u32; 3], i: u32) {
         let mut x = arr;
         let mut y = [1, 2, 3];
         if (i > 0) {
@@ -1482,7 +1482,7 @@ fn no_confirmed_move_for_assignment_in_other_branch() {
     let program = get_monomorphized(src).unwrap();
     // `x` in `y = x` must be cloned.
     insta::assert_snapshot!(program, @r"
-    unconstrained fn main$f0(arr$l0: [Field; 3], i$l1: u32) -> () {
+    unconstrained fn main$f0(arr$l0: [u32; 3], i$l1: u32) -> () {
         let mut x$l2 = arr$l0;
         let mut y$l3 = [1, 2, 3];
         if (i$l1 > 0) {
@@ -1497,7 +1497,7 @@ fn no_confirmed_move_for_assignment_in_other_branch() {
         use_var$f1(x$l2);;
         use_var$f1(y$l3);
     }
-    unconstrained fn use_var$f1(_x$l5: [Field; 3]) -> () {
+    unconstrained fn use_var$f1(_x$l5: [u32; 3]) -> () {
     }
     ");
 }
@@ -1509,7 +1509,7 @@ fn no_confirmed_move_for_outer_use_before_loop_with_self_assignment() {
     // However, the `x` on the RHS of `x = x` inside the loop is a genuine last
     // use and must NOT be cloned (it is confirmed as a move within the loop body).
     let src = "
-    unconstrained fn main(arr: [Field; 3]) {
+    unconstrained fn main(arr: [u32; 3]) {
         let mut x = arr;
         let y = x;
         let mut i = 0;
@@ -1526,7 +1526,7 @@ fn no_confirmed_move_for_outer_use_before_loop_with_self_assignment() {
     let program = get_monomorphized(src).unwrap();
     // `x` in `let y = x` must be cloned; `x` in `x = x` (RHS) must NOT be cloned.
     insta::assert_snapshot!(program, @r"
-    unconstrained fn main$f0(arr$l0: [Field; 3]) -> () {
+    unconstrained fn main$f0(arr$l0: [u32; 3]) -> () {
         let mut x$l1 = arr$l0;
         let y$l2 = x$l1.clone();
         let mut i$l3 = 0;
@@ -1537,7 +1537,7 @@ fn no_confirmed_move_for_outer_use_before_loop_with_self_assignment() {
         use_var$f1(y$l2);;
         use_var$f1(x$l1);
     }
-    unconstrained fn use_var$f1(_x$l4: [Field; 3]) -> () {
+    unconstrained fn use_var$f1(_x$l4: [u32; 3]) -> () {
     }
     ");
 }
@@ -1547,7 +1547,7 @@ fn no_confirmed_move_for_dead_code_after_break() {
     // `x = [4,5,6]` is dead code after `break`. The earlier `let mut y = x`
     // must clone `x` because `x = [4,5,6]` never actually executes.
     let src = "
-    unconstrained fn main(arr: [Field; 3]) {
+    unconstrained fn main(arr: [u32; 3]) {
         let mut x = arr;
         let mut i = 0;
         while (i < 3) {
@@ -1568,7 +1568,7 @@ fn no_confirmed_move_for_dead_code_after_break() {
     // `x` in `let mut y = x` must be cloned — the dead `x = [4,5,6]` after break
     // must NOT cause it to be treated as a confirmed move.
     insta::assert_snapshot!(program, @r"
-    unconstrained fn main$f0(arr$l0: [Field; 3]) -> () {
+    unconstrained fn main$f0(arr$l0: [u32; 3]) -> () {
         let mut x$l1 = arr$l0;
         let mut i$l2 = 0;
         while (i$l2 < 3) {
@@ -1582,7 +1582,7 @@ fn no_confirmed_move_for_dead_code_after_break() {
         };
         use_var$f1(x$l1);
     }
-    unconstrained fn use_var$f1(_x$l4: [Field; 3]) -> () {
+    unconstrained fn use_var$f1(_x$l4: [u32; 3]) -> () {
     }
     ");
 }
@@ -1593,7 +1593,7 @@ fn confirmed_move_for_variable_reassigned_in_the_loop() {
     // `x = [4,5,6]` is not dead; the earlier `let mut y = x`
     // doesn't need to clone `x` because `x = [4,5,6]` will execute.
     let src = "
-    unconstrained fn main(arr: [Field; 3]) {
+    unconstrained fn main(arr: [u32; 3]) {
         let mut x = arr;
         let mut i = 0;
         while (i < 3) {
@@ -1612,7 +1612,7 @@ fn confirmed_move_for_variable_reassigned_in_the_loop() {
     let program = get_monomorphized(src).unwrap();
     // `x` in `let mut y = x` doesn't get cloned.
     insta::assert_snapshot!(program, @r"
-    unconstrained fn main$f0(arr$l0: [Field; 3]) -> () {
+    unconstrained fn main$f0(arr$l0: [u32; 3]) -> () {
         let mut x$l1 = arr$l0;
         let mut i$l2 = 0;
         while (i$l2 < 3) {
@@ -1625,7 +1625,7 @@ fn confirmed_move_for_variable_reassigned_in_the_loop() {
         };
         use_var$f1(x$l1);
     }
-    unconstrained fn use_var$f1(_x$l4: [Field; 3]) -> () {
+    unconstrained fn use_var$f1(_x$l4: [u32; 3]) -> () {
     }
     ");
 }
@@ -1638,7 +1638,7 @@ fn confirmed_move_for_variable_reassigned_in_the_loop() {
 #[test]
 fn clone_for_loop_buffer_rotation_via_aliasing_reassignment() {
     let src = "
-    unconstrained fn main() -> pub [Field; 2] {
+    unconstrained fn main() -> pub [u32; 2] {
         let mut a = [1, 2];
         let mut c = [10, 20];
         let mut j: u32 = 0;
@@ -1656,7 +1656,7 @@ fn clone_for_loop_buffer_rotation_via_aliasing_reassignment() {
     ";
     let program = get_monomorphized(src).unwrap();
     insta::assert_snapshot!(program, @r"
-    unconstrained fn main$f0() -> pub [Field; 2] {
+    unconstrained fn main$f0() -> pub [u32; 2] {
         let mut a$l0 = [1, 2];
         let mut c$l1 = [10, 20];
         let mut j$l2 = 0;
@@ -1684,7 +1684,7 @@ fn clone_for_loop_buffer_rotation_via_aliasing_reassignment() {
 #[test]
 fn clone_for_loop_buffer_rotation_via_aliasing_array_literal() {
     let src = "
-    unconstrained fn main() -> pub [Field; 2] {
+    unconstrained fn main() -> pub [u32; 2] {
         let mut a = [1, 2];
         let mut c = [10, 20];
         let mut j: u32 = 0;
@@ -1705,7 +1705,7 @@ fn clone_for_loop_buffer_rotation_via_aliasing_array_literal() {
     ";
     let program = get_monomorphized(src).unwrap();
     insta::assert_snapshot!(program, @r"
-    unconstrained fn main$f0() -> pub [Field; 2] {
+    unconstrained fn main$f0() -> pub [u32; 2] {
         let mut a$l0 = [1, 2];
         let mut c$l1 = [10, 20];
         let mut j$l2 = 0;
@@ -1732,7 +1732,7 @@ fn clone_for_loop_buffer_rotation_via_aliasing_array_literal() {
 #[test]
 fn move_for_loop_buffer_rotation_when_variable_absent_from_rhs() {
     let src = "
-    unconstrained fn main() -> pub [Field; 2] {
+    unconstrained fn main() -> pub [u32; 2] {
         let mut a = [1, 2];
         let mut c = [10, 20];
         let mut j: u32 = 0;
@@ -1754,7 +1754,7 @@ fn move_for_loop_buffer_rotation_when_variable_absent_from_rhs() {
     ";
     let program = get_monomorphized(src).unwrap();
     insta::assert_snapshot!(program, @r"
-    unconstrained fn main$f0() -> pub [Field; 2] {
+    unconstrained fn main$f0() -> pub [u32; 2] {
         let mut a$l0 = [1, 2];
         let mut c$l1 = [10, 20];
         let mut j$l2 = 0;
@@ -1848,7 +1848,7 @@ fn no_confirmed_move_for_variable_reassigned_in_loop_in_disabled_if() {
     // Same as confirmed_move_for_variable_reassigned_in_the_loop,
     // but the reassignment is disabled, which should prevent the kill.
     let src = "
-    unconstrained fn main(arr: [Field; 3]) {
+    unconstrained fn main(arr: [u32; 3]) {
         let mut x = arr;
         let mut i = 0;
         while (i < 3) {
@@ -1869,7 +1869,7 @@ fn no_confirmed_move_for_variable_reassigned_in_loop_in_disabled_if() {
     let program = get_monomorphized(src).unwrap();
     // `x` in `let mut y = x` gets the clone.
     insta::assert_snapshot!(program, @r"
-    unconstrained fn main$f0(arr$l0: [Field; 3]) -> () {
+    unconstrained fn main$f0(arr$l0: [u32; 3]) -> () {
         let mut x$l1 = arr$l0;
         let mut i$l2 = 0;
         while (i$l2 < 3) {
@@ -1884,7 +1884,7 @@ fn no_confirmed_move_for_variable_reassigned_in_loop_in_disabled_if() {
         };
         use_var$f1(x$l1);
     }
-    unconstrained fn use_var$f1(_x$l4: [Field; 3]) -> () {
+    unconstrained fn use_var$f1(_x$l4: [u32; 3]) -> () {
     }
     ");
 }
@@ -2241,7 +2241,7 @@ fn break_in_inner_while_condition_clones_outer_assignment_rhs() {
 #[test]
 fn closure_captured_array_used_twice_clones_first_use() {
     let src = "
-    unconstrained fn main(arr: [Field; 3]) {
+    unconstrained fn main(arr: [u32; 3]) {
         let c = || {
             let mut a = arr;
             a[0] = 10;
@@ -2259,7 +2259,7 @@ fn closure_captured_array_used_twice_clones_first_use() {
     // initialize `a`, and again as the lambda's return value. Only the return
     // is the last use, so the first read must clone the captured array.
     insta::assert_snapshot!(program, @r"
-    unconstrained fn main$f0(arr$l0: [Field; 3]) -> () {
+    unconstrained fn main$f0(arr$l0: [u32; 3]) -> () {
         let c$l4 = {
             let closure_variable$l3 = {
                 let env$l1 = (arr$l0);
@@ -2272,13 +2272,13 @@ fn closure_captured_array_used_twice_clones_first_use() {
             tmp$l5.1(tmp$l5.0)
         });
     }
-    unconstrained fn lambda$f1(mut env$l1: ([Field; 3],)) -> [Field; 3] {
+    unconstrained fn lambda$f1(mut env$l1: ([u32; 3],)) -> [u32; 3] {
         let mut a$l2 = env$l1.0.clone();
         a$l2[0] = 10;
         use_var$f2(a$l2);;
         env$l1.0
     }
-    unconstrained fn use_var$f2(_x$l6: [Field; 3]) -> () {
+    unconstrained fn use_var$f2(_x$l6: [u32; 3]) -> () {
     }
     ");
 }

@@ -5,7 +5,8 @@ struct myStruct {
 // Tests a very simple program.
 //
 // The features being tested is the identity function in Brillig
-fn main(x: Field) {
+fn main(x: u8) {
+    let x = x as Field;
     // Safety: testing context
     unsafe {
         assert(x == identity(x));

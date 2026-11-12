@@ -6,6 +6,11 @@ type K = Field;
 type V = Field;
 
 // It is more convenient and readable to use structs as input.
+struct InputEntry {
+    key: u8,
+    value: u8,
+}
+
 struct Entry {
     key: Field,
     value: Field,
@@ -22,7 +27,8 @@ global KV_CMP: fn((K, V), (K, V)) -> bool = |a: (K, V), b: (K, V)| a.0.lt(b.0);
 global ALLOCATE_HASHMAP: fn() -> UHashMap<K, V, BuildHasherDefault<Poseidon2Hasher>> =
     || -> UHashMap<K, V, BuildHasherDefault<Poseidon2Hasher>> UHashMap::default();
 
-unconstrained fn main(input: [Entry; HASHMAP_LEN]) {
+unconstrained fn main(input: [InputEntry; HASHMAP_LEN]) {
+    let input = input.map(|entry| Entry { key: entry.key as K, value: entry.value as V });
     test_sequential(input[0].key, input[0].value);
     test_multiple_equal_insert(input[1].key, input[1].value);
     test_value_override(input[2].key, input[2].value, input[3].value);

@@ -2,9 +2,9 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-fn main() -> pub Field {
+fn main() -> pub u8 {
     let mut _: &mut [&mut &mut u16; 1] = &mut [&mut &mut 1_u16];
-    let r: [Field] = @[];
+    let r: [u8] = @[];
     let i: u32 = 1_u32;
     r[i]
 }

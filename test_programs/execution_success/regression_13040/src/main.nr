@@ -1,4 +1,4 @@
-unconstrained fn main(cond: bool, idx: u32, go: bool) -> pub Field {
+unconstrained fn main(cond: bool, idx: u32, go: bool) -> pub u8 {
     let mut a: Field = 0;
     let mut b: Field = 0;
     let mut c: Field = 0;
@@ -16,8 +16,8 @@ unconstrained fn main(cond: bool, idx: u32, go: bool) -> pub Field {
     if go {
         a = 5;
         *r2 = 99;
-        a
+        a as u8
     } else {
-        a
+        a as u8
     }
 }

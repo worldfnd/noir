@@ -2,10 +2,10 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-fn main() -> pub [Field; 1] {
+fn main() -> pub [u8; 1] {
     // Safety: comment added by `nargo expand`
     unsafe {
-        foo()
+        foo().map(|x: Field| -> u8 { x as u8 })
     }
 }
 

@@ -13,7 +13,7 @@ struct Foo<T> {
     bar: Bar,
 }
 
-fn main(x: Field, y: pub Field) {
+fn main(x: u32, y: pub u32) {
     assert(x != y);
 
     let foo = Foo { a: 7, b: [8, 9, 22].as_vector(), bar: Bar { inner: [106, 107, 108] } };

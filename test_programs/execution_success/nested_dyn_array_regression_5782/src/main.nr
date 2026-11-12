@@ -1,4 +1,4 @@
-fn main(mut array: [Field; 2], i: u32) {
+fn main(mut array: [u8; 2], i: u32) {
     assert_eq(array[i - 1], 5);
     assert_eq(array[i], 10);
 

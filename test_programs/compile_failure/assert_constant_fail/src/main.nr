@@ -1,7 +1,7 @@
 use std::assert_constant;
 
-fn main(x: Field) {
-    foo(5, x);
+fn main(x: u32) {
+    foo(5, x as Field);
 }
 
 fn foo(constant: Field, non_constant: Field) {

@@ -2,9 +2,9 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-fn main(x: Field) {
-    assert(x == 1_Field);
-    assert(1_Field == conditional(x != 0_Field));
+fn main(x: u8) {
+    assert(x == 1_u8);
+    assert(1_Field == conditional(x != 0_u8));
 }
 
 fn conditional(x: bool) -> Field {

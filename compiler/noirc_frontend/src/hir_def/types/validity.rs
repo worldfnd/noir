@@ -1,8 +1,17 @@
-use acvm::{FieldConfig, FieldId};
 use noirc_errors::{CustomDiagnostic, Location};
 
-use crate::shared::{UnlowerableInteger, unlowerable_integer};
 use crate::{NamedGeneric, Type, TypeBinding, ast::Ident, recursion::TypeRecursionContext};
+
+/// Where a type crosses into a program, which decides the rules it follows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProgramBoundary {
+    /// `main` or a contract function. Its inputs and return cross as bytes, the same on every
+    /// field, so they carry no `Field` and no type that is unbound or field-specific.
+    EntryPoint,
+    /// A test or fuzz function, the return of a `#[no_predicates]` function, or an `#[abi(tag)]`
+    /// global: any sized type, `Field` included.
+    Harness,
+}
 
 /// An type incorrectly used as a program input.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -20,16 +29,15 @@ pub enum InvalidType {
         field_name: Ident,
         invalid_type: Box<InvalidType>,
     },
-    /// An integer type that can hold values at or above the modulus of `field`, which one field
-    /// element cannot carry across an entry point.
-    IntegerExceedsField {
+    /// `Field`, whose values depend on the field the program is compiled for.
+    Field(Type),
+    /// A type that is still unbound, so it has no size at the boundary, as it was spelled when it
+    /// was checked: inference may bind it later, and the diagnostic must not show that binding.
+    Unbound(String),
+    /// A struct, enum or alias marked `#[field(..)]`, itself or through an enclosing module.
+    FieldGated {
         typ: Type,
-        field: FieldId,
-    },
-    /// An integer type the circuit backend has no lowering for, so no entry point takes or
-    /// returns it, however narrow it is.
-    IntegerNotLowerable {
-        typ: Type,
+        gate: Location,
     },
 }
 
@@ -101,22 +109,24 @@ impl InvalidType {
                     location,
                 );
             }
-            InvalidType::IntegerExceedsField { typ, field } => {
-                let widest = FieldConfig::new(*field).num_bits() - 1;
+            InvalidType::Field(typ) => {
                 diagnostic.add_secondary(
-                    format!(
-                        "Integers wider than {widest} bits are not valid {context} types under {field}. Found: {typ}"
-                    ),
+                    format!("Field is not a valid {context} type. Found: {typ}"),
                     location,
                 );
             }
-            InvalidType::IntegerNotLowerable { typ } => {
+            InvalidType::Unbound(typ) => {
                 diagnostic.add_secondary(
-                    format!(
-                        "Integers the circuit backend does not lower are not valid {context} types. Found: {typ}"
-                    ),
+                    format!("An unbound type is not a valid {context} type. Found: {typ}"),
                     location,
                 );
+            }
+            InvalidType::FieldGated { typ, gate } => {
+                diagnostic.add_secondary(
+                    format!("A field-specific type is not a valid {context} type. Found: {typ}"),
+                    location,
+                );
+                diagnostic.add_secondary("Made field-specific here".to_string(), *gate);
             }
             InvalidType::StructField { struct_name, field_name, invalid_type } => {
                 diagnostic.add_secondary(
@@ -149,66 +159,49 @@ impl InvalidType {
 }
 
 impl Type {
-    /// Returns this type, or a nested one, that cannot be used as a parameter to `main`
-    /// or a contract function.
-    /// This is only Some for unsized types like vectors or vectors that do not make sense
-    /// as a program input such as named generics or mutable references.
+    /// Returns this type, or a nested one, that cannot cross `boundary`.
+    ///
+    /// Every boundary refuses unsized types, such as vectors and named generics, types that make
+    /// no sense as a program input, such as references, and zero-length arrays and strings as
+    /// inputs. An [`ProgramBoundary::EntryPoint`] also refuses `Field`, unbound types and
+    /// field-specific types. Integers of any width cross; the backend decides which widths it
+    /// lowers.
     ///
     /// This function should match the same check done in `create_value_from_type` in `acir_gen`.
     /// If this function does not catch a case where a type should be valid, it will later lead to a
     /// panic in that function instead of a user-facing compiler error message.
     ///
-    /// With a `field`, an integer type is also invalid unless the circuit backend lowers it
-    /// (`unlowerable_integer`): it has a lowering and every value it can hold is below that
-    /// field's modulus. `main` and contract functions pass one, since each of their integers
-    /// crosses the entry point in one field element and is spelled in `Prover.toml` as one of a
-    /// fixed list of types.
-    ///
     /// Returns `None` if this type and its nested types are all valid program inputs.
     pub(crate) fn program_validity(
         &self,
         output: bool,
-        field: Option<FieldConfig>,
+        boundary: ProgramBoundary,
     ) -> Option<InvalidType> {
-        // Unit can always be returned from functions
-        if output && matches!(self.follow_bindings(), Type::Unit) {
-            return None;
-        }
-
         fn helper(
             this: &Type,
             allow_empty_arrays: bool,
-            field_config: Option<FieldConfig>,
+            allow_unit: bool,
+            boundary: ProgramBoundary,
             mut type_recursion_context: TypeRecursionContext,
         ) -> Option<InvalidType> {
+            let entry_point = boundary == ProgramBoundary::EntryPoint;
             match this {
+                Type::FieldElement if entry_point => Some(InvalidType::Field(this.clone())),
+
                 // Type::Error is allowed as usual since it indicates an error was already issued and
                 // we don't need to issue further errors about this likely unresolved type
                 Type::FieldElement | Type::Bool | Type::Constant(_) | Type::Error => None,
 
-                // An entry point needs a concrete width, like a concrete array length: a width
-                // that still names a generic has no size at the boundary. Under `field`, the type
-                // must be one the circuit backend lowers, and one field element carries the
-                // value's unsigned bit pattern, so the width must also leave every pattern below
-                // the modulus.
-                Type::Integer(signedness, width) => {
-                    match width.evaluate_to_u32(Location::dummy()) {
-                        Err(_) => Some(InvalidType::Primitive(this.clone())),
-                        Ok(bits) => field_config.and_then(|config| {
-                            match unlowerable_integer(*signedness, bits, config)? {
-                                UnlowerableInteger::Width => {
-                                    Some(InvalidType::IntegerNotLowerable { typ: this.clone() })
-                                }
-                                UnlowerableInteger::ExceedsField => {
-                                    Some(InvalidType::IntegerExceedsField {
-                                        typ: this.clone(),
-                                        field: config.id(),
-                                    })
-                                }
-                            }
-                        }),
-                    }
-                }
+                // Unit at the outer return means no return value. Reach it through aliases so
+                // an entry point still checks a field gate on the alias itself.
+                Type::Unit if allow_unit => None,
+
+                // An integer needs a concrete width, like an array needs a concrete length: a
+                // width that still names a generic has no size at the boundary.
+                Type::Integer(_, width) => width
+                    .evaluate_to_u32(Location::dummy())
+                    .is_err()
+                    .then(|| InvalidType::Primitive(this.clone())),
 
                 Type::Unit
                 | Type::FmtString(_, _)
@@ -219,17 +212,25 @@ impl Type {
                 | Type::Vector(_)
                 | Type::TraitAsType(..) => Some(InvalidType::Primitive(this.clone())),
 
-                Type::CheckedCast { to, .. } => {
-                    helper(to, allow_empty_arrays, field_config, type_recursion_context.recur())
-                }
+                Type::CheckedCast { to, .. } => helper(
+                    to,
+                    allow_empty_arrays,
+                    allow_unit,
+                    boundary,
+                    type_recursion_context.recur(),
+                ),
 
                 Type::Alias(alias, generics) => {
                     let alias = alias.borrow();
+                    if entry_point && let Some(gate) = alias.field_gate {
+                        return Some(InvalidType::FieldGated { typ: this.clone(), gate });
+                    }
                     if type_recursion_context.insert_alias(alias.id, generics.clone()) {
                         if let Some(invalid_type) = helper(
                             &alias.get_type(generics),
                             allow_empty_arrays,
-                            field_config,
+                            allow_unit,
+                            boundary,
                             type_recursion_context.recur(),
                         ) {
                             let alias_name = alias.name.clone();
@@ -252,14 +253,16 @@ impl Type {
                         helper(
                             length,
                             allow_empty_arrays,
-                            field_config,
+                            false,
+                            boundary,
                             type_recursion_context.clone().recur(),
                         )
                         .or_else(|| {
                             helper(
                                 element,
                                 allow_empty_arrays,
-                                field_config,
+                                false,
+                                boundary,
                                 type_recursion_context.recur(),
                             )
                         })
@@ -272,7 +275,8 @@ impl Type {
                         helper(
                             length,
                             allow_empty_arrays,
-                            field_config,
+                            false,
+                            boundary,
                             type_recursion_context.recur(),
                         )
                     }
@@ -282,7 +286,8 @@ impl Type {
                         if let Some(invalid_type) = helper(
                             element,
                             allow_empty_arrays,
-                            field_config,
+                            false,
+                            boundary,
                             type_recursion_context.clone().recur(),
                         ) {
                             return Some(invalid_type);
@@ -291,6 +296,9 @@ impl Type {
                     None
                 }
                 Type::DataType(definition, generics) => {
+                    if entry_point && let Some(gate) = definition.borrow().field_gate {
+                        return Some(InvalidType::FieldGated { typ: this.clone(), gate });
+                    }
                     if type_recursion_context
                         .insert_data_type(definition.borrow().id, generics.clone())
                     {
@@ -301,7 +309,8 @@ impl Type {
                                 if let Some(invalid_type) = helper(
                                     &field,
                                     allow_empty_arrays,
-                                    field_config,
+                                    false,
+                                    boundary,
                                     type_recursion_context.clone().recur(),
                                 ) {
                                     let struct_name = definition.name.clone();
@@ -327,31 +336,37 @@ impl Type {
                 Type::InfixExpr(lhs, _, rhs, _) => helper(
                     lhs,
                     allow_empty_arrays,
-                    field_config,
+                    false,
+                    boundary,
                     type_recursion_context.clone().recur(),
                 )
                 .or_else(|| {
-                    helper(rhs, allow_empty_arrays, field_config, type_recursion_context.recur())
+                    helper(rhs, allow_empty_arrays, false, boundary, type_recursion_context.recur())
                 }),
                 Type::TypeVariable(type_var)
                 | Type::NamedGeneric(NamedGeneric { type_var, .. }) => {
-                    // Unbound TypeVariable and Generic are allowed here as they can only result from
-                    // generics being declared on the function itself, but we produce a different error in that case.
                     if let TypeBinding::Bound(typ) = &*type_var.borrow() {
                         helper(
                             typ,
                             allow_empty_arrays,
-                            field_config,
+                            allow_unit,
+                            boundary,
                             type_recursion_context.recur(),
                         )
+                    } else if entry_point {
+                        // An entry point's types are all known before it runs.
+                        Some(InvalidType::Unbound(this.to_string()))
                     } else {
+                        // Elsewhere an unbound type can only come from the function's own
+                        // generics, which are reported separately.
                         None
                     }
                 }
             }
         }
 
-        helper(self, output, field, TypeRecursionContext::default())
+        // Zero-length arrays and strings may be returned, but not taken.
+        helper(self, output, output, boundary, TypeRecursionContext::default())
     }
 
     /// Returns this type, or a nested one, if this type can be used as a parameter to an ACIR

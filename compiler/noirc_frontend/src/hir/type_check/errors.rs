@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::rc::Rc;
 
-use acvm::{FieldConfig, FieldValue};
+use acvm::FieldValue;
 use iter_extended::vecmap;
 use noirc_errors::CustomDiagnostic as Diagnostic;
 use noirc_errors::DiagnosticKind;
@@ -18,7 +18,7 @@ use crate::hir::resolution::errors::ResolverError;
 use crate::hir_def::traits::TraitConstraint;
 use crate::hir_def::types::{BinaryTypeOperator, Type};
 use crate::node_interner::NodeInterner;
-use crate::shared::{LOWERABLE_INTEGER_TYPES, Signedness};
+use crate::shared::Signedness;
 use crate::validity::InvalidType;
 
 /// Rust also only shows 3 maximum, even for short patterns.
@@ -232,6 +232,8 @@ pub enum TypeCheckError {
     InvalidTypeForEntryPoint { invalid_type: InvalidType, location: Location },
     #[error("Entry point parameter must use a simple identifier pattern")]
     InvalidPatternForEntryPoint { location: Location },
+    #[error("Entry point parameters must have distinct names")]
+    DuplicateNameForEntryPoint { name: String, first_location: Location, location: Location },
     #[error("Mismatched number of parameters in trait implementation")]
     MismatchTraitImplNumParameters {
         actual_num_parameters: usize,
@@ -398,6 +400,7 @@ impl TypeCheckError {
             | TypeCheckError::NonConstantEvaluated { location, .. }
             | TypeCheckError::InvalidTypeForEntryPoint { location, .. }
             | TypeCheckError::InvalidPatternForEntryPoint { location }
+            | TypeCheckError::DuplicateNameForEntryPoint { location, .. }
             | TypeCheckError::MismatchTraitImplNumParameters { location, .. }
             | TypeCheckError::StringIndexAssign { location }
             | TypeCheckError::MacroReturningNonExpr { location, .. }
@@ -776,12 +779,14 @@ impl<'a> From<&'a TypeCheckError> for Diagnostic {
                 }
 
                 let note = match invalid_type.innermost() {
-                    InvalidType::IntegerExceedsField { field, .. } => {
-                        let widest = FieldConfig::new(*field).num_bits() - 1;
-                        format!("Note: under {field}, an integer that main or a contract function takes or returns must be at most {widest} bits wide, so that each of its values is below the field modulus. Split a wider integer into narrower ones.")
+                    InvalidType::Field(_) => {
+                        "Note: main and contract functions take and return no `Field`, so that a program's inputs are read the same way on every field. Use an integer type, or bytes such as `[u8; 32]` for a hash or a curve coordinate, and convert inside the program.".to_string()
                     }
-                    InvalidType::IntegerNotLowerable { .. } => {
-                        format!("Note: main and contract functions take and return only the integer types the circuit backend lowers: {LOWERABLE_INTEGER_TYPES}. Widen or narrow the value inside the program.")
+                    InvalidType::Unbound(_) => {
+                        "Note: every type that main or a contract function takes or returns must be known before the program runs. Name the type instead of leaving it to inference.".to_string()
+                    }
+                    InvalidType::FieldGated { .. } => {
+                        "Note: main and contract functions take and return only types that every field compiles, so a type marked `#[field(..)]`, itself or through an enclosing module, cannot cross them.".to_string()
                     }
                     _ => "Note: vectors, references, empty arrays, empty strings, or any type containing them may not be used in main, contract functions, test functions, fuzz functions or foldable functions.".to_string(),
                 };
@@ -793,6 +798,13 @@ impl<'a> From<&'a TypeCheckError> for Diagnostic {
                 let primary = "Entry point parameter must use a simple identifier pattern".to_string();
                 let secondary = "Destructuring patterns are not allowed here; bind to a name and destructure inside the body".to_string();
                 Diagnostic::simple_error(primary, secondary, *location)
+            },
+            TypeCheckError::DuplicateNameForEntryPoint { name, first_location, location } => {
+                let primary = "Entry point parameters must have distinct names".to_string();
+                let secondary = format!("`{name}` already names another parameter, and a parameter's name is the key of its input");
+                let mut diagnostic = Diagnostic::simple_error(primary, secondary, *location);
+                diagnostic.add_secondary(format!("The first parameter named `{name}`"), *first_location);
+                diagnostic
             },
             TypeCheckError::MismatchTraitImplNumParameters {
                 expected_num_parameters,

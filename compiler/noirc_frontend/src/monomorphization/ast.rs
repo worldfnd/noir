@@ -582,6 +582,13 @@ pub enum Type {
 /// which is usually around 2^20, so this limit should not interfere with real use cases.
 pub const MAX_ELEMENTS: usize = 1 << 24;
 
+/// The number of bytes the inputs of an entry point may take together, and separately the number
+/// its return may take: each must stay below this. An integer of width `w` takes `ceil(w / 8)`
+/// bytes, a `bool` one byte, and a `str<N>` N bytes (`noirc_abi::bytes`); an empty array, string
+/// or struct takes none but counts as one, so that a few bytes cannot declare unboundedly many
+/// values. It is a `u64` so that it holds on 32-bit targets.
+pub const MAX_INPUT_BYTES: u64 = 1 << 32;
+
 impl Type {
     pub fn flatten(&self) -> Vec<Type> {
         match self {

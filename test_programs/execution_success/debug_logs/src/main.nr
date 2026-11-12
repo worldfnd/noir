@@ -1,4 +1,6 @@
-fn main(x: Field, y: pub Field) {
+fn main(x: u8, y: pub u8) {
+    let x = x as Field;
+    let y = y as Field;
     let string = "i: {i}, j: {j}";
     println(string);
 

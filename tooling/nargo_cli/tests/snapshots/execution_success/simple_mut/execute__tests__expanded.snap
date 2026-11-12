@@ -2,8 +2,8 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-fn main(x: Field) -> pub Field {
-    let mut y: Field = 2_Field;
+fn main(x: u8) -> pub u8 {
+    let mut y: u8 = 2_u8;
     y = y + x;
     y
 }

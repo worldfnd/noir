@@ -7,7 +7,8 @@ unconstrained fn helper(cond: bool, x: Field) -> Field {
     }
 }
 
-fn main(cond: bool, x: pub Field) {
+fn main(cond: bool, x: pub u16) {
+    let x = x as Field;
     //Safety: test for 'remove truncate after range check'
     let y = unsafe { helper(cond, x) };
     assert(y != x);

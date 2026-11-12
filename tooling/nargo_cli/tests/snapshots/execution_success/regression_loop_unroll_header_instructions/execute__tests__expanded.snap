@@ -2,8 +2,8 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-fn main(x: Field) {
-    let result: Field = compute(x);
+fn main(x: u8) {
+    let result: Field = compute(x as Field);
     assert(result != 0_Field);
 }
 

@@ -2,4 +2,4 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: stdout
 ---
-[mutable_and_immutable_reference_alias] Circuit output: 0x02
+[mutable_and_immutable_reference_alias] Circuit output: 2

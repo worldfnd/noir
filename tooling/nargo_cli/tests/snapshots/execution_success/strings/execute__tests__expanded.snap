@@ -4,11 +4,11 @@ expression: expanded_code
 ---
 global HELLO_WORLD: str<11> = "hello world";
 
-fn main(message: pub str<11>, y: Field, hex_as_string: str<4>, hex_as_field: Field) {
+fn main(message: pub str<11>, y: u8, hex_as_string: str<4>, hex_as_field: u8) {
     assert(hex_as_string == "0x41");
-    assert(hex_as_field == 65_Field);
-    assert(hex_as_field == 65_Field);
-    assert(hex_as_field != 1_Field);
+    assert(hex_as_field == 65_u8);
+    assert(hex_as_field == 65_u8);
+    assert(hex_as_field != 1_u8);
     let mut bad_message: str<11> = "hello world";
     assert(message == "hello world");
     assert(message == HELLO_WORLD);
@@ -21,7 +21,7 @@ fn main(message: pub str<11>, y: Field, hex_as_string: str<4>, hex_as_field: Fie
     println(x);
     print(x);
     let array: [Field; 5] = [1_Field, 2_Field, 3_Field, 5_Field, 8_Field];
-    assert(y == 5_Field);
+    assert(y == 5_u8);
     println(array);
     print(array);
     bad_message = "hell\0\"world";

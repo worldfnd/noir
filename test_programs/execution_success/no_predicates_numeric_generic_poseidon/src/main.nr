@@ -9,9 +9,10 @@ pub fn poseidon_hash<let N: u32>(inputs: [Field; N]) -> Field {
 }
 
 fn main(
-    to_hash: [[Field; HASH_LENGTH]; NUM_HASHES],
+    to_hash: [[u8; HASH_LENGTH]; NUM_HASHES],
     enable: [bool; NUM_HASHES],
-) -> pub [Field; NUM_HASHES + 1] {
+) -> pub [[u8; 32]; NUM_HASHES + 1] {
+    let to_hash = to_hash.map(|preimage| preimage.map(|x| x as Field));
     let mut result = [0; NUM_HASHES + 1];
     for i in 0..NUM_HASHES {
         let enable = enable[i];
@@ -29,5 +30,5 @@ fn main(
     }
     result[NUM_HASHES] = poseidon_hash(double_preimage);
 
-    result
+    result.map(|hash: Field| hash.to_le_bytes())
 }

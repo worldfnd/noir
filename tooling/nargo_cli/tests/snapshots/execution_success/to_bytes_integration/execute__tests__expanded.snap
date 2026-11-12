@@ -2,10 +2,10 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-fn main(x: Field, a: Field) {
+fn main(x: u32, a: [u8; 32]) {
     let y: Field = 2040124_Field;
     let be_byte_array: [u8; 31] = y.to_be_bytes();
-    let le_byte_array: [u8; 31] = x.to_le_bytes();
+    let le_byte_array: [u8; 31] = (x as Field).to_le_bytes();
     assert(le_byte_array[0_u32] == 60_u8);
     assert(le_byte_array[0_u32] == be_byte_array[30_u32]);
     assert(le_byte_array[1_u32] == be_byte_array[29_u32]);
@@ -19,5 +19,5 @@ fn main(x: Field, a: Field) {
     let z_bits: [bool; 254] = z.to_le_bits();
     assert(!z_bits[0_u32]);
     assert(p_bits[100_u32] == z_bits[100_u32]);
-    let _: [bool; 254] = a.to_le_bits();
+    let _: [bool; 254] = Field::from_le_bytes_checked(a).to_le_bits();
 }

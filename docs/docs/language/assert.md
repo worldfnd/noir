@@ -14,7 +14,7 @@ be proven. As of v1.0.0-beta.2, assert statements are expressions and can be use
 Example:
 
 ```rust
-fn main(x : Field, y : Field) {
+fn main(x : u32, y : u32) {
     assert(x == y);
 }
 ```
@@ -37,7 +37,7 @@ Using a variable as an assertion message directly:
 
 ```rust
 struct myStruct {
-  myField: Field
+  myField: u32
 }
 
 let s = myStruct { myField: y };
@@ -48,7 +48,7 @@ There is also a special `static_assert` function that behaves like `assert`,
 but that runs at compile-time.
 
 ```rust
-fn main(xs: [Field; 3]) {
+fn main(xs: [u32; 3]) {
     let x = 2;
     let y = 4;
     static_assert(x + x == y, "expected 2 + 2 to equal 4");
@@ -68,7 +68,7 @@ static_assert(x + x == y, f"Expected 2 + 2 to equal 4 but got: {x} + {x} == {y}"
 This function fails when passed a dynamic (run-time) argument:
 
 ```rust
-fn main(x : Field, y : Field) {
+fn main(x : u32, y : u32) {
     // this fails because `x` is not known at compile-time
     static_assert(x == 2, "expected x to be known at compile-time and equal to 2");
 

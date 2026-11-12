@@ -2,11 +2,11 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-fn main(x: Field, y: Field) {
+fn main(x: u8, y: u8) {
     // Safety: comment added by `nargo expand`
     unsafe {
-        assert(false == not_operator(x != 0_Field));
-        assert(true == not_operator(y != 0_Field));
+        assert(false == not_operator(x != 0_u8));
+        assert(true == not_operator(y != 0_u8));
     }
 }
 

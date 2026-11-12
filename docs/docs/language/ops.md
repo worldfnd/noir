@@ -51,16 +51,15 @@ This differs from the operations such as `+` where the operands are used in _com
 ### Bitwise Operations Example
 
 ```rust
-fn main(x: Field) {
-    let y = x as u32;
-    let z = y & y;
+fn main(x: u32) {
+    let z = x & x;
 }
 ```
 
-`z` is implicitly constrained to be the result of `y & y`. The `&` operand is used to denote bitwise
+`z` is implicitly constrained to be the result of `x & x`. The `&` operand is used to denote bitwise
 `&`.
 
-> `x & x` would not compile as `x` is a `Field` and not an integer type.
+> Bitwise operators take integer types: `f & f` would not compile if `f` were a `Field`.
 
 Bit shifts left: `<<`, or right: `>>` require the right hand side operand to be less that the bit size `s` of the operands type:
 `x << y` or `x >> y` overflow if `x,y` are unsigned and `y >= s`

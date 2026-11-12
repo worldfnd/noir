@@ -2,13 +2,16 @@
 #[cfg(test)]
 mod tests {
     use acvm::FieldElement;
-    use acvm::acir::circuit::Program;
+    use acvm::acir::circuit::opcodes::{BlackBoxFuncCall, FunctionInput};
+    use acvm::acir::circuit::{Opcode, Program};
+    use acvm::acir::native_types::Witness;
     // Some of these imports are consumed by the injected tests
     use assert_cmd::prelude::*;
     use base64::Engine;
     use insta::assert_snapshot;
     use insta::internals::Content;
     use insta::internals::Redaction;
+    use noirc_abi::AbiType;
     use noirc_artifacts::contract::ContractArtifact;
     use noirc_artifacts::program::ProgramArtifact;
     use predicates::prelude::*;
@@ -249,7 +252,7 @@ mod tests {
             .stderr(predicate::str::contains("The application panicked (crashed).").not());
     }
 
-    fn compile_success_empty(mut nargo: Command, no_warnings: bool) {
+    fn compile_success_empty(mut nargo: Command, target_dir: &Path, no_warnings: bool) {
         nargo.arg("--json");
 
         let output = nargo.output().expect("Failed to execute command");
@@ -267,7 +270,8 @@ mod tests {
             nargo.assert().success().stderr(predicate::str::contains("warning:").not());
         }
 
-        // `compile_success_empty` tests should be able to compile down to an empty circuit.
+        // `compile_success_empty` tests should compile down to nothing but the range check of each
+        // input, at its own width: an empty circuit for a `main` that takes no input.
         let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap_or_else(|e| {
             {
                 panic!(
@@ -277,12 +281,44 @@ mod tests {
                 )
             }
         });
-        let num_opcodes = &json["programs"][0]["functions"][0]["opcodes"];
+        let package_name =
+            json["programs"][0]["package_name"].as_str().expect("the package should have a name");
+        let artifact = fs::read(target_dir.join(format!("{package_name}.json")))
+            .expect("`nargo info` should write the program it compiles");
+        let artifact: ProgramArtifact =
+            serde_json::from_slice(&artifact).expect("the artifact should be a compiled program");
+
+        let mut input_bits = Vec::new();
+        for parameter in &artifact.abi.parameters {
+            push_input_bits(&parameter.typ, &mut input_bits);
+        }
+        let input_range_checks: Vec<Opcode<FieldElement>> = input_bits
+            .into_iter()
+            .zip(0..)
+            .map(|(num_bits, witness)| {
+                let input = FunctionInput::Witness(Witness(witness));
+                Opcode::BlackBoxFuncCall(BlackBoxFuncCall::RANGE { input, num_bits })
+            })
+            .collect();
         assert_eq!(
-            num_opcodes.as_u64().expect("number of opcodes should fit in a u64"),
-            0,
-            "expected the number of opcodes to be 0"
+            artifact.bytecode.functions[0].opcodes, input_range_checks,
+            "expected no opcode but the range check of each input"
         );
+    }
+
+    /// Appends the bit size of each scalar an input of type `typ` holds, in witness order.
+    fn push_input_bits(typ: &AbiType, bits: &mut Vec<u32>) {
+        match typ {
+            AbiType::Field => panic!("`main` takes no `Field`"),
+            AbiType::Integer { width, .. } => bits.push(*width),
+            AbiType::Boolean => bits.push(1),
+            AbiType::String { length } => bits.extend(std::iter::repeat_n(8, *length as usize)),
+            AbiType::Array { length, typ } => (0..*length).for_each(|_| push_input_bits(typ, bits)),
+            AbiType::Tuple { fields } => fields.iter().for_each(|typ| push_input_bits(typ, bits)),
+            AbiType::Struct { fields, .. } => {
+                fields.iter().for_each(|(_, typ)| push_input_bits(typ, bits));
+            }
+        }
     }
 
     fn compile_success_contract(mut nargo: Command) {

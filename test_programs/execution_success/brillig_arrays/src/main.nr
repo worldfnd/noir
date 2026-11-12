@@ -1,7 +1,8 @@
 // Tests a very simple program.
 //
 // The features being tested are array reads and writes
-fn main(x: [Field; 3]) {
+fn main(x: [u8; 3]) {
+    let x = x.map(|v| v as Field);
     // Safety: testing context
     unsafe {
         read_array(x);

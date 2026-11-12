@@ -1,0 +1,13 @@
+---
+source: tooling/nargo_cli/tests/execute.rs
+expression: stderr
+---
+error: Invalid type found in the entry point to a program
+  ┌─ src/main.nr:2:12
+  │
+2 │ fn main(x: Field, y: pub u32) {
+  │            ----- Field is not a valid entry point type. Found: Field
+  │
+  = Note: main and contract functions take and return no `Field`, so that a program's inputs are read the same way on every field. Use an integer type, or bytes such as `[u8; 32]` for a hash or a curve coordinate, and convert inside the program.
+
+Aborting due to 1 previous error

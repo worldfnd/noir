@@ -4,7 +4,7 @@ expression: expanded_code
 ---
 mod Foo {
     pub(crate) struct NewType {
-        pub(crate) a: Field,
+        pub(crate) a: u8,
     }
 }
 
@@ -17,10 +17,10 @@ mod Baz {
     pub(crate) use crate::Foo::{NewType, NewType as BarStruct};
 
     pub(crate) struct Works {
-        pub(crate) a: Field,
+        pub(crate) a: u8,
     }
 }
 
-fn main(works: Baz::Works, fails: Foo::NewType, also_fails: Foo::NewType) -> pub Field {
+fn main(works: Baz::Works, fails: Foo::NewType, also_fails: Foo::NewType) -> pub u8 {
     (works.a + fails.a) + also_fails.a
 }

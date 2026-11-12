@@ -2,7 +2,7 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-fn main(c: bool) -> pub Field {
+fn main(c: bool) -> pub u32 {
     let mut s: Field = 0_Field;
     if c {
         for i in 0_u32..150_u32 {
@@ -15,5 +15,5 @@ fn main(c: bool) -> pub Field {
             }
         }
     };
-    s
+    s as u32
 }

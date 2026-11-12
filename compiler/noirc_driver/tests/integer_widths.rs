@@ -1,6 +1,6 @@
-//! The front half admits every integer width the language has inside a program; the circuit
-//! backend lowers a few. Inside a program the boundary between them fires on the circuit path
-//! only; at an entry point the front half holds the type to the lowerable set itself.
+//! The front half admits every integer width the language has, inside a program and at an entry
+//! point alike; the circuit backend lowers a few. The boundary between them fires on the circuit
+//! path only.
 
 use std::path::Path;
 
@@ -32,8 +32,8 @@ fn context_for(source: &str) -> (Context<'static, 'static>, CrateId) {
 
 /// The widths the circuit backend lowers keep compiling; every other width passes the front
 /// half and the monomorphizer, and stops at circuit generation with a message naming the type.
-/// The width is that of a helper `main` calls, since `main` itself takes and returns only the
-/// lowerable types.
+/// The width is that of a helper `main` calls; `main` itself is covered by
+/// `an_entry_point_takes_every_width_and_the_circuit_path_refuses_it`.
 #[test]
 fn the_front_half_takes_every_width_and_the_circuit_path_stops_at_the_backend() {
     let cases = [
@@ -88,6 +88,33 @@ fn the_front_half_takes_every_width_and_the_circuit_path_stops_at_the_backend() 
     }
 }
 
+/// The byte codec encodes every width the front half admits, and no wider one, and caps an entry
+/// point's inputs and return where the monomorphizer does.
+#[test]
+fn the_byte_codec_and_the_front_half_share_their_limits() {
+    assert_eq!(noirc_abi::bytes::MAX_INTEGER_WIDTH, noirc_frontend::shared::MAX_INTEGER_WIDTH);
+    assert_eq!(
+        noirc_abi::bytes::MAX_INPUT_BYTES,
+        noirc_frontend::monomorphization::ast::MAX_INPUT_BYTES
+    );
+}
+
+/// An entry point takes and returns every width, since its values cross as bytes, so `nargo check`
+/// accepts a `main` the circuit backend has no lowering for; `nargo compile` refuses it at the
+/// driver's width gate, naming the type.
+#[test]
+fn an_entry_point_takes_every_width_and_the_circuit_path_refuses_it() {
+    let source = "fn main(x: u34) -> pub u34 { x + 1 }";
+    let (mut context, crate_id) = context_for(source);
+    check_crate(&mut context, crate_id, &CompileOptions::default())
+        .expect("the front half admits every width at an entry point");
+    let main = context.get_main_function(&crate_id).expect("main is defined");
+    let error = compile_no_check(&mut context, &CompileOptions::default(), main, None, false)
+        .expect_err("the backend has no lowering for u34");
+    let message = CustomDiagnostic::from(error).message;
+    assert!(message.contains("uses `u34`"), "{message}");
+}
+
 /// A width the backend cannot lower is refused wherever it appears: nested in an array, or in a
 /// local that never reaches the signature.
 #[test]
@@ -105,5 +132,78 @@ fn unlowerable_widths_are_refused_inside_types_and_bodies() {
             .expect_err("the backend has no lowering for u34");
         let message = CustomDiagnostic::from(error).message;
         assert!(message.contains("`u34`"), "{source}: {message}");
+    }
+}
+
+/// An alias of unit still means no return, including while building the entry ABI before
+/// monomorphization has normalized aliases.
+#[test]
+fn an_aliased_unit_return_has_no_abi_value() {
+    for field in acvm::FieldId::ALL {
+        for source in [
+            "fn main() {}",
+            "fn main() -> pub () {}",
+            "type Nothing = (); fn main() -> pub Nothing {}",
+            "type Nothing = (); type Other = Nothing; fn main() -> pub Other {}",
+        ] {
+            let (mut context, crate_id) = context_for(source);
+            let options = CompileOptions { field, ..Default::default() };
+            check_crate(&mut context, crate_id, &options).unwrap();
+            let (_, return_type) = noirc_driver::compute_function_abi(&context, &crate_id).unwrap();
+            assert_eq!(return_type, None, "{field}: {source}");
+        }
+    }
+}
+
+/// The checked source signature reaches the byte codec unchanged under either field, preserving
+/// declaration order, signed padding, nested values and the widest integer in separate blobs.
+#[test]
+fn nested_entry_abis_have_identical_bytes_under_every_field() {
+    use noirc_abi::{Abi, AbiReturnType, AbiVisibility, bytes, input_parser::Format};
+
+    let source = "
+        struct Packet { z: i17, a: bool, text: str<3>, pair: ([u2; 2], (u8, bool)) }
+        type Output = (Packet, u16384);
+        fn main(packet: pub Packet, wide: u16384) -> pub Output { (packet, wide) }
+    ";
+    let widest = format!("0x{}", "f".repeat(4096));
+    let packet = r#"{"pair": [[0, 3], [255, false]], "text": "abc", "a": true, "z": -1}"#;
+    let document = format!(
+        "{{\"wide\": \"{widest}\", \"packet\": {packet}, \"return\": [{packet}, \"{widest}\"]}}"
+    );
+    let mut expected = vec![0xff, 0xff, 0x01, 1, b'a', b'b', b'c', 0, 3, 255, 0];
+    expected.extend(vec![0xff; 2048]);
+
+    for field in acvm::FieldId::ALL {
+        let (mut context, crate_id) = context_for(source);
+        let options = CompileOptions { field, ..Default::default() };
+        check_crate(&mut context, crate_id, &options).unwrap();
+        let main = context.get_main_function(&crate_id).unwrap();
+        monomorphize(main, &mut context.def_interner, context.file_manager.as_file_map(), false)
+            .unwrap();
+        let (parameters, return_type) =
+            noirc_driver::compute_function_abi(&context, &crate_id).unwrap();
+        let abi = Abi {
+            parameters,
+            return_type: return_type
+                .map(|abi_type| AbiReturnType { abi_type, visibility: AbiVisibility::Public }),
+            error_types: Default::default(),
+        };
+        assert_eq!(abi.parameters[0].visibility, AbiVisibility::Public);
+        assert_eq!(abi.parameters[1].visibility, AbiVisibility::Private);
+        let inputs = bytes::parse(&Format::Json, &document, &abi).unwrap();
+        for format in [Format::Toml, Format::Json] {
+            let serialized = bytes::serialize(&format, &abi, &inputs).unwrap();
+            assert_eq!(
+                bytes::parse(&format, &serialized, &abi).unwrap(),
+                inputs,
+                "{field}: {format:?}"
+            );
+        }
+        assert_eq!(bytes::encode_params(&abi, &inputs.params).unwrap(), expected, "{field}");
+        assert_eq!(bytes::decode_params(&abi, &expected).unwrap(), inputs.params, "{field}");
+        let ret = inputs.ret.unwrap();
+        assert_eq!(bytes::encode_return(&abi, &ret).unwrap(), expected, "{field}");
+        assert_eq!(bytes::decode_return(&abi, &expected).unwrap(), ret, "{field}");
     }
 }

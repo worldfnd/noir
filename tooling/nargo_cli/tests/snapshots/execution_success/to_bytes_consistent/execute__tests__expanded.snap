@@ -2,8 +2,8 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-fn main(x: Field) {
-    let byte_array: [u8; 31] = x.to_be_bytes();
+fn main(x: u32) {
+    let byte_array: [u8; 31] = (x as Field).to_be_bytes();
     let x_as_constant: Field = 2040124_Field;
     let constant_byte_array: [u8; 31] = x_as_constant.to_be_bytes();
     assert(constant_byte_array.len() == byte_array.len());

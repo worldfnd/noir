@@ -2,7 +2,7 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-fn main(a: Field) -> pub Field {
-    std::as_witness(a);
+fn main(a: u8) -> pub u8 {
+    std::as_witness(a as Field);
     a
 }

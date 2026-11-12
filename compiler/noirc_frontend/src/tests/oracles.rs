@@ -248,9 +248,9 @@ fn allows_pure_attribute_on_oracle() {
     let src = r#"
     #[pure]
     #[oracle(foo)]
-    unconstrained fn foo(x: Field) -> Field {}
+    unconstrained fn foo(x: u32) -> u32 {}
 
-    unconstrained fn main(x: Field) {
+    unconstrained fn main(x: u32) {
         let _ = foo(x);
     }
     "#;

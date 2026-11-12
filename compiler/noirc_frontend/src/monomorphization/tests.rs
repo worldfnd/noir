@@ -125,7 +125,7 @@ fn numeric_generic_checked_cast_in_instantiation_bindings() {
 #[test]
 fn simple_closure_with_no_captured_variables() {
     let src = r#"
-    fn main(y: call_data(0) Field) -> pub Field {
+    fn main(y: u32) -> pub u32 {
         let x = 1;
         let closure = || x;
         closure()
@@ -134,7 +134,7 @@ fn simple_closure_with_no_captured_variables() {
 
     let program = get_monomorphized(src).unwrap();
     insta::assert_snapshot!(program, @r"
-    fn main$f0(y$l0: call_data(0) Field) -> pub Field {
+    fn main$f0(y$l0: u32) -> pub u32 {
         let x$l1 = 1;
         let closure$l4 = {
             let closure_variable$l3 = {
@@ -148,10 +148,10 @@ fn simple_closure_with_no_captured_variables() {
             tmp$l5.1(tmp$l5.0)
         }
     }
-    fn lambda$f1(mut env$l2: (Field,)) -> Field {
+    fn lambda$f1(mut env$l2: (u32,)) -> u32 {
         env$l2.0
     }
-    unconstrained fn lambda$f2(mut env$l2: (Field,)) -> Field {
+    unconstrained fn lambda$f2(mut env$l2: (u32,)) -> u32 {
         env$l2.0
     }
     ");
@@ -464,20 +464,20 @@ fn impl_generic_in_body_only_distinct_monomorphizations() {
     // rather than aliasing all callsites to the first-queued body.
     let src = r#"
     trait Guard<let N: u32> {
-        fn check(x: Field);
+        fn check(x: u32);
     }
 
     struct S {}
 
     impl<let N: u32> Guard<N> for S {
-        fn check(x: Field) {
+        fn check(x: u32) {
             for _ in 0..N {
                 assert(x == 0);
             }
         }
     }
 
-    pub fn main(x: Field) {
+    pub fn main(x: u32) {
         <S as Guard<0>>::check(x);
         <S as Guard<2>>::check(x);
     }
@@ -485,16 +485,16 @@ fn impl_generic_in_body_only_distinct_monomorphizations() {
 
     let program = get_monomorphized(src).unwrap();
     insta::assert_snapshot!(program, @"
-    fn main$f0(x$l0: Field) -> () {
+    fn main$f0(x$l0: u32) -> () {
         check$f1(x$l0);;
         check$f2(x$l0);
     }
-    fn check$f1(x$l1: Field) -> () {
+    fn check$f1(x$l1: u32) -> () {
         for _$l2 in 0 .. 0 {
             assert((x$l1 == 0));
         }
     }
-    fn check$f2(x$l3: Field) -> () {
+    fn check$f2(x$l3: u32) -> () {
         for _$l4 in 0 .. 2 {
             assert((x$l3 == 0));
         }

@@ -91,7 +91,7 @@ fn compile_contract_source(source: &str) -> noirc_artifacts::contract::CompiledC
 #[test]
 fn reports_always_false_assertion_for_contracts() {
     let source = "
-fn check<let CONSTRAINED: u32, let HANDSHAKE: u32>(x: Field) -> Field {
+fn check<let CONSTRAINED: u32, let HANDSHAKE: u32>(x: u32) -> u32 {
     if CONSTRAINED == 1 {
         assert(HANDSHAKE == 1, \"constrained delivery requires a handshake origin\");
     }
@@ -99,7 +99,7 @@ fn check<let CONSTRAINED: u32, let HANDSHAKE: u32>(x: Field) -> Field {
 }
 
 contract VanillaContract {
-    pub fn entrypoint(x: pub Field) -> pub Field {
+    pub fn entrypoint(x: pub u32) -> pub u32 {
         crate::check::<1, 0>(x)
     }
 }";

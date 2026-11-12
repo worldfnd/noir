@@ -5,9 +5,9 @@ expression: expanded_code
 global ARRAY_SIZE: u32 = 5;
 
 struct ExecutionResult {
-    original: [Field; 5],
-    modified_once: [Field; 5],
-    modified_twice: [Field; 5],
+    original: [u8; 5],
+    modified_once: [u8; 5],
+    modified_twice: [u8; 5],
 }
 
 impl ExecutionResult {
@@ -17,23 +17,23 @@ impl ExecutionResult {
     }
 }
 
-fn modify_in_inlined_constrained(original: [Field; 5], index: u32) -> ExecutionResult {
-    let mut modified: [Field; 5] = original;
-    modified[index] = 27_Field;
-    let modified_once: [Field; 5] = modified;
-    modified[index + 1_u32] = 27_Field;
+fn modify_in_inlined_constrained(original: [u8; 5], index: u32) -> ExecutionResult {
+    let mut modified: [u8; 5] = original;
+    modified[index] = 27_u8;
+    let modified_once: [u8; 5] = modified;
+    modified[index + 1_u32] = 27_u8;
     ExecutionResult { original: original, modified_once: modified_once, modified_twice: modified }
 }
 
-unconstrained fn modify_in_unconstrained(original: [Field; 5], index: u32) -> ExecutionResult {
-    let mut modified: [Field; 5] = original;
-    modified[index] = 27_Field;
-    let modified_once: [Field; 5] = modified;
-    modified[index + 1_u32] = 27_Field;
+unconstrained fn modify_in_unconstrained(original: [u8; 5], index: u32) -> ExecutionResult {
+    let mut modified: [u8; 5] = original;
+    modified[index] = 27_u8;
+    let modified_once: [u8; 5] = modified;
+    modified[index + 1_u32] = 27_u8;
     ExecutionResult { original: original, modified_once: modified_once, modified_twice: modified }
 }
 
-unconstrained fn main(original: [Field; 5], index: u32, expected_result: ExecutionResult) {
+unconstrained fn main(original: [u8; 5], index: u32, expected_result: ExecutionResult) {
     assert(expected_result.is_equal(modify_in_unconstrained(original, index)));
     assert(expected_result.is_equal(modify_in_inlined_constrained(original, index)));
 }

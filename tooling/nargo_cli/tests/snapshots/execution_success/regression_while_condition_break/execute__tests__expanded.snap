@@ -2,7 +2,7 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-unconstrained fn main(cond: bool) -> pub [Field; 2] {
+unconstrained fn main(cond: bool) -> pub [u8; 2] {
     let mut x: [Field; 2] = [1_Field, 2_Field];
     let mut z: [Field; 2] = [0_Field, 0_Field];
     let mut i: u32 = 0_u32;
@@ -24,5 +24,5 @@ unconstrained fn main(cond: bool) -> pub [Field; 2] {
         };
         i = i + 1_u32;
     }
-    [x[0_u32], z[0_u32]]
+    [x[0_u32] as u8, z[0_u32] as u8]
 }

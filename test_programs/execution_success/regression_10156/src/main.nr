@@ -1,4 +1,4 @@
-pub fn main() -> pub Field {
+pub fn main() -> pub u8 {
     println(foo); // normal
     println(std::as_witness); // intrinsic
     println(std::hash::blake2s::<10>); // builtin
@@ -10,7 +10,7 @@ pub fn main() -> pub Field {
     take_as_witness(std::as_witness);
     std::as_witness(foo());
 
-    take_foo(foo)
+    take_foo(foo) as u8
 }
 
 fn foo() -> Field {

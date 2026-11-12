@@ -335,7 +335,7 @@ fn continue_in_loop() {
 #[test]
 fn errors_on_break_or_continue_in_assertion_message() {
     let src = r#"
-    unconstrained fn main(dummy: Field) -> pub Field {
+    unconstrained fn main(dummy: u32) -> pub u32 {
         loop {
         ^^^^ `loop` must have at least one `break` in it
         ~~~~ Infinite loops are disallowed

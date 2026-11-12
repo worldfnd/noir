@@ -1,0 +1,6 @@
+[package]
+name = "field_gated_type"
+type = "bin"
+authors = [""]
+
+[dependencies]

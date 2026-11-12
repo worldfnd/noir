@@ -1,8 +1,8 @@
-fn main(x: Field) -> pub Field {
+fn main(x: u32) -> pub u32 {
     double(x)
 }
 
 #[fold]
-fn double(x: Field) -> Field {
+fn double(x: u32) -> u32 {
     x * 2
 }

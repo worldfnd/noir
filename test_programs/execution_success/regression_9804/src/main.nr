@@ -1,4 +1,4 @@
-fn main(a: u32, b: bool) -> pub Field {
+fn main(a: u32, b: bool) -> pub u32 {
     let mut s = 0;
     let c = [[1, 2]];
     for _ in 0..2 {
@@ -8,5 +8,5 @@ fn main(a: u32, b: bool) -> pub Field {
             s += e;
         }
     }
-    s
+    s as u32
 }

@@ -1,12 +1,12 @@
 struct Trigger {
     x: u32,
-    y: Field,
-    z: [Field; 3],
+    y: u32,
+    z: [u32; 3],
 }
 struct ResultType {
     a: u32,
-    b: Field,
-    c: [Field; 3],
+    b: u32,
+    c: [u32; 3],
 }
 
 unconstrained fn convert(trigger: Trigger) -> ResultType {

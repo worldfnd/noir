@@ -5411,7 +5411,9 @@ mod consts {
     ];
 }
 
-fn main(x: Field, y: pub Field) {
+fn main(x: u8, y: pub u8) {
+    let x: Field = x as Field;
+    let y: Field = y as Field;
     // Safety: comment added by `nargo expand`
     unsafe {
         assert(entry_point_only_const_global(x) == 2_Field);

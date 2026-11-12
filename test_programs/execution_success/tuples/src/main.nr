@@ -1,4 +1,4 @@
-fn main(x: Field, y: Field) {
+fn main(x: u8, y: u8) {
     let pair = (x, y);
     assert(pair.0 == 1);
     assert(pair.1 == 0);

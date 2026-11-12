@@ -2,4 +2,4 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: stdout
 ---
-[brillig_loop_size_regression] Circuit output: 0x02
+[brillig_loop_size_regression] Circuit output: 2

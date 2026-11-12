@@ -1,7 +1,9 @@
 use poseidon::poseidon2::Poseidon2Hasher;
 use std::hash::Hasher;
 
-fn main(x: Field, y: pub Field) {
+fn main(x: u64, y: pub u64) {
+    let x = x as Field;
+    let y = y as Field;
     let mut a_mut_ref = AType { x };
 
     pass_trait_by_value(a_mut_ref, y);

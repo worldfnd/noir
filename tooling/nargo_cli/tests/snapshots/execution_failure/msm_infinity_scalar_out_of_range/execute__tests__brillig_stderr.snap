@@ -10,7 +10,7 @@ error: Assertion failed: 'failed to solve blackbox function: multi_scalar_mul, r
     │
     = Call stack:
       1: main
-              at src/main.nr:9:18
+              at src/main.nr:11:18
       2: multi_scalar_mul
               at std/embedded_curve_ops.nr:138:5
 

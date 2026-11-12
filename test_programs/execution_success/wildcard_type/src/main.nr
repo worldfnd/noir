@@ -4,11 +4,11 @@ struct bar {
     pad: u32,
 }
 
-fn main(enable: [Field; 2]) -> pub [Field; 4] {
+fn main(enable: [u8; 2]) -> pub [u8; 4] {
     let mut result = [0; 4];
-    let a: [_; 4] = foo(enable[1]);
+    let a: [_; 4] = foo(enable[1] as Field);
     for i in 0..4 {
-        result[i] = a[i].data[i % 2];
+        result[i] = a[i].data[i % 2] as u8;
     }
     result
 }

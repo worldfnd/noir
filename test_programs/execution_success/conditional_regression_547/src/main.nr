@@ -1,4 +1,4 @@
-fn main(x: Field) -> pub Field {
+fn main(x: u8) -> pub u8 {
     // Regression test for issue #547
     // Warning: it must be kept at the start of main
     let arr: [u8; 2] = [1, 2];
@@ -8,7 +8,7 @@ fn main(x: Field) -> pub Field {
         }
     }
     // Regression for predicate simplification
-    x + safe_inverse(0)
+    (x as Field + safe_inverse(0)) as u8
 }
 
 fn safe_inverse(n: Field) -> Field {

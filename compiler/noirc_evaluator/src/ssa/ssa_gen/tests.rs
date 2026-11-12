@@ -174,7 +174,7 @@ fn basic_loop() {
 #[test]
 fn acir_no_access_check_on_array_read() {
     let src = "
-    fn main(mut array: [Field; 3], index: u32) -> pub Field {
+    fn main(mut array: [u64; 3], index: u32) -> pub u64 {
         array[index]
     }
     ";
@@ -182,11 +182,11 @@ fn acir_no_access_check_on_array_read() {
 
     let expected = "
     acir(inline) fn main f0 {
-      b0(v0: [Field; 3], v1: u32):
-        v2 = allocate -> &mut [Field; 3]
+      b0(v0: [u64; 3], v1: u32):
+        v2 = allocate -> &mut [u64; 3]
         store v0 at v2
-        v3 = load v2 -> [Field; 3]
-        v4 = array_get v3, index v1 -> Field
+        v3 = load v2 -> [u64; 3]
+        v4 = array_get v3, index v1 -> u64
         return v4
     }
     ";
@@ -196,7 +196,7 @@ fn acir_no_access_check_on_array_read() {
 #[test]
 fn acir_no_access_check_on_array_assignment() {
     let src = "
-    fn main(mut array: [Field; 3], index: u32, x: Field) {
+    fn main(mut array: [u64; 3], index: u32, x: u64) {
         array[index] = x;
     }
     ";
@@ -204,10 +204,10 @@ fn acir_no_access_check_on_array_assignment() {
 
     let expected = "
     acir(inline) fn main f0 {
-      b0(v0: [Field; 3], v1: u32, v2: Field):
-        v3 = allocate -> &mut [Field; 3]
+      b0(v0: [u64; 3], v1: u32, v2: u64):
+        v3 = allocate -> &mut [u64; 3]
         store v0 at v3
-        v4 = load v3 -> [Field; 3]
+        v4 = load v3 -> [u64; 3]
         v5 = array_set v4, index v1, value v2
         v7 = unchecked_add v1, u32 1
         store v5 at v3
@@ -220,7 +220,7 @@ fn acir_no_access_check_on_array_assignment() {
 #[test]
 fn brillig_access_check_on_array_read() {
     let src = "
-    unconstrained fn main(mut array: [Field; 3], index: u32) -> pub Field {
+    unconstrained fn main(mut array: [u64; 3], index: u32) -> pub u64 {
         array[index]
     }
     ";
@@ -228,13 +228,13 @@ fn brillig_access_check_on_array_read() {
 
     let expected = r#"
     brillig(inline) fn main f0 {
-      b0(v0: [Field; 3], v1: u32):
-        v2 = allocate -> &mut [Field; 3]
+      b0(v0: [u64; 3], v1: u32):
+        v2 = allocate -> &mut [u64; 3]
         store v0 at v2
-        v3 = load v2 -> [Field; 3]
+        v3 = load v2 -> [u64; 3]
         v5 = lt v1, u32 3
         constrain v5 == u1 1, "Index out of bounds"
-        v7 = array_get v3, index v1 -> Field
+        v7 = array_get v3, index v1 -> u64
         return v7
     }
     "#;
@@ -244,7 +244,7 @@ fn brillig_access_check_on_array_read() {
 #[test]
 fn brillig_access_check_on_array_assignment() {
     let src = "
-    unconstrained fn main(mut array: [Field; 3], index: u32, x: Field) {
+    unconstrained fn main(mut array: [u64; 3], index: u32, x: u64) {
         array[index] = x;
     }
     ";
@@ -252,10 +252,10 @@ fn brillig_access_check_on_array_assignment() {
 
     let expected = r#"
     brillig(inline) fn main f0 {
-      b0(v0: [Field; 3], v1: u32, v2: Field):
-        v3 = allocate -> &mut [Field; 3]
+      b0(v0: [u64; 3], v1: u32, v2: u64):
+        v3 = allocate -> &mut [u64; 3]
         store v0 at v3
-        v4 = load v3 -> [Field; 3]
+        v4 = load v3 -> [u64; 3]
         v6 = lt v1, u32 3
         constrain v6 == u1 1, "Index out of bounds"
         v8 = array_set v4, index v1, value v2
@@ -397,13 +397,13 @@ fn oracle_wrapper_call_args_do_not_get_cloned() {
 #[test]
 fn oracle_wrapper_with_mutating_arg_keeps_clone() {
     let src = "
-    unconstrained fn main(seed: Field, idx: u32) -> pub Field {
-        let array: [Field; 3] = [seed, seed + 1, seed + 2];
+    unconstrained fn main(seed: u32, idx: u32) -> pub u32 {
+        let array: [u32; 3] = [seed, seed + 1, seed + 2];
         mutating_print_wrapper(array);
         array[idx]
     }
 
-    unconstrained fn mutating_print_wrapper(mut array: [Field; 3]) {
+    unconstrained fn mutating_print_wrapper(mut array: [u32; 3]) {
         println({
             array[0] = 9;
             array
@@ -414,10 +414,8 @@ fn oracle_wrapper_with_mutating_arg_keeps_clone() {
     let program = get_monomorphized_with_stdlib(src, &[stdlib_src::PRINT]).unwrap();
     let ssa = generate_ssa(program).unwrap();
 
-    let results = ssa
-        .interpret(vec![InterpreterValue::field(FieldElement::one()), InterpreterValue::u32(0)])
-        .unwrap();
-    assert_eq!(results, vec![InterpreterValue::field(FieldElement::one())]);
+    let results = ssa.interpret(vec![InterpreterValue::u32(1), InterpreterValue::u32(0)]).unwrap();
+    assert_eq!(results, vec![InterpreterValue::u32(1)]);
 }
 
 #[test]
@@ -821,42 +819,6 @@ fn for_loop_inclusive_no_mul_by_one() {
         "Expected no `unchecked_mul` in initial SSA for inclusive range with known bounds,\
          but found:\n{ssa_string}"
     );
-}
-
-#[test]
-fn brillig_function_with_databus_array_input() {
-    let src = "
-    unconstrained fn main(x: call_data(0) [Field; 3]) {}
-    ";
-    let ssa = get_initial_ssa(src).unwrap();
-
-    // No databus instructions emitted for Brillig functions
-    assert_ssa_snapshot!(ssa, @r"
-    brillig(inline) fn main f0 {
-      b0(v0: [Field; 3]):
-        return
-    }
-    ");
-}
-
-#[test]
-fn acir_function_with_databus_array_input() {
-    let src = "
-    fn main(x: call_data(0) [Field; 3]) {}
-    ";
-    let ssa = get_initial_ssa(src).unwrap();
-
-    assert_ssa_snapshot!(ssa, @r"
-    acir(inline) fn main f0 {
-      call_data(0): array: v7, indices: [v0: 0]
-      b0(v0: [Field; 3]):
-        v2 = array_get v0, index u32 0 -> Field
-        v4 = array_get v0, index u32 1 -> Field
-        v6 = array_get v0, index u32 2 -> Field
-        v7 = make_array [v2, v4, v6] : [Field; 3]
-        return
-    }
-    ");
 }
 
 #[test]

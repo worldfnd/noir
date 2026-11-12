@@ -2,6 +2,7 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-fn main(x: Field) {
+fn main(x: u64) {
+    let x: Field = x as Field;
     assert((x as u32) == (x as u32));
 }

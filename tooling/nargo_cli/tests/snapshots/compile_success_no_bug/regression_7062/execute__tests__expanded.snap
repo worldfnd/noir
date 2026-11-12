@@ -2,10 +2,10 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-fn main(args: [Field; 2]) {
+fn main(args: [u8; 2]) {
     // Safety: comment added by `nargo expand`
     unsafe { store(args.as_vector()) };
-    assert((args[0_u32] + args[1_u32]) != 0_Field);
+    assert((args[0_u32] + args[1_u32]) != 0_u8);
 }
 
-pub unconstrained fn store(_: [Field]) {}
+pub unconstrained fn store(_: [u8]) {}

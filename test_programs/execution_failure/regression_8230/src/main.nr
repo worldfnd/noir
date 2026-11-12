@@ -1,5 +1,5 @@
 global G_A: u16 = 63895;
-fn main() -> return_data Field {
+fn main() -> pub u16 {
     {
         let mut a = G_A;
         a = {
@@ -15,6 +15,6 @@ fn main() -> return_data Field {
             }
             G_A
         };
-        -239954134027687318469209338074081854550
+        64427
     }
 }

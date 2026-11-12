@@ -9,7 +9,6 @@
 
 use std::collections::HashSet;
 
-use acvm::FieldConfig;
 use iter_extended::vecmap;
 use itertools::Itertools;
 use noirc_errors::Location;
@@ -43,6 +42,7 @@ use crate::{
         DefinitionKind, DependencyId, FuncId, FunctionModifiers, ImplId, TraitId, TraitImplId,
     },
     shared::Visibility,
+    validity::ProgramBoundary,
 };
 
 use super::Elaborator;
@@ -389,11 +389,9 @@ impl Elaborator<'_> {
         let is_entry_point = func.is_entry_point(self.is_function_in_contract(), is_crate_root);
 
         self.run_lint(|_| {
-            lints::databus_visibility_on_return(
-                func,
+            lints::databus_visibility(
                 func.def.return_visibility,
                 func.def.return_visibility_location,
-                is_entry_point,
             )
             .map(Into::into)
         });
@@ -401,10 +399,10 @@ impl Elaborator<'_> {
         // Temporary allow vectors for contract functions, until contracts are re-factored.
         if !func.attributes().has_contract_library_method() {
             let output = true;
-            if let Err(err) = Self::check_if_type_is_valid_for_program(
+            let boundary = Self::program_boundary(is_entry_point, func.is_test_or_fuzz());
+            if let Err(err) = self.check_if_type_is_valid_for_program(
                 &return_type,
-                is_entry_point || func.is_test_or_fuzz(),
-                is_entry_point.then(|| self.interner.field()),
+                boundary,
                 func.has_inline_attribute(),
                 output,
                 func.return_type().location,
@@ -559,6 +557,7 @@ impl Elaborator<'_> {
         let mut parameter_types = Vec::new();
         let mut parameter_idents = Vec::new();
         let mut parameter_names_in_list = rustc_hash::FxHashMap::default();
+        let mut first_wildcard_name = None;
         let wildcard_allowed = WildcardAllowed::No(WildcardDisallowedContext::FunctionParameter);
 
         // Seed the parameter names with those from the constant generic parameter list, so that any function parameter
@@ -584,13 +583,7 @@ impl Elaborator<'_> {
                 .map(Into::into)
             });
             self.run_lint(|_| {
-                lints::databus_visibility_on_parameter(
-                    func,
-                    visibility,
-                    visibility_location,
-                    is_entry_point,
-                )
-                .map(Into::into)
+                lints::databus_visibility(visibility, visibility_location).map(Into::into)
             });
             let type_location = typ.location;
             let typ = match typ.typ {
@@ -603,10 +596,10 @@ impl Elaborator<'_> {
             };
 
             let output = false;
-            if let Err(err) = Self::check_if_type_is_valid_for_program(
+            let boundary = Self::program_boundary(is_entry_point, is_test_or_fuzz);
+            if let Err(err) = self.check_if_type_is_valid_for_program(
                 &typ,
-                is_entry_point || is_test_or_fuzz,
-                is_entry_point.then(|| self.interner.field()),
+                boundary,
                 has_inline_attribute,
                 output,
                 type_location,
@@ -634,6 +627,21 @@ impl Elaborator<'_> {
                 });
             }
 
+            // `_` binds nothing, so a parameter list may repeat it. At an entry point a
+            // parameter's name is also the key of its input, so `_` names one parameter at most.
+            if is_entry_point && self.is_wildcard_name_pattern(&pattern) {
+                let location = pattern.location();
+                if let Some(first_location) = first_wildcard_name {
+                    self.push_err(TypeCheckError::DuplicateNameForEntryPoint {
+                        name: WILDCARD_NAME.to_string(),
+                        first_location,
+                        location,
+                    });
+                } else {
+                    first_wildcard_name = Some(location);
+                }
+            }
+
             parameters.push((pattern, typ.clone(), visibility));
             parameter_types.push(typ);
         }
@@ -641,20 +649,45 @@ impl Elaborator<'_> {
         (parameters, parameter_types, parameter_idents)
     }
 
-    /// Only sized types are valid to be used as main's parameters or the parameters to a contract
-    /// function. If the given type is not sized (e.g. contains a vector or `NamedGeneric` type), an
-    /// error is issued. `field` is the field whose modulus bounds the integers of `main` and of a
-    /// contract function, and is `None` for test and fuzz functions.
+    /// Whether `pattern` binds a parameter to the name `_`.
+    fn is_wildcard_name_pattern(&self, pattern: &HirPattern) -> bool {
+        match pattern {
+            HirPattern::Identifier(ident) => {
+                self.interner.definition_name(ident.id) == WILDCARD_NAME
+            }
+            HirPattern::Mutable(inner, _) => self.is_wildcard_name_pattern(inner),
+            HirPattern::Tuple(..) | HirPattern::Struct(..) => false,
+        }
+    }
+
+    /// The boundary a function's parameters and return cross: `main` and contract functions are
+    /// entry points, test and fuzz functions are harnesses, and other functions cross none.
+    fn program_boundary(is_entry_point: bool, is_test_or_fuzz: bool) -> Option<ProgramBoundary> {
+        if is_entry_point {
+            Some(ProgramBoundary::EntryPoint)
+        } else if is_test_or_fuzz {
+            Some(ProgramBoundary::Harness)
+        } else {
+            None
+        }
+    }
+
+    /// Checks that `typ` can cross `boundary` (see [`Type::program_validity`]): only sized types
+    /// cross any boundary, and an entry point also refuses `Field` and unbound or field-specific
+    /// types. Any deferred data types in `typ` are defined first, so their fields are known.
     fn check_if_type_is_valid_for_program(
+        &mut self,
         typ: &Type,
-        is_entry_point: bool,
-        field: Option<FieldConfig>,
+        boundary: Option<ProgramBoundary>,
         has_inline_attribute: bool,
         output: bool,
         location: Location,
     ) -> Result<(), TypeCheckError> {
-        if is_entry_point && let Some(invalid_type) = typ.program_validity(output, field) {
-            return Err(TypeCheckError::InvalidTypeForEntryPoint { invalid_type, location });
+        if let Some(boundary) = boundary {
+            self.define_deferred_data_types_in(typ);
+            if let Some(invalid_type) = typ.program_validity(output, boundary) {
+                return Err(TypeCheckError::InvalidTypeForEntryPoint { invalid_type, location });
+            }
         }
 
         if has_inline_attribute
@@ -692,6 +725,10 @@ impl Elaborator<'_> {
             lints::oracle_name_clashes_with_stdlib(modifiers, elaborator.crate_id).map(Into::into)
         });
         self.run_lint(|_| lints::check_varargs(func, modifiers).map(Into::into));
+        self.run_lint(|elaborator| {
+            let def_map = &elaborator.def_maps[&func.source_crate];
+            lints::field_attribute_on_entry_point(func, modifiers, def_map).map(Into::into)
+        });
     }
 
     /// Elaborates a function's body and performs type checking.
@@ -842,6 +879,9 @@ impl Elaborator<'_> {
         self.local_module = previous_local_module;
     }
 }
+
+/// The name that binds nothing, which a parameter list may repeat.
+const WILDCARD_NAME: &str = "_";
 
 /// Whether a pattern binds the whole value to a single name. ABI generation requires this for
 /// entry point parameters since each parameter is keyed by a single name.

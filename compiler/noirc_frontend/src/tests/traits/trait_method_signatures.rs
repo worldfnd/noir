@@ -117,7 +117,7 @@ fn check_trait_wrong_parameter_type() {
                                 ^^^^^^^^ Could not resolve 'NotAType' in path
     }
 
-    fn main(x: Field, y: Field) {
+    fn main(x: u32, y: u32) {
         assert(y == x);
     }
     ";

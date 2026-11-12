@@ -17,11 +17,11 @@ pub fn is_legal_integer_width(bits: u32) -> bool {
 /// The integer types the circuit backend lowers, in words, for diagnostics.
 pub const LOWERABLE_INTEGER_TYPES: &str = "u8, u16, u32, u64, u128, i8, i16, i32 and i64";
 
-/// Whether ACIR and Brillig have a lowering for an integer type, which is also the set an entry
-/// point takes or returns. The front half and every other consumer of the monomorphized output
-/// admit each width the language has inside a program. The signed set stops at 64 bits because
-/// the ACIR lowering of signed comparison, and of the truncation after signed arithmetic,
-/// carries one bit more than the operand.
+/// Whether ACIR and Brillig have a lowering for an integer type. The front half and every other
+/// consumer of the monomorphized output admit each width the language has, at an entry point as
+/// inside a program; the driver refuses the others on the circuit path. The signed set stops at
+/// 64 bits because the ACIR lowering of signed comparison, and of the truncation after signed
+/// arithmetic, carries one bit more than the operand.
 pub fn is_lowerable_integer_width(signedness: Signedness, bits: u32) -> bool {
     match signedness {
         Signedness::Unsigned => matches!(bits, 8 | 16 | 32 | 64 | 128),

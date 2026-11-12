@@ -1,0 +1,21 @@
+---
+source: tooling/nargo_cli/tests/execute.rs
+expression: stderr
+---
+error: call_data(0) is not supported
+  ┌─ src/main.nr:2:12
+  │
+2 │ fn main(x: call_data(0) u32, y: u32) -> return_data u32 {
+  │            ------------ unsupported call_data(0)
+  │
+  = A program's inputs and return are read as bytes, so the data bus is not supported; use a plain parameter, or `pub` for a public one
+
+error: return_data is not supported
+  ┌─ src/main.nr:2:41
+  │
+2 │ fn main(x: call_data(0) u32, y: u32) -> return_data u32 {
+  │                                         ----------- unsupported return_data
+  │
+  = A program's inputs and return are read as bytes, so the data bus is not supported; use a plain parameter, or `pub` for a public one
+
+Aborting due to 2 previous errors

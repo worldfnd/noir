@@ -28,11 +28,16 @@ unconstrained fn calculate_global_value() -> Field {
 global CALCULATED_GLOBAL: Field = calculate_global_value();
 
 fn main(
-    a: [Field; M + N - N],
-    b: [Field; 30 + N / 2],
-    c: pub [Field; foo::MAGIC_NUMBER],
-    d: [Field; foo::bar::N],
+    a: [u8; M + N - N],
+    b: [u8; 30 + N / 2],
+    c: pub [u8; foo::MAGIC_NUMBER],
+    d: [u8; foo::bar::N],
 ) {
+    let a = a.map(|v| v as Field);
+    let b = b.map(|v| v as Field);
+    let c = c.map(|v| v as Field);
+    let d = d.map(|v| v as Field);
+
     let test_struct = Dummy { x: d, y: c };
 
     for i in 0..foo::MAGIC_NUMBER {

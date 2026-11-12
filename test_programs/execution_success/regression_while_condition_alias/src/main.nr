@@ -6,7 +6,7 @@
 // condition read were moved (no clone), `y` would share `x`'s storage and the mutation would be
 // observed by the body read of `x`. The correct result is `1 + 4 = 5`; the missing clone would
 // instead produce `9 + 9 = 18` (or fail SSA validation in a debug build).
-unconstrained fn main(n: u32) -> pub Field {
+unconstrained fn main(n: u32) -> pub u32 {
     let mut x = [1, 2, 3];
     let mut i = 0;
     let mut total = 0;
@@ -21,5 +21,5 @@ unconstrained fn main(n: u32) -> pub Field {
         i = i + 1;
         x = [4, 5, 6];
     }
-    total
+    total as u32
 }

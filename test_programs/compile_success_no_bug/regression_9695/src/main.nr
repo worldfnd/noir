@@ -1,4 +1,5 @@
-fn main(mut a: pub Field) {
+fn main(a: pub u8) {
+    let mut a = a as Field;
     let mut ctx_limit: u32 = 5_u32;
     if a == -1 {
         for _ in 0..2 {

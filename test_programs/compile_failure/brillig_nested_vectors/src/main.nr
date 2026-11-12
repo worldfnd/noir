@@ -5,17 +5,17 @@ unconstrained fn push_back_to_vector<T>(vector: [T], item: T) -> [T] {
 }
 
 struct NestedVectorStruct {
-    id: Field,
-    arr: [Field]
+    id: u32,
+    arr: [u32]
 }
 
-unconstrained fn create_foo(id: Field, value: Field) -> NestedVectorStruct {
+unconstrained fn create_foo(id: u32, value: u32) -> NestedVectorStruct {
     let mut arr = [id].as_vector();
     arr = arr.push_back(value);
     NestedVectorStruct { id, arr }
 }
 
-unconstrained fn main(a: Field, b: Field) {
+unconstrained fn main(a: u32, b: u32) {
     let mut vector = [create_foo(a, b), create_foo(b, a)].as_vector();
     assert(vector.len() == 2);
 

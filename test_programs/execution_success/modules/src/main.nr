@@ -9,6 +9,6 @@ mod foo;
 // To run a proof on the command line, type `cargo run prove {proof_name}`
 //
 // To verify that proof, type `cargo run verify {proof_name}`
-fn main(x: Field, y: pub Field) {
-    assert(x != foo::hello(y));
+fn main(x: u8, y: pub u8) {
+    assert(x as Field != foo::hello(y as Field));
 }

@@ -2,7 +2,8 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-fn main(x: Field) {
+fn main(x: u8) {
+    let x: Field = x as Field;
     // Safety: comment added by `nargo expand`
     let y: Field = unsafe { empty(x) };
     let mut value: Field = 0_Field;

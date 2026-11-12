@@ -4,7 +4,8 @@ type MyField = Field;
 // Chained alias
 type AliasOfAlias = MyField;
 
-fn main(x: Field) {
+fn main(x: u8) {
+    let x = x as Field;
     let expected: [bool; 8] = x.to_le_bits();
 
     // Direct method on Field alias gives same result as dot syntax

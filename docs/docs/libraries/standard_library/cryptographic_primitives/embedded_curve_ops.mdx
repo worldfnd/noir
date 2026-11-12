@@ -11,6 +11,8 @@ For the BN254 scalar field, this is BabyJubJub or Grumpkin.
 
 :::note
 Suffixes `_low` and `_high` denote low and high limbs of a scalar.
+
+`main` takes no `Field`, so the examples below take a point's coordinates as little-endian bytes and a scalar's 128-bit limbs as `u128`, and convert them to fields inside.
 :::
 
 ## embedded_curve_ops::multi_scalar_mul
@@ -28,9 +30,12 @@ example
 ```rust
 use std::embedded_curve_ops::{EmbeddedCurvePoint, EmbeddedCurveScalar, multi_scalar_mul};
 
-fn main(point_x: Field, point_y: Field, scalar_low: Field, scalar_high: Field) {
-    let point = EmbeddedCurvePoint { x: point_x, y: point_y };
-    let scalar = EmbeddedCurveScalar { lo: scalar_low, hi: scalar_high };
+fn main(point_x: [u8; 32], point_y: [u8; 32], scalar_low: u128, scalar_high: u128) {
+    let point = EmbeddedCurvePoint {
+        x: Field::from_le_bytes_checked(point_x),
+        y: Field::from_le_bytes_checked(point_y),
+    };
+    let scalar = EmbeddedCurveScalar { lo: Field::from(scalar_low), hi: Field::from(scalar_high) };
     let result = multi_scalar_mul([point], [scalar]);
     println(result);
 }
@@ -48,8 +53,8 @@ example
 ```rust
 use std::embedded_curve_ops::{EmbeddedCurveScalar, fixed_base_scalar_mul};
 
-fn main(scalar_low: Field, scalar_high: Field) {
-    let scalar = EmbeddedCurveScalar { lo: scalar_low, hi: scalar_high };
+fn main(scalar_low: u128, scalar_high: u128) {
+    let scalar = EmbeddedCurveScalar { lo: Field::from(scalar_low), hi: Field::from(scalar_high) };
     let point = fixed_base_scalar_mul(scalar);
     println(point);
 }

@@ -4,8 +4,8 @@ expression: expanded_code
 ---
 struct Trigger {
     x: u32,
-    y: Field,
-    z: [Field; 3],
+    y: u32,
+    z: [u32; 3],
 }
 
 impl Trigger {
@@ -13,9 +13,9 @@ impl Trigger {
         // Safety: comment added by `nargo expand`
         let result: ResultType = unsafe { convert(self) };
         assert(result.a == (self.x + 1_u32));
-        assert(result.b == ((self.y - 1_Field) + self.z[2_u32]));
+        assert(result.b == ((self.y - 1_u32) + self.z[2_u32]));
         assert(result.c[0_u32] == self.z[0_u32]);
-        assert(result.c[1_u32] == 0_Field);
+        assert(result.c[1_u32] == 0_u32);
         assert(result.c[2_u32] == self.z[1_u32]);
         result
     }
@@ -23,15 +23,15 @@ impl Trigger {
 
 struct ResultType {
     a: u32,
-    b: Field,
-    c: [Field; 3],
+    b: u32,
+    c: [u32; 3],
 }
 
 unconstrained fn convert(trigger: Trigger) -> ResultType {
     let result: ResultType = ResultType {
         a: trigger.x + 1_u32,
-        b: (trigger.y - 1_Field) + trigger.z[2_u32],
-        c: [trigger.z[0_u32], 0_Field, trigger.z[1_u32]],
+        b: (trigger.y - 1_u32) + trigger.z[2_u32],
+        c: [trigger.z[0_u32], 0_u32, trigger.z[1_u32]],
     };
     result
 }

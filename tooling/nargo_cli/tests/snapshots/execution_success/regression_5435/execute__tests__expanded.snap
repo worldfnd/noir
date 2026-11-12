@@ -2,9 +2,9 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-fn main(input: Field, enable: bool) {
+fn main(input: u8, enable: bool) {
     if enable {
-        let hash: Field = no_predicate_function(input);
+        let hash: Field = no_predicate_function(input as Field);
         // Safety: comment added by `nargo expand`
         unsafe { fail(hash) };
     }

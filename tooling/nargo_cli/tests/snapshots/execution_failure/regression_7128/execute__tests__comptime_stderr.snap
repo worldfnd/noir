@@ -3,9 +3,9 @@ source: tooling/nargo_cli/tests/execute.rs
 expression: stderr
 ---
 error: soundness violation
-   ┌─ src/main.nr:23:12
+   ┌─ src/main.nr:24:12
    │
-23 │     assert(out0 != 0, "soundness violation");
+24 │     assert(out0 != 0, "soundness violation");
    │            --------- Assertion failed
    │
    = Call stack:

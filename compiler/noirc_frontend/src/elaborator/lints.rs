@@ -5,7 +5,8 @@ use crate::{
     ast::{Ident, NoirFunction},
     graph::CrateId,
     hir::{
-        def_collector::dc_crate::CompilationError,
+        def_collector::{dc_crate::CompilationError, dc_mod::field_gate},
+        def_map::CrateDefMap,
         resolution::errors::{PubPosition, ResolverError},
         type_check::TypeCheckError,
     },
@@ -80,6 +81,21 @@ pub(super) fn no_predicates_on_entry_point(
             location: attribute.location,
         }
     })
+}
+
+/// `main` and contract functions run on every field, so neither they nor an enclosing module or
+/// contract may be marked `#[field(..)]`.
+pub(super) fn field_attribute_on_entry_point(
+    func: &FuncMeta,
+    modifiers: &FunctionModifiers,
+    def_map: &CrateDefMap,
+) -> Option<ResolverError> {
+    if !func.is_entry_point {
+        return None;
+    }
+    let location = field_gate(def_map, func.source_module, &modifiers.attributes.secondary)?;
+    let ident = func_meta_name_ident(func, modifiers);
+    Some(ResolverError::FieldAttributeOnEntryPoint { ident, location })
 }
 
 /// Attempting to define new low level (`#[builtin]` or `#[foreign]`) functions outside of the stdlib is disallowed.
@@ -486,59 +502,21 @@ pub(super) fn unnecessary_pub_argument(
     }
 }
 
-/// `call_data` marks a parameter and `return_data` a return, so only `call_data` is
-/// meaningful on a parameter, and only on an entry point function.
-pub(super) fn databus_visibility_on_parameter(
-    func: &NoirFunction,
+/// `call_data` and `return_data` are refused on every function: the prover reads a program's
+/// inputs and return as bytes, so the data bus is not supported. The keywords still parse, so
+/// an author gets this diagnostic rather than a parse error.
+pub(super) fn databus_visibility(
     visibility: Visibility,
     visibility_location: Location,
-    is_entry_point: bool,
 ) -> Option<ResolverError> {
     match visibility {
-        Visibility::ReturnData => Some(ResolverError::DataBusOnWrongPosition {
-            visibility: visibility.to_string(),
-            position: "a parameter",
-            allowed: "the return value",
-            location: visibility_location,
-        }),
-        Visibility::CallData(_) if !is_entry_point => {
-            Some(databus_on_non_entry_point(func, visibility, visibility_location))
+        Visibility::CallData(_) | Visibility::ReturnData => {
+            Some(ResolverError::DataBusUnsupported {
+                visibility: visibility.to_string(),
+                location: visibility_location,
+            })
         }
-        _ => None,
-    }
-}
-
-/// `return_data` marks a return and `call_data` a parameter, so only `return_data` is
-/// meaningful on a return value, and only on an entry point function.
-pub(super) fn databus_visibility_on_return(
-    func: &NoirFunction,
-    visibility: Visibility,
-    visibility_location: Location,
-    is_entry_point: bool,
-) -> Option<ResolverError> {
-    match visibility {
-        Visibility::CallData(_) => Some(ResolverError::DataBusOnWrongPosition {
-            visibility: visibility.to_string(),
-            position: "the return value",
-            allowed: "a parameter",
-            location: visibility_location,
-        }),
-        Visibility::ReturnData if !is_entry_point => {
-            Some(databus_on_non_entry_point(func, visibility, visibility_location))
-        }
-        _ => None,
-    }
-}
-
-fn databus_on_non_entry_point(
-    func: &NoirFunction,
-    visibility: Visibility,
-    visibility_location: Location,
-) -> ResolverError {
-    ResolverError::DataBusOnNonEntryPoint {
-        name: func.name().to_string(),
-        location: visibility_location,
-        visibility: visibility.to_string(),
+        Visibility::Public | Visibility::Private => None,
     }
 }
 

@@ -1,4 +1,4 @@
-fn main() -> pub Field {
+fn main() -> pub u32 {
     assert(foo::bar() + foo::baz() == 3);
     assert(foo::bar() == 1);
     assert(foo::baz() == 2);
@@ -6,7 +6,7 @@ fn main() -> pub Field {
 }
 
 mod foo {
-    pub(crate) fn bar() -> Field {
+    pub(crate) fn bar() -> u32 {
         1
     }
 }

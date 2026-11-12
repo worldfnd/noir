@@ -1,7 +1,8 @@
 // Regression: the truncate simplification incorrectly treated field division
 // as integer division when reasoning about bit sizes, removing a necessary
 // truncation after `array_get` optimization replaced the operand.
-fn main(inp: Field) {
+fn main(inp: u8) {
+    let inp = inp as Field;
     let mut x: Field = -1;
     for _i in 0..1 {
         x = -1;

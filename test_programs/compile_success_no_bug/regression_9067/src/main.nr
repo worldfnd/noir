@@ -1,4 +1,4 @@
-fn main(c: bool) -> pub Field {
+fn main(c: bool) -> pub u32 {
     let mut s = 0;
     if c {
         for i in 0..150 {
@@ -11,5 +11,5 @@ fn main(c: bool) -> pub Field {
             }
         }
     }
-    s
+    s as u32
 }

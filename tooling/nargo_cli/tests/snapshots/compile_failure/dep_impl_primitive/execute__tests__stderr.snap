@@ -17,9 +17,9 @@ error: Cannot define inherent `impl` for primitive types
   │
 
 error: No method named 'something' found for type 'Field'
-  ┌─ src/main.nr:4:5
+  ┌─ src/main.nr:5:5
   │
-4 │     x.something();
+5 │     x.something();
   │     -------------
   │
 

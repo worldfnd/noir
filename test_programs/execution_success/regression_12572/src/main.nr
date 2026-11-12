@@ -16,8 +16,8 @@ struct Bundle {
     wrapped: [Wrapper; 1],
 }
 
-fn main(input: Field) -> pub Field {
+fn main(input: u8) -> pub u8 {
     let mut b: Bundle = Default::default();
-    b.wrapped[0].log.fields[0] = input;
-    b.wrapped[0].log.fields[0] + b.wrapped[0].log.fields[1] + b.small[0].fields[0]
+    b.wrapped[0].log.fields[0] = input as Field;
+    (b.wrapped[0].log.fields[0] + b.wrapped[0].log.fields[1] + b.small[0].fields[0]) as u8
 }

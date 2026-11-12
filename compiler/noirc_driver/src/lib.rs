@@ -894,7 +894,7 @@ fn compile_contract_inner(
                         let typ = typ.borrow();
                         let fields =
                             vecmap(typ.get_fields(&[]).unwrap_or_default(), |(name, typ, _)| {
-                                (name, abi_type_from_hir_type(context, &typ))
+                                (name, abi_type_from_hir_type(context, &typ, false))
                             });
                         let path =
                             context.fully_qualified_struct_path(context.root_crate_id(), typ.id);

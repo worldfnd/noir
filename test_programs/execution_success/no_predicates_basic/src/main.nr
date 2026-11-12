@@ -1,5 +1,5 @@
-fn main(x: Field, y: pub Field) {
-    basic_check(x, y);
+fn main(x: u8, y: pub u8) {
+    basic_check(x as Field, y as Field);
 }
 
 #[no_predicates]

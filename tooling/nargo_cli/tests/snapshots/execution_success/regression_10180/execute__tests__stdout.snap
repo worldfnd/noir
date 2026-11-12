@@ -2,4 +2,4 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: stdout
 ---
-[regression_10180] Circuit output: 0x9185bb28e2cfba7cb4079a5c3ada32f1
+[regression_10180] Circuit output: 193432430920915057603408161267722629873

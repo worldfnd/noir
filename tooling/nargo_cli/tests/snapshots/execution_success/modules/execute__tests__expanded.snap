@@ -8,6 +8,6 @@ mod foo {
     }
 }
 
-fn main(x: Field, y: pub Field) {
-    assert(x != foo::hello(y));
+fn main(x: u8, y: pub u8) {
+    assert((x as Field) != foo::hello(y as Field));
 }
