@@ -38,13 +38,17 @@ global L: Field = 27360303589799094027808007181571593860768139721585672592002156
 //
 // Returns: (Merkle tree root, nullifier)
 fn main(
-    secret_key: Field,
+    secret_key: [u8; 32],
     index_bits: [bool; MAX_DEPTH], // these bits indicate the order of inputs for hashing of the merkle proof
-    hash_path: [Field; MAX_DEPTH], // the Merkle Tree inclusion proof
+    hash_path: [[u8; 32]; MAX_DEPTH], // the Merkle Tree inclusion proof
     merkle_proof_length: u32, // the number of non-zero elements in hash_path
-    hashed_scope: pub Field,
-    hashed_message: pub Field,
-) -> pub (Field, Field) {
+    hashed_scope: pub [u8; 32],
+    hashed_message: pub [u8; 32],
+) -> pub ([u8; 32], [u8; 32]) {
+    let secret_key = Field::from_le_bytes_checked(secret_key);
+    let hash_path = hash_path.map(|node| Field::from_le_bytes_checked(node));
+    let hashed_scope = Field::from_le_bytes_checked(hashed_scope);
+
     // Part 1
     // Ensure secret_key < l.
     assert_lt(secret_key, L);
@@ -82,5 +86,5 @@ fn main(
     let nullifier = poseidon([hashed_scope, secret_key]);
 
     // Return the calculated Merkle tree root & nullifier
-    (node, nullifier)
+    (node.to_le_bytes(), nullifier.to_le_bytes())
 }

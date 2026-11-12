@@ -15,13 +15,20 @@ global BASE8_Y: Field =
     16950150798460657717958625567821834550301663161624707787222815936182638968203;
 
 fn main(
-    msg: pub Field,
-    pub_key_x: Field,
-    pub_key_y: Field,
-    r8_x: Field,
-    r8_y: Field,
-    s: Field,
+    msg: pub u16,
+    pub_key_x: [u8; 32],
+    pub_key_y: [u8; 32],
+    r8_x: [u8; 32],
+    r8_y: [u8; 32],
+    s: [u8; 32],
 ) -> pub bool {
+    let msg = msg as Field;
+    let pub_key_x = Field::from_le_bytes_checked(pub_key_x);
+    let pub_key_y = Field::from_le_bytes_checked(pub_key_y);
+    let r8_x = Field::from_le_bytes_checked(r8_x);
+    let r8_y = Field::from_le_bytes_checked(r8_y);
+    let s = Field::from_le_bytes_checked(s);
+
     eddsa_verify::<PoseidonHasher>(pub_key_x, pub_key_y, s, r8_x, r8_y, msg)
 }
 

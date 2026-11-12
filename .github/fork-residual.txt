@@ -294,6 +294,16 @@ noir_stdlib/src/ops/arith.nr
 noir_stdlib/src/ops/bit.nr
 noir_stdlib/src/test.nr
 scripts/gather_benchmark_data.sh
+test_programs/benchmarks/bench_eddsa_poseidon/Prover.toml
+test_programs/benchmarks/bench_eddsa_poseidon/src/main.nr
+test_programs/benchmarks/bench_poseidon2_hash/src/main.nr
+test_programs/benchmarks/bench_poseidon2_hash_100/src/main.nr
+test_programs/benchmarks/bench_poseidon2_hash_30/src/main.nr
+test_programs/benchmarks/bench_poseidon_hash/src/main.nr
+test_programs/benchmarks/bench_poseidon_hash_100/src/main.nr
+test_programs/benchmarks/bench_poseidon_hash_30/src/main.nr
+test_programs/benchmarks/semaphore_depth_10/Prover.toml
+test_programs/benchmarks/semaphore_depth_10/src/main.nr
 test_programs/compile_failure/assert_constant_dynamic_array/src/main.nr
 test_programs/compile_failure/assert_constant_dynamic_plus/src/main.nr
 test_programs/compile_failure/assert_constant_dynamic_struct_array/src/main.nr
