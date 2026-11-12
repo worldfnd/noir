@@ -1,4 +1,4 @@
-//! The strict TOML and JSON reader and writer of entry-point inputs.
+//! The TOML and JSON reader and writer of entry-point inputs.
 
 use std::collections::HashMap;
 use std::fmt;

@@ -2,10 +2,7 @@ use noirc_errors::{CustomDiagnostic, Location};
 
 use crate::{
     Type,
-    hir::{
-        comptime::InterpreterError,
-        type_check::{ENTRY_POINT_TYPES_NOTE, TypeCheckError},
-    },
+    hir::{comptime::InterpreterError, type_check::TypeCheckError},
     validity::InvalidType,
 };
 
@@ -252,7 +249,7 @@ impl From<MonomorphizationError> for CustomDiagnostic {
                     );
                 }
 
-                diagnostic.add_note(ENTRY_POINT_TYPES_NOTE.to_string());
+                diagnostic.add_note("Note: vectors, references, empty arrays, empty strings, or any type containing them may not be used in main, contract functions, test functions, fuzz functions or foldable functions.".to_string());
                 invalid_type.add_to_diagnostic(*location, &mut diagnostic);
                 return diagnostic;
             }

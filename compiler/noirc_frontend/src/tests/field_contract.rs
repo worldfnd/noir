@@ -28,7 +28,7 @@ fn field_literals_must_be_canonical() {
             format!("fn main() {{ let _: Field = {modulus}; }}"),
             format!(
                 "fn value<let N: Field>() -> Field {{ N }}
-                 fn main() -> pub Field {{ value::<{modulus}_Field>() }}"
+                 fn main() {{ let _ = value::<{modulus}_Field>(); }}"
             ),
         ] {
             let errors = get_program_errors_for_field(&too_large, field);

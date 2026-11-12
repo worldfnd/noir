@@ -1,3 +1,3 @@
-pub fn baz() -> u32 {
+pub fn baz() -> Field {
     2
 }

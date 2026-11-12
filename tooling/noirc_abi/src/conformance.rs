@@ -131,7 +131,7 @@ pub struct ByteVector {
 
 /// The byte vectors: golden encodings, including integers wider than any field and a nested
 /// struct, tuple and array whose parameters and fields are not in alphabetical order; the
-/// spellings the strict parser accepts and refuses in each format; and the blobs the decoder
+/// spellings the parser accepts and refuses in each format; and the blobs the decoder
 /// refuses.
 pub fn byte_vectors() -> Vec<ByteVector> {
     let unsigned = |width| AbiType::Integer { sign: Sign::Unsigned, width };
