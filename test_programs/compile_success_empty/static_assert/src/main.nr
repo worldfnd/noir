@@ -15,10 +15,12 @@ pub struct Foo {
     vector: [Field],
 }
 
-fn main() {
-    let dynamic_one: Field = std::hint::black_box(1);
-    let dynamic_two: Field = std::hint::black_box(2);
-
+fn main(
+    dynamic_one: u64, // == 1
+    dynamic_two: u64, // == 2
+) {
+    let dynamic_one = dynamic_one as Field;
+    let dynamic_two = dynamic_two as Field;
     // contents unknown at compile time
     // length known at compile time
     let dynamic_array_pair = [dynamic_one, dynamic_two];

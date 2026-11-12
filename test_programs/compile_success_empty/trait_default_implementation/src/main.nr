@@ -17,8 +17,8 @@ impl MyDefault for Foo {
     }
 }
 
-fn main() {
-    let x: Field = std::hint::black_box(1);
+fn main(x: u64) {
+    let x = x as Field;
     let first = Foo::method2(x);
     assert(first == x);
 }

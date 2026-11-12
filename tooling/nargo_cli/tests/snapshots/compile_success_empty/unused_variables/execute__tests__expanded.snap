@@ -2,9 +2,7 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-fn main() {
-    let x: Field = 1_Field;
-    let y: Field = 2_Field;
-    let _: Field = x;
-    let _: Field = y;
+fn main(x: u64, y: pub u64) {
+    let _: u64 = x;
+    let _: u64 = y;
 }

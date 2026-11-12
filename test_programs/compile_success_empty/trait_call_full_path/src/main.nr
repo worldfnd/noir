@@ -12,8 +12,8 @@ mod foo {
 
 use foo::Trait;
 
-fn main() {
-    let x: Field = std::hint::black_box(1);
+fn main(x: u64) {
+    let x = x as Field;
     let _ = foo::Trait::me(x);
     let _ = Trait::me(x);
 }

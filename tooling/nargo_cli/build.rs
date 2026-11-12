@@ -823,7 +823,7 @@ fn generate_compile_success_empty_tests(test_file: &mut File, test_data_dir: &Pa
             &test_dir,
             "info",
             &format!(
-                "compile_success_empty(nargo, {});",
+                "compile_success_empty(nargo, target_dir.path(), {});",
                 !TESTS_WITH_EXPECTED_WARNINGS.contains(&test_name.as_str())
             ),
             &MatrixConfig::default(),

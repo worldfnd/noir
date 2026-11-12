@@ -20,9 +20,9 @@ pub struct Foo {
     vector: [Field],
 }
 
-fn main() {
-    let dynamic_one: Field = std::hint::black_box(1_Field);
-    let dynamic_two: Field = std::hint::black_box(2_Field);
+fn main(dynamic_one: u64, dynamic_two: u64) {
+    let dynamic_one: Field = dynamic_one as Field;
+    let dynamic_two: Field = dynamic_two as Field;
     let dynamic_array_pair: [Field; 2] = [dynamic_one, dynamic_two];
     let dynamic_vector_pair: [Field] = [dynamic_one, dynamic_two].as_vector();
     static_assert(true, "");

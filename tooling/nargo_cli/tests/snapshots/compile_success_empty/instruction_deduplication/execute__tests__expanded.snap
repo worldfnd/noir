@@ -2,7 +2,7 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-fn main() {
-    let x: Field = std::hint::black_box(1_Field);
+fn main(x: u64) {
+    let x: Field = x as Field;
     assert((x as u32) == (x as u32));
 }

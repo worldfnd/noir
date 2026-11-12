@@ -55,8 +55,8 @@ impl F for Bar {
 //     fn f1(self) -> Field { 101 }
 //     fn f5(self) -> Field { 505 }
 // }
-fn main() {
-    let x: Field = std::hint::black_box(1);
+fn main(x: u64) {
+    let x = x as Field;
     let first = Foo::method2(x);
     assert(first == 3 * x);
 

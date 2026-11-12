@@ -1,6 +1,4 @@
-fn main() {
-    let x = 1;
-    let y = 2;
+fn main(x: u64, y: pub u64) {
     let _ = x;
     let _ = y;
 }

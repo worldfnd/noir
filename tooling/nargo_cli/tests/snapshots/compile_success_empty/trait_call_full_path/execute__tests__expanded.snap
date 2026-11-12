@@ -16,8 +16,8 @@ mod foo {
     }
 }
 
-fn main() {
-    let x: Field = std::hint::black_box(1_Field);
+fn main(x: u64) {
+    let x: Field = x as Field;
     let _: Field = x.me();
     let _: Field = x.me();
 }

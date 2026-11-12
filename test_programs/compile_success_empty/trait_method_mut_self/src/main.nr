@@ -1,9 +1,9 @@
 use poseidon::poseidon2::Poseidon2Hasher;
 use std::hash::Hasher;
 
-fn main() {
-    let x: Field = std::hint::black_box(1);
-    let y: Field = std::hint::black_box(2);
+fn main(x: u64, y: pub u64) {
+    let x = x as Field;
+    let y = y as Field;
     let mut a_mut_ref = AType { x };
 
     pass_trait_by_value(a_mut_ref, y);

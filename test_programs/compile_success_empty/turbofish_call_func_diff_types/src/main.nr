@@ -2,9 +2,9 @@ use poseidon::poseidon::PoseidonHasher;
 use poseidon::poseidon2::Poseidon2Hasher;
 use std::hash::Hasher;
 
-fn main() {
-    let x: Field = std::hint::black_box(1);
-    let y: Field = std::hint::black_box(2);
+fn main(x: u64, y: pub u64) {
+    let x = x as Field;
+    let y = y as Field;
     let mut hasher = PoseidonHasher::default();
     hasher.write(x);
     hasher.write(y);
