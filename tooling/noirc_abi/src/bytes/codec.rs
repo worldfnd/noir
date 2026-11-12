@@ -1,7 +1,6 @@
 //! The encoder and decoder of the parameter blob and the return blob.
 
 use num_bigint::{BigInt, BigUint};
-use num_traits::{One, Zero};
 
 use crate::{Abi, AbiType, MAIN_RETURN_NAME, Sign, scalar::signed_value};
 
@@ -168,14 +167,20 @@ pub(super) fn check_int(
     width: u32,
     path: Path<'_>,
 ) -> Result<(), Error> {
-    let (min, max) = match sign {
-        Sign::Unsigned => (BigInt::zero(), two_pow(width) - 1),
-        Sign::Signed => {
-            let half = two_pow(width - 1);
-            (-half.clone(), half - 1)
+    let negative = value.sign() == num_bigint::Sign::Minus;
+    let magnitude = value.magnitude();
+    let (bits, width_bits) = (magnitude.bits(), u64::from(width));
+    let in_range = match (sign, negative) {
+        (Sign::Unsigned, false) => bits <= width_bits,
+        (Sign::Unsigned, true) => false,
+        (Sign::Signed, false) => bits < width_bits,
+        // The least value, -2^(width - 1), is the one magnitude of `width` bits in range.
+        (Sign::Signed, true) => {
+            bits < width_bits
+                || (bits == width_bits && magnitude.trailing_zeros() == width_bits.checked_sub(1))
         }
     };
-    if *value < min || *value > max {
+    if !in_range {
         return Err(Error::OutOfRange {
             path: path.to_string(),
             value: value.clone(),
@@ -183,10 +188,6 @@ pub(super) fn check_int(
         });
     }
     Ok(())
-}
-
-fn two_pow(bits: u32) -> BigInt {
-    BigInt::one() << bits
 }
 
 /// Appends the `width`-bit two's complement pattern of `value`, which is in range, in
