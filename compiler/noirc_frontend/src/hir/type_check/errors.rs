@@ -235,6 +235,8 @@ pub enum TypeCheckError {
     InvalidTypeForEntryPoint { invalid_type: InvalidType, location: Location },
     #[error("Entry point parameter must use a simple identifier pattern")]
     InvalidPatternForEntryPoint { location: Location },
+    #[error("Entry point parameters must have distinct names")]
+    DuplicateNameForEntryPoint { name: String, first_location: Location, location: Location },
     #[error("Mismatched number of parameters in trait implementation")]
     MismatchTraitImplNumParameters {
         actual_num_parameters: usize,
@@ -401,6 +403,7 @@ impl TypeCheckError {
             | TypeCheckError::NonConstantEvaluated { location, .. }
             | TypeCheckError::InvalidTypeForEntryPoint { location, .. }
             | TypeCheckError::InvalidPatternForEntryPoint { location }
+            | TypeCheckError::DuplicateNameForEntryPoint { location, .. }
             | TypeCheckError::MismatchTraitImplNumParameters { location, .. }
             | TypeCheckError::StringIndexAssign { location }
             | TypeCheckError::MacroReturningNonExpr { location, .. }
@@ -798,6 +801,13 @@ impl<'a> From<&'a TypeCheckError> for Diagnostic {
                 let primary = "Entry point parameter must use a simple identifier pattern".to_string();
                 let secondary = "Destructuring patterns are not allowed here; bind to a name and destructure inside the body".to_string();
                 Diagnostic::simple_error(primary, secondary, *location)
+            },
+            TypeCheckError::DuplicateNameForEntryPoint { name, first_location, location } => {
+                let primary = "Entry point parameters must have distinct names".to_string();
+                let secondary = format!("`{name}` already names another parameter, and a parameter's name is the key of its input");
+                let mut diagnostic = Diagnostic::simple_error(primary, secondary, *location);
+                diagnostic.add_secondary(format!("The first parameter named `{name}`"), *first_location);
+                diagnostic
             },
             TypeCheckError::MismatchTraitImplNumParameters {
                 expected_num_parameters,

@@ -550,6 +550,49 @@ fn accepts_mutable_identifier_pattern_in_main_param() {
     assert_no_errors(src);
 }
 
+/// A parameter's name is the key of its input, so an entry point names each parameter once, `_`
+/// included. Other functions may repeat `_`.
+#[test]
+fn rejects_repeated_wildcard_names_in_entry_point_params() {
+    let src = r#"
+    fn main(_: u32, x: u32, _: bool) -> pub u32 {
+            ~ The first parameter named `_`
+                            ^ Entry point parameters must have distinct names
+                            ~ `_` already names another parameter, and a parameter's name is the key of its input
+        helper(x, true)
+    }
+
+    fn helper(_: u32, _: bool) -> u32 {
+        1
+    }
+    "#;
+    check_errors(src);
+
+    let src = r#"
+    contract Wallet {
+        pub fn spend(_: u32, mut _: u32) {}
+                     ~ The first parameter named `_`
+                             ^^^^^ Entry point parameters must have distinct names
+                             ~~~~~ `_` already names another parameter, and a parameter's name is the key of its input
+
+        #[contract_library_method]
+        pub fn helper(_: u32, _: u32) {}
+    }
+    "#;
+    check_errors(src);
+}
+
+/// One `_` is a name like any other: it is the key of that parameter's input.
+#[test]
+fn accepts_a_single_wildcard_name_in_main_params() {
+    let src = r#"
+    fn main(_: u32, x: u32) -> pub u32 {
+        x
+    }
+    "#;
+    assert_no_errors(src);
+}
+
 #[test]
 fn can_use_trait_associated_constant_via_global_in_main_signature() {
     let src = r#"
