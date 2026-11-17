@@ -335,3 +335,50 @@ fn qualified_unsafe_from_path_resolves_in_runtime_and_comptime() {
         assert!(errors.is_empty(), "{field}: {}", errors.join("\n"));
     }
 }
+
+/// `TryFrom` is `Some` exactly when the value fits, and then holds the value: into `Field`
+/// below the modulus, out of `Field` within the target's range.
+#[test]
+fn try_from_is_some_exactly_when_the_value_fits() {
+    use num_bigint::BigUint;
+
+    let u64_max = BigUint::from(u64::MAX);
+    for field in FieldId::ALL {
+        let modulus = FieldConfig::new(field).modulus();
+        let top = modulus - 1u8;
+        let source = format!(
+            "
+            use std::convert::TryFrom;
+
+            fn main() {{
+                comptime {{
+                    let wide: u64 = {u64_max};
+                    assert(Field::try_from(wide).is_some() == {});
+                    let below: u256 = {top};
+                    assert(Field::try_from(below) == Option::some({top}));
+                    let at: u256 = {modulus};
+                    assert(Field::try_from(at).is_none());
+                    let negative: i8 = -1;
+                    assert(Field::try_from(negative).is_none());
+                    let positive: i8 = 127;
+                    assert(Field::try_from(positive) == Option::some(127));
+
+                    let byte: Field = 255;
+                    assert(u8::try_from(byte) == Option::some(255));
+                    let over: Field = 256;
+                    assert(u8::try_from(over).is_none());
+                    let top: Field = {top};
+                    assert(u256::try_from(top) == Option::some({top}));
+                    let most: Field = 127;
+                    assert(i8::try_from(most) == Option::some(127));
+                    let past: Field = 128;
+                    assert(i8::try_from(past).is_none());
+                }}
+            }}
+            ",
+            &u64_max < modulus,
+        );
+        let errors = elaborate(&source, field);
+        assert!(errors.is_empty(), "{field}: {}", errors.join("\n"));
+    }
+}

@@ -1,0 +1,10 @@
+---
+source: tooling/nargo_cli/tests/execute.rs
+expression: expanded_code
+---
+use std::convert::TryFrom;
+
+fn main(x: u32) {
+    let element: Field = <Field as TryFrom<u32>>::try_from(x).unwrap();
+    assert(element == <Field as From<u32>>::from(x));
+}

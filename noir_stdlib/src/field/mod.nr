@@ -364,7 +364,7 @@ pub(crate) unconstrained fn field_less_than(x: Field, y: Field) -> bool {
 global MODULUS_BYTES: u32 = modulus_le_bytes().len();
 
 /// The bits a field element decomposes into, which is the widest `to_le_bits` accepts.
-global MODULUS_BITS: u32 = modulus_num_bits() as u32;
+pub(crate) global MODULUS_BITS: u32 = modulus_num_bits() as u32;
 
 #[field(not(bn254))]
 fn lt_fallback(x: Field, y: Field) -> bool {

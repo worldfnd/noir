@@ -1,3 +1,6 @@
+use crate::field::MODULUS_BITS;
+use crate::option::Option;
+
 /// Create a new `Self` value from the given `T` value
 // docs:start:from-trait
 pub trait From<T> {
@@ -246,6 +249,61 @@ impl<let N: u32> UnsafeFrom<Field> for i<N> {
 }
 // docs:end:unsafe-from-impls
 
+/// Create a new `Self` value from the given `T` value, or `None` if the value does not fit
+// docs:start:try-from-trait
+pub trait TryFrom<T> {
+    fn try_from(input: T) -> Option<Self>;
+}
+// docs:end:try-from-trait
+
+// docs:start:try-from-impls
+// A value fits when the wrapping conversion brings it back unchanged, which every value does
+// where the target is the wider of the two.
+impl<let N: u32> TryFrom<u<N>> for Field {
+    fn try_from(input: u<N>) -> Option<Field> {
+        let output = Field::unsafe_from(input);
+        let back: u<N> = UnsafeFrom::unsafe_from(output);
+        if (N < MODULUS_BITS) | (back == input) {
+            Option::some(output)
+        } else {
+            Option::none()
+        }
+    }
+}
+
+impl<let N: u32> TryFrom<i<N>> for Field {
+    fn try_from(input: i<N>) -> Option<Field> {
+        if input < 0 {
+            Option::none()
+        } else {
+            Field::try_from(input as u::<N>)
+        }
+    }
+}
+
+impl<let N: u32> TryFrom<Field> for u<N> {
+    fn try_from(input: Field) -> Option<u<N>> {
+        let output: u<N> = UnsafeFrom::unsafe_from(input);
+        if (N >= MODULUS_BITS) | (Field::unsafe_from(output) == input) {
+            Option::some(output)
+        } else {
+            Option::none()
+        }
+    }
+}
+
+impl<let N: u32> TryFrom<Field> for i<N> {
+    fn try_from(input: Field) -> Option<i<N>> {
+        let output: i<N> = UnsafeFrom::unsafe_from(input);
+        if (N > MODULUS_BITS) | ((output >= 0) & (Field::unsafe_from(output) == input)) {
+            Option::some(output)
+        } else {
+            Option::none()
+        }
+    }
+}
+// docs:end:try-from-impls
+
 /// A generic interface for casting between primitive types,
 /// equivalent of using the `as` keyword between values.
 ///
@@ -352,7 +410,7 @@ comptime fn generate_as_primitive_impls(_: FunctionDefinition) -> Quoted {
 
 mod tests {
     use crate::meta::unquote;
-    use super::{From, Into, UnsafeFrom};
+    use super::{From, Into, TryFrom, UnsafeFrom};
 
     #[test]
     fn from_identity() {
@@ -487,6 +545,23 @@ mod tests {
         assert_eq(u128::unsafe_from(element), 0x1234);
         let byte: Field = 255;
         assert_eq(i8::unsafe_from(byte), -1);
+    }
+
+    #[test]
+    fn try_from_is_none_when_the_value_does_not_fit() {
+        let small: u32 = 300;
+        let element = Field::try_from(small).unwrap();
+        assert_eq(element, 300);
+        assert_eq(u32::try_from(element).unwrap(), 300);
+        assert_eq(u16::try_from(element).unwrap(), 300);
+        assert(u8::try_from(element).is_none());
+
+        let negative: i8 = -5;
+        assert(Field::try_from(negative).is_none());
+        let most: Field = 127;
+        assert_eq(i8::try_from(most).unwrap(), 127);
+        let past: Field = 128;
+        assert(i8::try_from(past).is_none());
     }
 
     #[test]
