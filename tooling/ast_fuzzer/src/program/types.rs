@@ -50,6 +50,11 @@ pub fn can_be_main(typ: &Type) -> bool {
     }
 }
 
+/// Check if casting a value of type `from` to `to` crosses between `Field` and an integer.
+pub fn is_field_cast(from: &Type, to: &Type) -> bool {
+    matches!((from, to), (Type::Integer(..), Type::Field) | (Type::Field, Type::Integer(..)))
+}
+
 /// Check if a variable with a given type can be used in a match.
 pub fn can_be_matched(typ: &Type) -> bool {
     matches!(typ, Type::Unit | Type::Bool | Type::Field | Type::Integer(_, _) | Type::Tuple(_))

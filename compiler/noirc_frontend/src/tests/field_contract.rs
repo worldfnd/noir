@@ -11,6 +11,7 @@ use crate::test_utils::{
 };
 use crate::tests::{
     assert_no_errors, check_errors, check_errors_with_options, get_program_errors_for_field,
+    get_stdlib_errors_for_field,
 };
 use crate::validity::InvalidType;
 
@@ -64,18 +65,20 @@ fn comptime_casts_wrap_to_the_target_width() {
             assert(((negative as u8) as Field) == 255);
         }
     }";
-    assert_no_errors(src);
+    let errors = get_stdlib_errors_for_field(src, FieldId::linked());
+    assert!(errors.is_empty(), "{errors:?}");
 }
 
-/// An unsigned type is cast to `Field` only if every one of its values is below the modulus;
-/// `Field` never reduces a cast. The escape hatch is an explicit narrowing cast.
+/// The standard library casts an unsigned type to `Field` only if every one of its values is
+/// below the modulus, since a cast reduces only in `UnsafeFrom`. The escape hatch is an explicit
+/// narrowing cast.
 #[test]
 fn casts_to_field_are_refused_when_the_type_can_exceed_the_modulus() {
     for field in FieldId::ALL {
         let config = FieldConfig::new(field);
         for bits in [8u32, 16, 32, 64, 128] {
             let src = format!("fn main() {{ let x: u{bits} = 1; let _ = x as Field; }}");
-            let errors = get_program_errors_for_field(&src, field);
+            let errors = get_stdlib_errors_for_field(&src, field);
             let refused = errors.iter().any(|error| {
                 matches!(
                     error,
@@ -108,7 +111,7 @@ fn comptime_casts_to_field_follow_the_same_rule() {
             }}",
             u64::MAX
         );
-        let errors = get_program_errors_for_field(&src, field);
+        let errors = get_stdlib_errors_for_field(&src, field);
         if accepted {
             assert!(errors.is_empty(), "{field}: {errors:?}");
         } else {
@@ -139,7 +142,8 @@ fn narrowing_before_a_field_cast_is_accepted_under_every_field() {
         u128::MAX,
         u32::MAX
     );
-    assert_no_errors(&src);
+    let errors = get_stdlib_errors_for_field(&src, FieldId::linked());
+    assert!(errors.is_empty(), "{errors:?}");
 }
 
 #[test]

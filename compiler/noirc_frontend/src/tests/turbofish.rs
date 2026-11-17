@@ -617,8 +617,8 @@ fn incorrect_turbofish_count_on_primitive_u8() {
         }
 
         impl From<Field> for u8 {
-            fn from(x: Field) -> Self {
-                x as u8
+            fn from(_x: Field) -> Self {
+                0
             }
         }
 

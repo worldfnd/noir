@@ -382,3 +382,35 @@ fn try_from_is_some_exactly_when_the_value_fits() {
         assert!(errors.is_empty(), "{field}: {}", errors.join("\n"));
     }
 }
+
+/// `Expr::resolve` type checks a quoted expression inside whatever function it is given. A cast
+/// written in user code is still user code when that function is the standard library's.
+#[test]
+fn a_cast_resolved_inside_the_stdlib_is_denied_where_it_is_spliced() {
+    let source = "
+        comptime fn launder() -> Quoted {
+            let inside = quote { std::mem::zeroed }
+                .as_expr()
+                .unwrap()
+                .resolve(Option::none())
+                .as_function_definition()
+                .unwrap();
+            let cast = quote { 5_u32 as Field }.as_expr().unwrap().resolve(Option::some(inside));
+            quote { $cast }
+        }
+
+        fn main() {
+            let _: Field = launder!();
+        }
+    ";
+    // Resolved in the function that splices it, the cast is user code throughout.
+    let in_place = source.replace("Option::some(inside)", "Option::none()");
+    for field in FieldId::ALL {
+        for source in [source, in_place.as_str()] {
+            let errors = elaborate(source, field);
+            let denials =
+                errors.iter().filter(|error| error.contains("Cannot cast `u32` as `Field`"));
+            assert_eq!(denials.count(), 1, "{field}: {}", errors.join("\n"));
+        }
+    }
+}

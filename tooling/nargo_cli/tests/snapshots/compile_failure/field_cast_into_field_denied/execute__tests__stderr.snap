@@ -1,0 +1,12 @@
+---
+source: tooling/nargo_cli/tests/execute.rs
+expression: stderr
+---
+error: Cannot cast `u64` as `Field`
+  ┌─ src/main.nr:2:16
+  │
+2 │     let wide = x as Field;
+  │                ---------- Use `TryFrom` to get `None` when the value does not fit, or `UnsafeFrom` to wrap; both are in `std::convert`
+  │
+
+Aborting due to 1 previous error

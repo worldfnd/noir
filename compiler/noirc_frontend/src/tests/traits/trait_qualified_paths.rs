@@ -584,7 +584,7 @@ fn self_resolves_correctly_when_multiple_trait_impls_exist() {
 
     impl MyTrait<Field> for u32 {
         fn foo(self) -> Field {
-            self as Field
+            0
         }
     }
 

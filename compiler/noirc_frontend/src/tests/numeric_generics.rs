@@ -257,7 +257,7 @@ fn numeric_generic_used_in_where_clause() {
     pub fn read<T, let N: u32>() -> T where T: Deserialize<N> {
         let mut fields: [Field; N] = [0; N];
         for i in 0..N {
-            fields[i] = i as Field + 1;
+            fields[i] = 1;
         }
         T::deserialize(fields)
     }
@@ -397,7 +397,7 @@ fn normal_generic_used_when_numeric_expected_in_where_clause() {
         for i in 0..N {
                     ^ cannot find `N` in this scope
                     ~ not found in this scope
-            fields[i] = i as Field + 1;
+            fields[i] = 1;
         }
         T::deserialize(fields)
     }
@@ -1302,7 +1302,7 @@ fn typevar_default() {
         for i in 0 .. N {
                       ^ cannot find `N` in this scope
                       ~ not found in this scope
-            array[i] = i as Field;
+            array[i] = 1;
         }
         array
     }

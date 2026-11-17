@@ -706,6 +706,9 @@ impl<'a> FunctionContext<'a> {
 
         // See how we can produce tgt from src.
         match (src_type, tgt_type) {
+            _ if self.config().avoid_field_casts && types::is_field_cast(src_type, tgt_type) => {
+                Ok(None)
+            }
             // Simple numeric conversions.
             (Type::Field, Type::Integer(Signedness::Unsigned, 128)) => src_as_tgt(),
             (Type::Bool, Type::Field) => src_as_tgt(),
@@ -1076,6 +1079,11 @@ impl<'a> FunctionContext<'a> {
         // If the locals don't have any type compatible with `op`, try the globals.
         if lhs_opts.is_empty() {
             lhs_opts = collect_input_types(op, typ, &self.globals);
+        }
+
+        // The result of the operation is cast to `typ`.
+        if self.config().avoid_field_casts {
+            lhs_opts.retain(|type_in| !types::is_field_cast(type_in, typ));
         }
 
         // We might not have any input that works for this operation.

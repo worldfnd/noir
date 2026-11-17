@@ -808,10 +808,10 @@ fn generic_function_with_associated_type_equality_constraint() {
         fn produce(self) -> Self::Output;
     }
 
-    impl Producer for u32 {
+    impl Producer for Field {
         type Output = Field;
         fn produce(self) -> Self::Output {
-            self as Field
+            self
         }
     }
 
@@ -823,7 +823,7 @@ fn generic_function_with_associated_type_equality_constraint() {
     }
 
     fn main() {
-        assert(produce_field(42 as u32) == 42);
+        assert(produce_field(42) == 42);
     }
     "#;
     assert_no_errors(src);
@@ -843,19 +843,19 @@ fn where_clause_on_associated_type_fully_qualified() {
     }
 
     struct Range {
-        val: u32,
+        val: Field,
     }
 
     impl Iter for Range {
-        type Item = u32;
+        type Item = Field;
         fn next(self) -> Self::Item {
             self.val
         }
     }
 
-    impl Display for u32 {
+    impl Display for Field {
         fn show(self) -> Field {
-            self as Field
+            self
         }
     }
 
@@ -1302,10 +1302,10 @@ fn where_clause_on_associated_type_of_generic_in_trait_impl() {
         source: T,
     }
 
-    impl HasOutput for u32 {
+    impl HasOutput for Field {
         type Output = Field;
         fn output(self) -> Self::Output {
-            self as Field
+            self
         }
     }
 
@@ -1320,7 +1320,7 @@ fn where_clause_on_associated_type_of_generic_in_trait_impl() {
     }
 
     fn main() {
-        let w = Widget { source: 42 as u32 };
+        let w = Widget { source: 42 };
         assert(w.render_output() == 42);
     }
     "#;

@@ -1,6 +1,8 @@
 //! Function-local context management for type variables and trait constraints.
 
+use fm::FileId;
 use noirc_errors::Location;
+use num_bigint::BigInt;
 
 use crate::{
     Kind, Type, TypeBindings,
@@ -9,7 +11,10 @@ use crate::{
         comptime::{InterpreterError, Value},
         type_check::{NoMatchingImplFoundError, TypeCheckError},
     },
-    hir_def::traits::TraitConstraint,
+    hir_def::{
+        expr::{HirExpression, HirLiteral},
+        traits::TraitConstraint,
+    },
     node_interner::{
         DefinitionKind, ExprId, GlobalValue, ImplSearchErrorKind, TraitImplKind, TypeId,
     },
@@ -52,9 +57,14 @@ pub(super) struct FunctionContext {
 /// A cast that may be between `Field` and an integer, kept until its source type is known.
 #[derive(Debug)]
 struct FieldCast {
+    lhs: ExprId,
     from: Type,
     to: Type,
     location: Location,
+    /// True for a cast the standard library writes itself, the one crate that may write one:
+    /// a cast in its own source, checked as part of it. Code from elsewhere that is only
+    /// type checked inside one of its functions, as `Expr::resolve` can do, is not.
+    in_stdlib: bool,
     /// True in the body of a standard library `UnsafeFrom` impl, where a cast to `Field`
     /// reduces modulo the field and so takes a source of any width.
     reduces: bool,
@@ -174,12 +184,27 @@ impl Elaborator<'_> {
         self.get_function_context_mut().integer_literal_expr_ids.push(literal_expr_id);
     }
 
-    /// Push a cast of a value of type `from` to `Field` or to an integer type.
+    /// Push a cast of the expression `lhs`, of type `from`, to `Field` or to an integer type.
     /// At the end of the current function we'll check that the cast may be written.
-    pub(super) fn push_field_cast(&mut self, from: Type, to: Type, location: Location) {
+    pub(super) fn push_field_cast(
+        &mut self,
+        lhs: ExprId,
+        from: Type,
+        to: Type,
+        location: Location,
+    ) {
+        let in_stdlib = self.crate_id.is_stdlib() && self.is_stdlib_file(location.file);
         let reduces = self.in_unsafe_from_impl();
-        let cast = FieldCast { from, to, location, reduces };
+        let cast = FieldCast { lhs, from, to, location, in_stdlib, reduces };
         self.get_function_context_mut().field_casts.push(cast);
+    }
+
+    /// Whether `file` is one of the standard library's own source files.
+    fn is_stdlib_file(&self, file: FileId) -> bool {
+        self.def_maps.iter().any(|(crate_id, def_map)| {
+            crate_id.is_stdlib()
+                && def_map.modules().iter().any(|(_, module)| module.location.file == file)
+        })
     }
 
     /// Whether the body being elaborated belongs to a standard library `UnsafeFrom` impl.
@@ -318,7 +343,22 @@ impl Elaborator<'_> {
     /// The error of writing `cast` from a value of type `from`, if it may not be written.
     fn field_cast_error(&self, cast: &FieldCast, from: Type) -> Option<TypeCheckError> {
         let location = cast.location;
-        if !matches!(cast.to, Type::FieldElement) {
+        let to_field = matches!(cast.to, Type::FieldElement);
+        if !cast.in_stdlib {
+            // Outside the standard library a value crosses between `Field` and an integer
+            // through `UnsafeFrom` or `TryFrom`, which say what happens to one that does not
+            // fit. A literal that fits is the same number under every field.
+            let crosses = match from {
+                Type::Integer(..) => to_field,
+                Type::FieldElement => !to_field && !self.is_literal_that_fits(cast),
+                _ => false,
+            };
+            crosses.then(|| {
+                let to = cast.to.clone();
+                let suggestion = self.typed_literal(cast);
+                TypeCheckError::FieldCastDenied { from, to, suggestion, location }
+            })
+        } else if !to_field {
             None
         } else if from.is_signed() {
             Some(TypeCheckError::UnsupportedFieldCast { location })
@@ -333,6 +373,30 @@ impl Elaborator<'_> {
         } else {
             None
         }
+    }
+
+    /// The value of the integer literal `cast` is written on, if it is one.
+    fn cast_literal(&self, cast: &FieldCast) -> Option<BigInt> {
+        match self.interner.expression(&cast.lhs) {
+            HirExpression::Literal(HirLiteral::Integer(value)) => Some(value),
+            _ => None,
+        }
+    }
+
+    /// Whether `cast` is written on a literal that its target type holds as written.
+    fn is_literal_that_fits(&self, cast: &FieldCast) -> bool {
+        self.cast_literal(cast).is_some_and(|value| {
+            let maximum = cast.to.integral_maximum_size();
+            value >= BigInt::ZERO && maximum.is_some_and(|maximum| value <= maximum)
+        })
+    }
+
+    /// The literal `cast` is written on, typed as its target: what to write in place of a
+    /// negative literal, which a cast would take through `Field`.
+    fn typed_literal(&self, cast: &FieldCast) -> Option<String> {
+        let value = self.cast_literal(cast)?;
+        let minimum = cast.to.integral_minimum_size()?;
+        (value < BigInt::ZERO && value >= minimum).then(|| format!("{value}{}", cast.to))
     }
 
     #[tracing::instrument(level = "trace", skip_all)]

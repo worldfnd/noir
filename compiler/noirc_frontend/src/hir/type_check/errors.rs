@@ -115,6 +115,8 @@ pub enum TypeCheckError {
         "Values of type `{typ}` can exceed the field modulus, so `{typ}` cannot be cast to Field"
     )]
     IntegerTypeExceedsField { typ: Type, location: Location },
+    #[error("Cannot cast `{from}` as `{to}`")]
+    FieldCastDenied { from: Type, to: Type, suggestion: Option<String>, location: Location },
     #[error("Index {index} is out of bounds for this tuple {lhs_type} of length {length}")]
     TupleIndexOutOfBounds { index: usize, lhs_type: Type, length: usize, location: Location },
     #[error("Index {index} is out of bounds for this array of length {array_length}")]
@@ -358,6 +360,7 @@ impl TypeCheckError {
             | TypeCheckError::UnsupportedCast { location }
             | TypeCheckError::UnsupportedFieldCast { location }
             | TypeCheckError::IntegerTypeExceedsField { location, .. }
+            | TypeCheckError::FieldCastDenied { location, .. }
             | TypeCheckError::TupleIndexOutOfBounds { location, .. }
             | TypeCheckError::ArrayIndexOutOfBounds { location, .. }
             | TypeCheckError::VariableMustBeMutable { location, .. }
@@ -603,6 +606,13 @@ impl<'a> From<&'a TypeCheckError> for Diagnostic {
             TypeCheckError::IntegerTypeExceedsField { typ: _, location } => {
                 let secondary =
                     "Cast to an unsigned type narrower than the field first".to_string();
+                Diagnostic::simple_error(error.to_string(), secondary, *location)
+            }
+            TypeCheckError::FieldCastDenied { suggestion, location, .. } => {
+                let secondary = match suggestion {
+                    Some(literal) => format!("Write the literal with its type instead: `{literal}`"),
+                    None => "Use `TryFrom` to get `None` when the value does not fit, or `UnsafeFrom` to wrap; both are in `std::convert`".to_string(),
+                };
                 Diagnostic::simple_error(error.to_string(), secondary, *location)
             }
 
