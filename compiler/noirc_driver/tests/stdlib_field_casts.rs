@@ -69,9 +69,7 @@ fn stdlib_conversions_into_field_follow_the_field_width() {
         let source = format!(
             "fn main() {{
                 let x: u{bits} = 1;
-                let from: Field = Field::from(x);
-                let as_: Field = std::convert::AsPrimitive::as_(x);
-                assert(from == as_);
+                assert(Field::from(x) == 1);
             }}"
         );
         let errors = compile_errors(&source);
@@ -81,4 +79,29 @@ fn stdlib_conversions_into_field_follow_the_field_width() {
             assert!(!errors.is_empty(), "u{bits} should have no conversion into Field");
         }
     }
+}
+
+/// `AsPrimitive` converts between the integer types only: across the `Field` boundary the one
+/// spelling is `UnsafeFrom`.
+#[test]
+fn as_primitive_does_not_cross_the_field_boundary() {
+    let into_field = "fn main() {
+        let x: u8 = 1;
+        let _: Field = std::convert::AsPrimitive::as_(x);
+    }";
+    assert!(!compile_errors(into_field).is_empty(), "u8 should not convert into Field");
+
+    let out_of_field = "fn main() {
+        let x: Field = 1;
+        let _: u8 = std::convert::AsPrimitive::as_(x);
+    }";
+    assert!(!compile_errors(out_of_field).is_empty(), "Field should not convert into u8");
+
+    let between_integers = "fn main() {
+        let x: u32 = 300;
+        let y: u8 = std::convert::AsPrimitive::as_(x);
+        assert(y == 44);
+    }";
+    let errors = compile_errors(between_integers);
+    assert!(errors.is_empty(), "{errors:?}");
 }

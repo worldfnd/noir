@@ -310,7 +310,7 @@ impl<let N: u32> TryFrom<Field> for i<N> {
 /// # Example
 ///
 /// ```
-/// let x: Field = 1234567890;
+/// let x: u32 = 1234567890;
 /// let y: u8 = x as u8;
 /// let z: u8 = x.as_();
 /// assert_eq(y, z);
@@ -356,53 +356,6 @@ comptime fn generate_as_primitive_impls(_: FunctionDefinition) -> Quoted {
                 },
             );
         }
-    }
-
-    let u_types: [(Quoted, u64); 6] = [
-        (quote { bool }, 1),
-        (quote { u8 }, 8),
-        (quote { u16 }, 16),
-        (quote { u32 }, 32),
-        (quote { u64 }, 64),
-        (quote { u128 }, 128),
-    ];
-
-    // `as Field` is defined only for types whose every value lies below the field modulus.
-    let field_bits = crate::field::modulus_num_bits();
-    for pair in u_types {
-        let (type2, bits) = pair;
-        if bits < field_bits {
-            let body = quote { self as Field };
-
-            impls = impls.push_back(
-                quote {
-                    impl AsPrimitive<Field> for $type2 {
-                        fn as_(self) -> Field {
-                            $body
-                        }
-                    }
-                },
-            );
-        }
-    }
-
-    for pair in u_types {
-        let (type1, _) = pair;
-        let body = if type1 == quote { bool } {
-            quote { self != 0 }
-        } else {
-            quote { self as $type1 }
-        };
-
-        impls = impls.push_back(
-            quote {
-                impl AsPrimitive<$type1> for Field {
-                    fn as_(self) -> $type1 {
-                        $body
-                    }
-                }
-            },
-        );
     }
 
     impls.join(quote {})
