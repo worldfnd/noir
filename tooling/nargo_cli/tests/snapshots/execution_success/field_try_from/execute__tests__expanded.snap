@@ -1,0 +1,16 @@
+---
+source: tooling/nargo_cli/tests/execute.rs
+expression: expanded_code
+---
+use std::convert::{TryFrom, UnsafeFrom};
+
+fn main(small: u32, signed: i8) -> pub u8 {
+    let element: Field = <Field as TryFrom<u32>>::try_from(small).unwrap();
+    assert(u32::try_from(element).unwrap() == small);
+    let narrowed: Option<u8> = u8::try_from(element);
+    assert(narrowed.is_some() == (small < 256_u32));
+    assert(u8::unsafe_from(element) == (small as u8));
+    assert(<Field as TryFrom<i8>>::try_from(signed).is_some() == (signed >= 0_i8));
+    assert(i8::try_from(element).is_some() == (small < 128_u32));
+    narrowed.unwrap_or(44_u8)
+}

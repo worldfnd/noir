@@ -62,8 +62,8 @@ You can print different types in the same statement (including strings) with a t
   println(f"s: {s}, foo: {foo}");
 
   println(15);       // prints 0x0f, implicit Field
-  println(-1 as u8); // prints 255
-  println(-1 as i8); // prints -1
+  println(255_u8);   // prints 255
+  println(-1_i8);    // prints -1
 ```
 
 Examples shown above are interchangeable between the two `print` statements:

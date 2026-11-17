@@ -8,7 +8,7 @@ fn main(a: u32) -> pub [u8; 32] {
     let result: Field = if a == 10_u32 {
         G_A[1_u32 % G_A.len()]
     } else if a == 20_u32 {
-        a as Field
+        <Field as From<u32>>::from(a)
     } else {
         -1_Field
     };

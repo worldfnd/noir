@@ -3,15 +3,15 @@ source: tooling/nargo_cli/tests/execute.rs
 expression: stderr
 ---
 error: Index out of bounds: vector_pop_back called on empty vector
-  ┌─ src/main.nr:4:18
+  ┌─ src/main.nr:5:18
   │
-4 │     let (_, f) = a.pop_back();
+5 │     let (_, f) = a.pop_back();
   │                  ------------ Assertion failed
   │
   = Call stack:
     1: ?
-            at src/main.nr:2:4
+            at src/main.nr:3:4
     2: main
-            at src/main.nr:4:18
+            at src/main.nr:5:18
 
 Error interpreting main function

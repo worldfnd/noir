@@ -2,6 +2,8 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
+use std::convert::UnsafeFrom;
+
 trait Read {
     fn read(data: [Field; 1]) -> Self;
 }
@@ -14,7 +16,7 @@ impl Read for Field {
 
 impl Read for u32 {
     fn read(data: [Field; 1]) -> Self {
-        data[0_u32] as Self
+        Self::unsafe_from(data[0_u32])
     }
 }
 

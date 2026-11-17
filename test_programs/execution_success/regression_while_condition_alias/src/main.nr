@@ -1,3 +1,4 @@
+use std::convert::UnsafeFrom;
 // Regression: a `while` condition that reads a variable also read in the body.
 //
 // A `while` evaluates its condition before the body, so the last use of `x` within an iteration
@@ -21,5 +22,5 @@ unconstrained fn main(n: u32) -> pub u32 {
         i = i + 1;
         x = [4, 5, 6];
     }
-    total as u32
+    u32::unsafe_from(total)
 }

@@ -2,6 +2,8 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
+use std::convert::UnsafeFrom;
+
 unconstrained fn main(cond: bool, idx: u32, go: bool) -> pub u8 {
     let mut a: Field = 0_Field;
     let mut b: Field = 0_Field;
@@ -17,8 +19,8 @@ unconstrained fn main(cond: bool, idx: u32, go: bool) -> pub u8 {
     if go {
         a = 5_Field;
         *r2 = 99_Field;
-        a as u8
+        u8::unsafe_from(a)
     } else {
-        a as u8
+        u8::unsafe_from(a)
     }
 }

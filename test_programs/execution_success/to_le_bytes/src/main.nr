@@ -1,5 +1,5 @@
 fn main(x: u32, cond: bool) -> pub [u8; 31] {
-    let x = x as Field;
+    let x = Field::from(x);
     // The result of this byte array will be little-endian
     let byte_array: [u8; 31] = x.to_le_bytes();
     assert(byte_array.len() == 31);

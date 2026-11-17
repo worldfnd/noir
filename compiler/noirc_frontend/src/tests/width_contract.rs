@@ -14,7 +14,7 @@ use crate::shared::{MAX_INTEGER_WIDTH, Signedness};
 use crate::test_utils::{GetProgramOptions, get_monomorphized_for_field, get_program_with_options};
 use crate::tests::{
     check_errors, check_errors_with_options, check_monomorphization_error, get_program_errors,
-    get_program_errors_for_field,
+    get_program_errors_for_field, get_stdlib_errors_for_field,
 };
 
 /// Widths the circuit backend does not lower, from the narrowest the language has to the widest.
@@ -518,30 +518,15 @@ fn casts_to_field_follow_the_field_rule_at_every_width() {
         };
         for field in FieldId::ALL {
             let fits = FieldConfig::new(field).fits_unsigned(bits);
-            if generic {
-                // The type checker sees `u<N>`, so the rule is applied by the monomorphizer.
-                assert!(get_program_errors_for_field(&src, field).is_empty());
-                let result = get_monomorphized_for_field(&src, field);
-                assert_eq!(result.is_ok(), fits, "{field}, u{bits} through a generic: {result:?}");
-                if !fits {
-                    assert!(matches!(
-                        result.unwrap_err(),
-                        MonomorphizationError::InvalidFieldCast {
-                            err: TypeCheckError::IntegerTypeExceedsField { .. },
-                            ..
-                        }
-                    ));
-                }
-            } else {
-                let errors = get_program_errors_for_field(&src, field);
-                let refused = errors.iter().any(|error| {
-                    matches!(
-                        error,
-                        CompilationError::TypeError(TypeCheckError::IntegerTypeExceedsField { .. })
-                    )
-                });
-                assert_eq!(refused, !fits, "{field}, u{bits}: {errors:?}");
-            }
+            let errors = get_stdlib_errors_for_field(&src, field);
+            let refused = errors.iter().any(|error| {
+                matches!(
+                    error,
+                    CompilationError::TypeError(TypeCheckError::IntegerTypeExceedsField { .. })
+                )
+            });
+            // Some width of `u<N>` can exceed the modulus, whatever `N` is bound to here.
+            assert_eq!(refused, generic || !fits, "{field}, u{bits}: {errors:?}");
         }
     }
 }
@@ -553,7 +538,7 @@ fn the_downsizing_warning_reaches_widths_above_128_bits() {
     let field = FieldId::Bn254;
     let two_to_200 = BigInt::one() << 200;
     let src = format!("fn main() {{ let _ = {two_to_200} as u130; }}");
-    let errors = get_program_errors_for_field(&src, field);
+    let errors = get_stdlib_errors_for_field(&src, field);
     assert!(
         errors.iter().any(|error| matches!(
             error,
@@ -564,7 +549,7 @@ fn the_downsizing_warning_reaches_widths_above_128_bits() {
 
     let two_to_129 = BigInt::one() << 129;
     let src = format!("fn main() {{ let _ = {two_to_129} as u130; }}");
-    let errors = get_program_errors_for_field(&src, field);
+    let errors = get_stdlib_errors_for_field(&src, field);
     assert!(errors.is_empty(), "{errors:?}");
 }
 

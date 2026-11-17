@@ -2,7 +2,7 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-use std::default::Default;
+use std::{convert::UnsafeFrom, default::Default};
 
 struct Log<let N: u32> {
     fields: [Field; N],
@@ -40,9 +40,9 @@ impl Default for Bundle {
 
 fn main(input: u8) -> pub u8 {
     let mut b: Bundle = <Bundle as Default>::default();
-    b.wrapped[0_u32].log.fields[0_u32] = input as Field;
-    (
+    b.wrapped[0_u32].log.fields[0_u32] = <Field as From<u8>>::from(input);
+    u8::unsafe_from(
         (b.wrapped[0_u32].log.fields[0_u32] + b.wrapped[0_u32].log.fields[1_u32])
-            + b.small[0_u32].fields[0_u32]
-    ) as u8
+            + b.small[0_u32].fields[0_u32],
+    )
 }

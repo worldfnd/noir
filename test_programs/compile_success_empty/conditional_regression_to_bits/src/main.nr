@@ -5,7 +5,7 @@ fn main() {
     let as_bits_hardcode_1 = [true, false];
     let mut c1 = 0;
     for i in 0..2 {
-        let as_bits: [bool; 2] = (arr[i] as Field).to_le_bits();
+        let as_bits: [bool; 2] = (Field::from(arr[i])).to_le_bits();
         c1 = c1 + as_bits[0] as Field;
 
         if i == 0 {

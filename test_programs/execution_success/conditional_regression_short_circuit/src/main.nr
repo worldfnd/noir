@@ -3,7 +3,7 @@ fn main(a: u32, mut c: [u32; 4], x: [u8; 5], result: pub [u8; 32]) {
     if 35 == a {
         assert(false);
     }
-    bar(a as Field);
+    bar(Field::from(a));
 
     if a == 3 {
         c = test4();

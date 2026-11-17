@@ -1,4 +1,4 @@
-use crate::convert::AsPrimitive;
+use crate::convert::{From, UnsafeFrom};
 
 // docs:start:add-trait
 pub trait Add {
@@ -389,27 +389,27 @@ impl WrappingMul for Field {
 
 fn wrapping_add_hlp<T>(x: T, y: T) -> T
 where
-    T: AsPrimitive<Field>,
-    Field: AsPrimitive<T>,
+    Field: From<T>,
+    T: UnsafeFrom<Field>,
 {
-    AsPrimitive::as_(x.as_() + y.as_())
+    T::unsafe_from(Field::from(x) + Field::from(y))
 }
 
 /// `bias` must be `2^W` for the `W`-bit type `T`: it prevents field underflow without
 /// changing the low `W` bits.
 fn wrapping_sub_hlp<T>(x: T, y: T, bias: Field) -> Field
 where
-    T: AsPrimitive<Field>,
+    Field: From<T>,
 {
-    x.as_() + bias - y.as_()
+    Field::from(x) + bias - Field::from(y)
 }
 
 fn wrapping_mul_hlp<T>(x: T, y: T) -> T
 where
-    T: AsPrimitive<Field>,
-    Field: AsPrimitive<T>,
+    Field: From<T>,
+    T: UnsafeFrom<Field>,
 {
-    AsPrimitive::as_(x.as_() * y.as_())
+    T::unsafe_from(Field::from(x) * Field::from(y))
 }
 
 #[field(not(bn254))]

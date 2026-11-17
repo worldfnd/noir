@@ -4,7 +4,7 @@ trait Fieldable {
 
 impl Fieldable for u32 {
     fn to_field(self) -> Field {
-        let res = self as Field;
+        let res = Field::from(self);
         res * 3
     }
 }
@@ -12,7 +12,7 @@ impl Fieldable for u32 {
 impl Fieldable for [u32; 3] {
     fn to_field(self) -> Field {
         let res = self[0] + self[1] + self[2];
-        res as Field
+        Field::from(res)
     }
 }
 
@@ -29,7 +29,7 @@ impl Fieldable for bool {
 impl Fieldable for (u32, bool) {
     fn to_field(self) -> Field {
         if self.1 {
-            self.0 as Field
+            Field::from(self.0)
         } else {
             32
         }
@@ -71,7 +71,7 @@ impl Fieldable for fmtstr<14, (Field, Field)> {
 
 impl Fieldable for fn(u32) -> u32 {
     fn to_field(self) -> Field {
-        self(10) as Field
+        Field::from(self(10))
     }
 }
 

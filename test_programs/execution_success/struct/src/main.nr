@@ -51,8 +51,8 @@ fn get_dog() -> Animal {
 struct Unit;
 
 fn main(x: u8, y: u8) {
-    let x = x as Field;
-    let y = y as Field;
+    let x = Field::from(x);
+    let y = Field::from(y);
     let unit = Unit {};
 
     let first = Foo::default(x, y);
@@ -69,7 +69,7 @@ fn main(x: u8, y: u8) {
     assert(struct_from_tuple.my_nest.a == 0);
     // Regression test for issue #670
     let Animal { legs, eyes } = get_dog();
-    let six = legs + eyes as Field;
+    let six = legs + Field::from(eyes);
 
     assert(six == 6);
 

@@ -1030,10 +1030,10 @@ fn numeric_alias_in_range_expression() {
     let src = r#"
     type Size<let N: u32, let M: u32>: u32 = N * M;
 
-    fn foo<let N: u32, let M: u32>() -> Field {
-        let mut s: Field = 0;
+    fn foo<let N: u32, let M: u32>() -> u32 {
+        let mut s: u32 = 0;
         for i in 0..Size::<N, M> {
-            s += i as Field;
+            s += i;
         }
         s
     }

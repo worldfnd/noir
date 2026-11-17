@@ -2,6 +2,8 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
+use std::convert::UnsafeFrom;
+
 global NIBBLE_LENGTH: u32 = 16;
 
 struct U4 {
@@ -26,14 +28,14 @@ impl Eq for U4 {
 
 fn compact_decode<let N: u32>(input: [u8; N], length: Field) -> ([U4; 16], Field) {
     assert((2_u32 * input.len()) <= NIBBLE_LENGTH);
-    assert((length as u32) <= input.len());
+    assert(u32::unsafe_from(length) <= input.len());
     let mut nibble: [U4; 16] = [U4::zero(); 16];
     let first_nibble: U4 = U4::from_u8(input[0_u32] >> 4_u8);
     let parity: u8 = first_nibble.inner & 1_u8;
     if parity == 1_u8 {
         nibble[0_u32] = U4::from_u8(input[0_u32] & 15_u8);
         for i in 1_u32..input.len() {
-            if (i as u32) < (length as u32) {
+            if (i as u32) < u32::unsafe_from(length) {
                 let x: u8 = input[i];
                 nibble[(2_u32 * i) - 1_u32] = U4::from_u8(x >> 4_u8);
                 nibble[2_u32 * i] = U4::from_u8(x & 15_u8);
@@ -41,25 +43,26 @@ fn compact_decode<let N: u32>(input: [u8; N], length: Field) -> ([U4; 16], Field
         }
     } else {
         for i in 0_u32..2_u32 {
-            if (i as u32) < ((length as u32) - 1_u32) {
+            if (i as u32) < (u32::unsafe_from(length) - 1_u32) {
                 let x: u8 = input[i + 1_u32];
                 nibble[2_u32 * i] = U4::from_u8(x >> 4_u8);
                 nibble[(2_u32 * i) + 1_u32] = U4::from_u8(x & 15_u8);
             }
         }
     };
-    let out: ([U4; 16], Field) = (nibble, ((2_Field * length) + (parity as Field)) - 2_Field);
+    let out: ([U4; 16], Field) =
+        (nibble, ((2_Field * length) + <Field as From<u8>>::from(parity)) - 2_Field);
     out
 }
 
 fn enc<let N: u32>(value: [u8; N], value_length: Field) -> ([u8; 32], Field) {
-    assert((value.len() as u8) >= (value_length as u8));
+    assert((value.len() as u8) >= u8::unsafe_from(value_length));
     let mut out_value: [u8; 32] = [0_u8; 32];
     if value_length == 0_Field {
         let out: ([u8; 32], Field) = (out_value, value_length);
         out
-    } else if (value_length as u8) < 31_u8 {
-        out_value[0_u32] = 128_u8 + (value_length as u8);
+    } else if u8::unsafe_from(value_length) < 31_u8 {
+        out_value[0_u32] = 128_u8 + u8::unsafe_from(value_length);
         for i in 1_u32..value.len() {
             out_value[i] = value[i - 1_u32];
         }
@@ -90,7 +93,7 @@ fn bitshift_variable(idx: u64) -> u64 {
 }
 
 fn main(x: [u8; 5], z: u8, u: i16, v: i16) {
-    let (nib, len): ([U4; 16], Field) = compact_decode(x, z as Field);
+    let (nib, len): ([U4; 16], Field) = compact_decode(x, <Field as From<u8>>::from(z));
     assert(len == 5_Field);
     assert(
         [nib[0_u32], nib[1_u32], nib[2_u32], nib[3_u32], nib[4_u32]]

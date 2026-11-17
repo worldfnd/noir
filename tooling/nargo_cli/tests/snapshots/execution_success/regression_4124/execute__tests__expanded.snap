@@ -42,5 +42,5 @@ impl<T> PublicMutable<T> {
 
 fn main(value: u8) {
     let ps: PublicMutable<Field> = PublicMutable::<Field>::new(27_Field);
-    assert(ps.read() == (value as Field));
+    assert(ps.read() == <Field as From<u8>>::from(value));
 }

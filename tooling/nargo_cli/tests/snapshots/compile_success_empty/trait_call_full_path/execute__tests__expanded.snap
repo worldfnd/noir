@@ -17,7 +17,7 @@ mod foo {
 }
 
 fn main(x: u64) {
-    let x: Field = x as Field;
+    let x: Field = <Field as From<u64>>::from(x);
     let _: Field = x.me();
     let _: Field = x.me();
 }

@@ -3,8 +3,8 @@ use poseidon::poseidon2::Poseidon2Hasher;
 use std::hash::Hasher;
 
 fn main(x: u64, y: pub u64) {
-    let x = x as Field;
-    let y = y as Field;
+    let x = Field::from(x);
+    let y = Field::from(y);
     let mut hasher = PoseidonHasher::default();
     hasher.write(x);
     hasher.write(y);

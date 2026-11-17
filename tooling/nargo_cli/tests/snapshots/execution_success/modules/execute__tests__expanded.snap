@@ -9,5 +9,5 @@ mod foo {
 }
 
 fn main(x: u8, y: pub u8) {
-    assert((x as Field) != foo::hello(y as Field));
+    assert(<Field as From<u8>>::from(x) != foo::hello(<Field as From<u8>>::from(y)));
 }

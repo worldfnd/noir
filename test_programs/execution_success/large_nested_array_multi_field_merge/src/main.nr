@@ -22,11 +22,11 @@ struct Element<T> {
 fn main(input: [Element<u32>; 256], condition: bool) {
     let mut arr = input.map(|x| {
         Element {
-            a: x.a as Field,
-            b: x.b as Field,
-            c: x.c as Field,
-            d: x.d as Field,
-            e: x.e as Field,
+            a: Field::from(x.a),
+            b: Field::from(x.b),
+            c: Field::from(x.c),
+            d: Field::from(x.d),
+            e: Field::from(x.e),
         }
     });
     for i in 0..256 {

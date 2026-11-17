@@ -1,5 +1,5 @@
 fn main(x: u8) {
-    let x = x as Field;
+    let x = Field::from(x);
     // Regression test for #6451
     let y = unsafe { empty(x) };
     let mut value = 0;

@@ -8,7 +8,7 @@ impl Builder {
         let index_offset = self.note_hashes.len();
         for i in 0..self.note_hashes.max_len() {
             if i < num_note_hashes {
-                self.add_new_note_hash((index_offset + i) as Field);
+                self.add_new_note_hash(Field::from(index_offset + i));
             }
         }
     }

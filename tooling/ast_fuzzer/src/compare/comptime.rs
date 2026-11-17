@@ -30,7 +30,8 @@ use super::{CompareArtifact, CompareCompiledResult, CompareOptions, HasPrograms}
 use crate::compare::compiled::ExecResult;
 use crate::compare::logging;
 use crate::{
-    Config, DisplayAstAsNoirComptime, arb_program_comptime, program_abi, program_wrap_expression,
+    Config, DisplayAstAsNoirComptime, DisplayAstAsNoirComptimeStdlib, arb_program_comptime,
+    program_abi, program_wrap_expression,
 };
 
 /// Prepare a code snippet.
@@ -120,8 +121,10 @@ impl CompareComptime {
         }
         "#;
 
-        // Add comptime modifier for main
-        let source = format!("comptime {}{}", self.source, import_print);
+        // Add comptime modifier for main. The interpreter runs the source as the standard
+        // library, which has no `std` to call and writes its casts out.
+        let source = DisplayAstAsNoirComptimeStdlib(&self.program);
+        let source = format!("comptime {source}{import_print}");
         let output = Rc::new(RefCell::new(Vec::new()));
 
         // Take the printed output.

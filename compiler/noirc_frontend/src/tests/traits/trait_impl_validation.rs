@@ -435,16 +435,16 @@ fn specialized_impls_for_different_concrete_types() {
         }
     }
 
-    impl Describe for Tagged<u32> {
+    impl Describe for Tagged<[Field; 1]> {
         fn describe(self) -> Field {
-            self.tag + self.inner as Field
+            self.tag + self.inner[0]
         }
     }
 
     fn main() {
         let t1 = Tagged { tag: 1, inner: 2 as Field };
         let t2 = Tagged { tag: 3, inner: true };
-        let t3 = Tagged { tag: 4, inner: 5 as u32 };
+        let t3 = Tagged { tag: 4, inner: [5] };
         assert(t1.describe() == 3);
         assert(t2.describe() == 3);
         assert(t3.describe() == 9);
@@ -464,9 +464,9 @@ fn generic_struct_implementing_generic_trait() {
         val: T,
     }
 
-    impl Convert<Field> for Wrapper<u32> {
+    impl Convert<Field> for Wrapper<Field> {
         fn convert(self) -> Field {
-            self.val as Field
+            self.val
         }
     }
 
@@ -481,7 +481,7 @@ fn generic_struct_implementing_generic_trait() {
     }
 
     fn main() {
-        let w1 = Wrapper { val: 42 as u32 };
+        let w1 = Wrapper { val: 42 };
         let w2 = Wrapper { val: true };
         assert(to_field(w1) == 42);
         assert(to_field(w2) == 1);

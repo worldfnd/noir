@@ -3,5 +3,6 @@ pub mod generics;
 
 pub use self::errors::Source;
 pub use errors::{
-    ExpectingOtherError, MAX_MISSING_CASES, NoMatchingImplFoundError, TypeCheckError,
+    ExpectingOtherError, FieldCastSuggestion, MAX_MISSING_CASES, NoMatchingImplFoundError,
+    TypeCheckError,
 };

@@ -5,7 +5,7 @@ expression: expanded_code
 global FN_TUPLE: (fn() -> Field, fn() -> Field) = (f1, f2);
 
 fn main(y: u8) {
-    let y: Field = y as Field;
+    let y: Field = <Field as From<u8>>::from(y);
     assert((FN_TUPLE.0)() != y);
     assert((FN_TUPLE.1)() == y);
 }

@@ -1,7 +1,7 @@
 //! Tests for `nargo expand` output (via the HIR printer), focusing on faithfully
 //! reconstructing impls: their generics and where clauses.
 
-use crate::tests::assert_no_errors_and_to_string;
+use crate::tests::{assert_no_errors, assert_no_errors_and_to_string};
 
 #[test]
 fn expands_inherent_impl_with_where_clause() {
@@ -561,4 +561,35 @@ fn expands_trait_method_call_shadowed_by_inherent_method() {
         <Foo as Trait>::method(foo);
     }
     ");
+}
+
+/// A closure's return type is followed by its body, and a body that starts with `<` would be
+/// read as the generics of that type.
+#[test]
+fn expands_closure_whose_body_starts_with_a_trait_path() {
+    let src = r#"
+    trait Wrap<T> {
+        fn wrap(input: T) -> Self;
+    }
+
+    impl Wrap<u8> for Field {
+        fn wrap(_input: u8) -> Field {
+            0
+        }
+    }
+
+    impl Wrap<u16> for Field {
+        fn wrap(_input: u16) -> Field {
+            1
+        }
+    }
+
+    fn main() {
+        let wrap = |x| Field::wrap(x);
+        let _ = wrap(1_u8);
+    }
+    "#;
+    let expanded = assert_no_errors_and_to_string(src);
+    assert!(expanded.contains("-> Field {<Field as Wrap<u8>>::wrap(x)}"), "{expanded}");
+    assert_no_errors(&expanded);
 }

@@ -13,11 +13,11 @@ struct Element<T> {
 fn main(input: [Element<u32>; 256], condition: bool) {
     let mut arr: [Element<Field>; 256] = input.map(|x: Element<u32>| -> Element<Field> {
         Element::<Field> {
-            a: x.a as Field,
-            b: x.b as Field,
-            c: x.c as Field,
-            d: x.d as Field,
-            e: x.e as Field,
+            a: <Field as From<u32>>::from(x.a),
+            b: <Field as From<u32>>::from(x.b),
+            c: <Field as From<u32>>::from(x.c),
+            d: <Field as From<u32>>::from(x.d),
+            e: <Field as From<u32>>::from(x.e),
         }
     });
     for i in 0_u32..256_u32 {

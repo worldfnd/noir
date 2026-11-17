@@ -11,7 +11,7 @@ fn main(
     to_hash: [[u64; HASH_LENGTH]; NUM_HASHES],
     enable: [bool; NUM_HASHES],
 ) -> pub [[u8; 32]; NUM_HASHES] {
-    let to_hash = to_hash.map(|row| row.map(|x| x as Field));
+    let to_hash = to_hash.map(|row| row.map(|x| Field::from(x)));
     let mut result = [0; NUM_HASHES];
     for i in 0..NUM_HASHES {
         let enable = enable[i];

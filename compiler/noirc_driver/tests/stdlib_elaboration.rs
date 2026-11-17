@@ -118,7 +118,7 @@ fn generic_halves_source(is_bn254: bool) -> String {
 
         struct Limbs {{ values: [Field; 4], len: u32 }}
         impl Hasher for Limbs {{
-            fn finish(self) -> Field {{ self.len as Field }}
+            fn finish(self) -> Field {{ Field::from(self.len) }}
             fn write(&mut self, input: Field) {{
                 self.values[self.len] = input;
                 self.len += 1;
@@ -264,6 +264,181 @@ fn bn254_crypto_is_gated_by_the_configured_field() {
             assert!(errors.is_empty(), "{}", errors.join("\n"));
         } else {
             assert!(!errors.is_empty(), "pedersen_hash should not resolve under {field}");
+        }
+    }
+}
+
+/// `UnsafeFrom` wraps: into `Field` modulo the field, a signed source by its bit pattern, and out
+/// of `Field` to the low bits of the target.
+#[test]
+fn unsafe_from_reduces_and_truncates_at_the_boundaries() {
+    use num_bigint::BigUint;
+
+    let u64_max = BigUint::from(u64::MAX);
+    let u256_max = (BigUint::from(1u8) << 256u32) - 1u8;
+    for field in FieldId::ALL {
+        let modulus = FieldConfig::new(field).modulus();
+        let source = format!(
+            "
+            use std::convert::UnsafeFrom;
+
+            fn main() {{
+                comptime {{
+                    let wide: u64 = {u64_max};
+                    assert(Field::unsafe_from(wide) == {});
+                    let wider: u256 = {u256_max};
+                    assert(Field::unsafe_from(wider) == {});
+                    let negative: i8 = -1;
+                    assert(Field::unsafe_from(negative) == 255);
+
+                    let element: Field = 0x1234;
+                    assert(u8::unsafe_from(element) == 0x34);
+                    let top: Field = {};
+                    assert(u256::unsafe_from(top) == {});
+                    let byte: Field = 255;
+                    assert(i8::unsafe_from(byte) == -1);
+                }}
+            }}
+            ",
+            &u64_max % modulus,
+            &u256_max % modulus,
+            modulus - 1u8,
+            modulus - 1u8,
+        );
+        let errors = elaborate(&source, field);
+        assert!(errors.is_empty(), "{field}: {}", errors.join("\n"));
+    }
+}
+
+/// The conversions can be named in full, with no import, in run-time and compile-time code.
+#[test]
+fn qualified_unsafe_from_path_resolves_in_runtime_and_comptime() {
+    let source = "
+        fn widen(x: u64) -> Field {
+            <Field as std::convert::UnsafeFrom<u64>>::unsafe_from(x)
+        }
+
+        fn narrow(x: Field) -> u8 {
+            <u8 as std::convert::UnsafeFrom<Field>>::unsafe_from(x)
+        }
+
+        fn main(x: u64) -> pub u8 {
+            comptime {
+                assert(widen(3) == 3);
+                assert(narrow(259) == 3);
+            }
+            narrow(widen(x))
+        }
+    ";
+    for field in FieldId::ALL {
+        let errors = elaborate(source, field);
+        assert!(errors.is_empty(), "{field}: {}", errors.join("\n"));
+    }
+}
+
+/// `TryFrom` is `Some` exactly when the value fits, and then holds the value: into `Field`
+/// below the modulus, out of `Field` within the target's range.
+#[test]
+fn try_from_is_some_exactly_when_the_value_fits() {
+    use num_bigint::BigUint;
+
+    let u64_max = BigUint::from(u64::MAX);
+    for field in FieldId::ALL {
+        let modulus = FieldConfig::new(field).modulus();
+        let top = modulus - 1u8;
+        let source = format!(
+            "
+            use std::convert::TryFrom;
+
+            fn main() {{
+                comptime {{
+                    let wide: u64 = {u64_max};
+                    assert(Field::try_from(wide).is_some() == {});
+                    let below: u256 = {top};
+                    assert(Field::try_from(below) == Option::some({top}));
+                    let at: u256 = {modulus};
+                    assert(Field::try_from(at).is_none());
+                    let negative: i8 = -1;
+                    assert(Field::try_from(negative).is_none());
+                    let positive: i8 = 127;
+                    assert(Field::try_from(positive) == Option::some(127));
+
+                    let byte: Field = 255;
+                    assert(u8::try_from(byte) == Option::some(255));
+                    let over: Field = 256;
+                    assert(u8::try_from(over).is_none());
+                    let top: Field = {top};
+                    assert(u256::try_from(top) == Option::some({top}));
+                    let most: Field = 127;
+                    assert(i8::try_from(most) == Option::some(127));
+                    let past: Field = 128;
+                    assert(i8::try_from(past).is_none());
+                }}
+            }}
+            ",
+            &u64_max < modulus,
+        );
+        let errors = elaborate(&source, field);
+        assert!(errors.is_empty(), "{field}: {}", errors.join("\n"));
+    }
+}
+
+/// Where `From` converts every value of the source, the denial of a cast into `Field` names it
+/// rather than the conversions for a value that may not fit. Goldilocks has no `From<u64>`.
+#[test]
+fn the_denial_of_a_cast_into_field_suggests_from_where_every_value_fits() {
+    for field in FieldId::ALL {
+        let suggests_from = |typ: &str| {
+            let source = format!(
+                "fn widen(x: {typ}) -> Field {{ x as Field }}
+                fn main() {{ let _ = widen(0); }}"
+            );
+            let errors = elaborate(&source, field);
+            assert_eq!(errors.len(), 1, "{field} {typ}: {}", errors.join("\n"));
+            errors[0].contains(&format!("Use `Field::from`, which converts every `{typ}` exactly"))
+        };
+        let wide_fits = field != FieldId::Goldilocks;
+        for (typ, expected) in [
+            ("u8", true),
+            ("u32", true),
+            ("u64", wide_fits),
+            ("u128", wide_fits),
+            ("u256", false),
+            ("i8", false),
+        ] {
+            assert_eq!(suggests_from(typ), expected, "{field} {typ}");
+        }
+    }
+}
+
+/// `Expr::resolve` type checks a quoted expression inside whatever function it is given. A cast
+/// written in user code is still user code when that function is the standard library's.
+#[test]
+fn a_cast_resolved_inside_the_stdlib_is_denied_where_it_is_spliced() {
+    let source = "
+        comptime fn launder() -> Quoted {
+            let inside = quote { std::mem::zeroed }
+                .as_expr()
+                .unwrap()
+                .resolve(Option::none())
+                .as_function_definition()
+                .unwrap();
+            let cast = quote { 5_u32 as Field }.as_expr().unwrap().resolve(Option::some(inside));
+            quote { $cast }
+        }
+
+        fn main() {
+            let _: Field = launder!();
+        }
+    ";
+    // Resolved in the function that splices it, the cast is user code throughout.
+    let in_place = source.replace("Option::some(inside)", "Option::none()");
+    for field in FieldId::ALL {
+        for source in [source, in_place.as_str()] {
+            let errors = elaborate(source, field);
+            let denials =
+                errors.iter().filter(|error| error.contains("Cannot cast `u32` as `Field`"));
+            assert_eq!(denials.count(), 1, "{field}: {}", errors.join("\n"));
         }
     }
 }

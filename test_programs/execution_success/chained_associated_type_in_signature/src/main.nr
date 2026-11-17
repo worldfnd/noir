@@ -72,7 +72,7 @@ impl<T> Unwrappable for Wrapper<T> {
 }
 
 fn main(x: u8) {
-    let result: u32 = (x as Field).chain();
+    let result: u32 = (Field::from(x)).chain();
     assert(result == 1);
 
     let wrapped = Wrapper { val: x };

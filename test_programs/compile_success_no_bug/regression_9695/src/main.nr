@@ -1,5 +1,6 @@
+use std::convert::UnsafeFrom;
 fn main(a: pub u8) {
-    let mut a = a as Field;
+    let mut a = Field::from(a);
     let mut ctx_limit: u32 = 5_u32;
     if a == -1 {
         for _ in 0..2 {
@@ -9,7 +10,7 @@ fn main(a: pub u8) {
             a = 1 / d;
         }
         for _ in 0..1 {
-            assert(((a as u128) >= 1_u128));
+            assert(((u128::unsafe_from(a)) >= 1_u128));
         }
     }
 }

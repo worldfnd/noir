@@ -36,6 +36,19 @@ pub enum Source {
     ArrayIndex,
 }
 
+/// What to write in place of a cast between `Field` and an integer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FieldCastSuggestion {
+    /// The literal the cast is written on, typed as its target.
+    TypedLiteral(String),
+    /// `Field::from`, which converts every value of the source.
+    FieldFrom,
+    /// A type for the value, which is a `Field` only by default, and the variable it is, if any.
+    DeclareType(Option<String>),
+    /// `TryFrom` or `UnsafeFrom`.
+    Convert,
+}
+
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum TypeCheckError {
     #[error("Division by zero: {lhs} / {rhs}")]
@@ -115,6 +128,8 @@ pub enum TypeCheckError {
         "Values of type `{typ}` can exceed the field modulus, so `{typ}` cannot be cast to Field"
     )]
     IntegerTypeExceedsField { typ: Type, location: Location },
+    #[error("Cannot cast `{from}` as `{to}`")]
+    FieldCastDenied { from: Type, to: Type, suggestion: FieldCastSuggestion, location: Location },
     #[error("Index {index} is out of bounds for this tuple {lhs_type} of length {length}")]
     TupleIndexOutOfBounds { index: usize, lhs_type: Type, length: usize, location: Location },
     #[error("Index {index} is out of bounds for this array of length {array_length}")]
@@ -358,6 +373,7 @@ impl TypeCheckError {
             | TypeCheckError::UnsupportedCast { location }
             | TypeCheckError::UnsupportedFieldCast { location }
             | TypeCheckError::IntegerTypeExceedsField { location, .. }
+            | TypeCheckError::FieldCastDenied { location, .. }
             | TypeCheckError::TupleIndexOutOfBounds { location, .. }
             | TypeCheckError::ArrayIndexOutOfBounds { location, .. }
             | TypeCheckError::VariableMustBeMutable { location, .. }
@@ -603,6 +619,28 @@ impl<'a> From<&'a TypeCheckError> for Diagnostic {
             TypeCheckError::IntegerTypeExceedsField { typ: _, location } => {
                 let secondary =
                     "Cast to an unsigned type narrower than the field first".to_string();
+                Diagnostic::simple_error(error.to_string(), secondary, *location)
+            }
+            TypeCheckError::FieldCastDenied { from, to, suggestion, location } => {
+                let secondary = match suggestion {
+                    FieldCastSuggestion::TypedLiteral(literal) => {
+                        format!("Write the literal with its type instead: `{literal}`")
+                    }
+                    FieldCastSuggestion::FieldFrom => {
+                        format!("Use `Field::from`, which converts every `{from}` exactly")
+                    }
+                    FieldCastSuggestion::DeclareType(name) => {
+                        let value = match name {
+                            Some(name) => format!("`{name}`"),
+                            None => "This value".to_string(),
+                        };
+                        format!(
+                            "{value} is a `Field` only because nothing gives it another type: \
+                             declare it with one, such as `{to}`"
+                        )
+                    }
+                    FieldCastSuggestion::Convert => "Use `TryFrom` to get `None` when the value does not fit, or `UnsafeFrom` to wrap; both are in `std::convert`".to_string(),
+                };
                 Diagnostic::simple_error(error.to_string(), secondary, *location)
             }
 

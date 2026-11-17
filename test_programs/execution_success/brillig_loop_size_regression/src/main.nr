@@ -1,3 +1,4 @@
+use std::convert::UnsafeFrom;
 struct EnumEmulation {
     a: Option<Field>,
     b: Option<Field>,
@@ -13,5 +14,5 @@ unconstrained fn main() -> pub u8 {
     }
 
     emulated_enum.a = Option::some(2);
-    emulated_enum.a.unwrap() as u8
+    u8::unsafe_from(emulated_enum.a.unwrap())
 }

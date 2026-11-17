@@ -1,6 +1,6 @@
 fn main(input: u8, enable: bool) {
     if enable {
-        let hash = no_predicate_function(input as Field);
+        let hash = no_predicate_function(Field::from(input));
         // `EnableSideEffects` instruction from above instruction leaks out and removes the predicate from this call,
         // resulting in execution failure.
         // Safety: testing context

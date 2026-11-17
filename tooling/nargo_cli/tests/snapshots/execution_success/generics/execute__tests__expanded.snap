@@ -41,8 +41,8 @@ impl<let N: u32> BigInt<N> {
 }
 
 fn main(x: u8, y: u8) {
-    let x: Field = x as Field;
-    let y: Field = y as Field;
+    let x: Field = <Field as From<u8>>::from(x);
+    let y: Field = <Field as From<u8>>::from(y);
     let bar1: Bar<Field> = Bar::<Field> { one: x, two: y, other: 0_Field };
     let bar2: Bar<[Field; 1]> = Bar::<[Field; 1]> { one: x, two: y, other: [0_Field] };
     foo(bar1);
@@ -72,7 +72,10 @@ fn regression_2055<let LEN: u32>(bytes: [u8; LEN]) -> Field {
     let mut len: u32 = LEN - 1_u32;
     for i in 0_u32..LEN {
         let j: u32 = len - i;
-        f = f + ((bytes[j] as Field) * b);
+        {
+            let op_rhs_0: Field = <Field as From<u8>>::from(bytes[j]) * b;
+            f = f + op_rhs_0;
+        };
         b = b * 256_Field;
     }
     f

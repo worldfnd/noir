@@ -1,3 +1,4 @@
+use std::convert::UnsafeFrom;
 // Tests a performance regression found in aztec-packages with brillig cow optimization
 global MAX_NOTE_HASHES_PER_TX: u32 = 64;
 global MAX_NULLIFIERS_PER_TX: u32 = 64;
@@ -25,8 +26,8 @@ struct NewContractData {
 impl NewContractData {
     fn hash(self) -> Field {
         std::hash::pedersen_hash([
-            self.contract_address as Field,
-            self.portal_contract_address as Field,
+            Field::from(self.contract_address),
+            Field::from(self.portal_contract_address),
         ])
     }
 }
@@ -93,8 +94,8 @@ impl U256 {
     pub fn to_u128_limbs(self) -> [Field; 2] {
         let two_pow_64 = 2.pow_32(64);
 
-        let high = (self.inner[0] as Field) * two_pow_64 + self.inner[1] as Field;
-        let low = (self.inner[2] as Field) * two_pow_64 + self.inner[3] as Field;
+        let high = (Field::from(self.inner[0])) * two_pow_64 + Field::from(self.inner[1]);
+        let low = (Field::from(self.inner[2])) * two_pow_64 + Field::from(self.inner[3]);
 
         [high, low]
     }
@@ -113,24 +114,25 @@ unconstrained fn main(kernel_data: DataToHash) -> pub [u128; NUM_FIELDS_PER_SHA2
     let mut offset = 0;
 
     for j in 0..MAX_NOTE_HASHES_PER_TX {
-        tx_effects_hash_inputs[offset + j] = new_note_hashes[j] as Field;
+        tx_effects_hash_inputs[offset + j] = Field::from(new_note_hashes[j]);
     }
     offset += MAX_NOTE_HASHES_PER_TX;
 
     for j in 0..MAX_NULLIFIERS_PER_TX {
-        tx_effects_hash_inputs[offset + j] = new_nullifiers[j] as Field;
+        tx_effects_hash_inputs[offset + j] = Field::from(new_nullifiers[j]);
     }
     offset += MAX_NULLIFIERS_PER_TX;
 
     for j in 0..MAX_PUBLIC_DATA_UPDATE_REQUESTS_PER_TX {
-        tx_effects_hash_inputs[offset + j * 2] = public_data_update_requests[j].leaf_slot as Field;
+        tx_effects_hash_inputs[offset + j * 2] =
+            Field::from(public_data_update_requests[j].leaf_slot);
         tx_effects_hash_inputs[offset + j * 2 + 1] =
-            public_data_update_requests[j].new_value as Field;
+            Field::from(public_data_update_requests[j].new_value);
     }
     offset += MAX_PUBLIC_DATA_UPDATE_REQUESTS_PER_TX * 2;
 
     for j in 0..MAX_L2_TO_L1_MSGS_PER_TX {
-        tx_effects_hash_inputs[offset + j] = l2ToL1Msgs[j] as Field;
+        tx_effects_hash_inputs[offset + j] = Field::from(l2ToL1Msgs[j]);
     }
     offset += MAX_L2_TO_L1_MSGS_PER_TX;
 
@@ -140,20 +142,20 @@ unconstrained fn main(kernel_data: DataToHash) -> pub [u128; NUM_FIELDS_PER_SHA2
     offset += MAX_NEW_CONTRACTS_PER_TX;
 
     let new_contracts = kernel_data.new_contracts;
-    tx_effects_hash_inputs[offset] = new_contracts[0].contract_address as Field;
+    tx_effects_hash_inputs[offset] = Field::from(new_contracts[0].contract_address);
 
-    tx_effects_hash_inputs[offset + 1] = new_contracts[0].portal_contract_address as Field;
+    tx_effects_hash_inputs[offset + 1] = Field::from(new_contracts[0].portal_contract_address);
 
     offset += MAX_NEW_CONTRACTS_PER_TX * 2;
 
     for j in 0..NUM_FIELDS_PER_SHA256 {
-        tx_effects_hash_inputs[offset + j] = encryptedLogsHash[j] as Field;
+        tx_effects_hash_inputs[offset + j] = Field::from(encryptedLogsHash[j]);
     }
 
     offset += NUM_ENCRYPTED_LOGS_HASHES_PER_TX * NUM_FIELDS_PER_SHA256;
 
     for j in 0..NUM_FIELDS_PER_SHA256 {
-        tx_effects_hash_inputs[offset + j] = unencryptedLogsHash[j] as Field;
+        tx_effects_hash_inputs[offset + j] = Field::from(unencryptedLogsHash[j]);
     }
 
     offset += NUM_UNENCRYPTED_LOGS_HASHES_PER_TX * NUM_FIELDS_PER_SHA256;
@@ -177,5 +179,5 @@ unconstrained fn main(kernel_data: DataToHash) -> pub [u128; NUM_FIELDS_PER_SHA2
     }
 
     let blake2_digest = std::hash::blake2s(hash_input_flattened);
-    U256::from_bytes32(blake2_digest).to_u128_limbs().map(|limb| limb as u128)
+    U256::from_bytes32(blake2_digest).to_u128_limbs().map(|limb| u128::unsafe_from(limb))
 }

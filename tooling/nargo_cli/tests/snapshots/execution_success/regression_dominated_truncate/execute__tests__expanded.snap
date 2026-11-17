@@ -2,9 +2,11 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
+use std::convert::UnsafeFrom;
+
 unconstrained fn helper(cond: bool, x: Field) -> Field {
     if cond {
-        (x as u8) as Field
+        <Field as From<u8>>::from(u8::unsafe_from(x))
     } else {
         x.assert_max_bit_size::<8>();
         0_Field
@@ -12,7 +14,7 @@ unconstrained fn helper(cond: bool, x: Field) -> Field {
 }
 
 fn main(cond: bool, x: pub u16) {
-    let x: Field = x as Field;
+    let x: Field = <Field as From<u16>>::from(x);
     // Safety: comment added by `nargo expand`
     let y: Field = unsafe { helper(cond, x) };
     assert(y != x);

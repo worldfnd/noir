@@ -1,4 +1,4 @@
-use crate::tests::{assert_no_errors, check_errors};
+use crate::tests::{assert_no_errors, check_errors, check_errors_with_stdlib};
 
 #[test]
 fn cast_256_to_u8_size_checks() {
@@ -9,7 +9,7 @@ fn cast_256_to_u8_size_checks() {
                    ~~~~~~~~~ casting untyped value (256) to a type with a maximum size (255) that's smaller than it
         }
     "#;
-    check_errors(src);
+    check_errors_with_stdlib(src, []);
 }
 
 #[test]
@@ -21,7 +21,7 @@ fn cast_negative_literal_to_integer_warns() {
                     ~~~~~~~~ If this isn't desired, try `-1i8` instead or bind to a variable first to silence this warning
         }
     "#;
-    check_errors(src);
+    check_errors_with_stdlib(src, []);
 }
 
 #[test]
@@ -42,7 +42,7 @@ fn cast_signed_i8_to_field_must_error() {
                    ^^^^^^^^^^^^^ Only unsigned integer types may be casted to Field
         }
     "#;
-    check_errors(src);
+    check_errors_with_stdlib(src, []);
 }
 
 #[test]
@@ -53,7 +53,7 @@ fn cast_signed_i32_to_field_must_error() {
                    ^^^^^^^^^^ Only unsigned integer types may be casted to Field
         }
     "#;
-    check_errors(src);
+    check_errors_with_stdlib(src, []);
 }
 
 #[test]
@@ -68,7 +68,7 @@ fn do_not_eagerly_error_on_cast_on_type_variable() {
         let _: Field = foo(x, |x| x as Field);
     }
     "#;
-    assert_no_errors(src);
+    check_errors_with_stdlib(src, []);
 }
 
 #[test]

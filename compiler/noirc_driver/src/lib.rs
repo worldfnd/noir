@@ -3,6 +3,8 @@
 
 #[cfg(test)]
 use insta as _;
+#[cfg(test)]
+use num_bigint as _;
 
 use std::hash::BuildHasher;
 

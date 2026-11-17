@@ -5160,6 +5160,6 @@ fn main(x: u8, y: pub u8) {
             acc = acc + EXPONENTIATE[i][j];
         }
     }
-    assert(!acc.lt(x as Field));
+    assert(!acc.lt(<Field as From<u8>>::from(x)));
     assert(x != y);
 }

@@ -1,3 +1,4 @@
+use std::convert::UnsafeFrom;
 global G_A: [Field] = [
     (-89475623400669066614290885116958338078),
     (48908553793922955213460396216351077763),
@@ -5,7 +6,7 @@ global G_A: [Field] = [
 ]
     .as_vector();
 fn main(b: pub u8) -> pub u8 {
-    let b = b as Field;
+    let b = Field::from(b);
     let result = if b == -284015218230919225711528337869756109769 {
         -b
     } else if b == -64182487568962597178733740932221199270 {
@@ -13,5 +14,5 @@ fn main(b: pub u8) -> pub u8 {
     } else {
         b
     };
-    result as u8
+    u8::unsafe_from(result)
 }

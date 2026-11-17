@@ -2396,7 +2396,7 @@ fn comptime_right_shift_overflow() {
     fn main(x: u32) -> pub u32 {
         let y = comptime { 1 >> 32 };
                            ^^^^^^^ Attempt to bit-shift with overflow
-        x + y as u32
+        x + y
     }
     "#;
     check_errors(src);

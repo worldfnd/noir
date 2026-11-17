@@ -10,7 +10,10 @@ unconstrained fn main(
 ) -> pub ([u8; 32], [u8; 32]) {
     let points: [EmbeddedCurvePoint; 5] = points
         .map(|(x, y): (u8, [u8; 32])| -> EmbeddedCurvePoint {
-            EmbeddedCurvePoint::new(x as Field, Field::from_le_bytes_checked(y))
+            EmbeddedCurvePoint::new(
+                <Field as From<u8>>::from(x),
+                Field::from_le_bytes_checked(y),
+            )
         });
     let scalars: [Field; 5] =
         scalars.map(|scalar: [u8; 32]| -> Field Field::from_le_bytes_checked(scalar));

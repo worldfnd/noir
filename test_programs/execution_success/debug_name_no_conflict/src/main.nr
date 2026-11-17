@@ -3,7 +3,7 @@
 // debug instrumentation pass during monomorphization.
 
 fn __debug_var_assign(var_id: u32, value: Field) -> Field {
-    value + var_id as Field
+    value + Field::from(var_id)
 }
 
 fn __debug_var_drop(var_id: u32) -> u32 {

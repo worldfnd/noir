@@ -1,3 +1,4 @@
+use std::convert::UnsafeFrom;
 // https://github.com/noir-lang/noir/issues/7744
 
 use std::embedded_curve_ops::{embedded_curve_add, EmbeddedCurvePoint};
@@ -10,5 +11,5 @@ fn main(is_active: bool) -> pub (u8, u8) {
     } else {
         bad
     };
-    (point.x as u8, point.y as u8)
+    (u8::unsafe_from(point.x), u8::unsafe_from(point.y))
 }

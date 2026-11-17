@@ -1,6 +1,6 @@
 fn main(x: u64, y: u64) {
-    let x = x as Field;
-    let y = y as Field;
+    let x = Field::from(x);
+    let y = Field::from(y);
     let flag = (x == 1) | (y == 2);
     assert(flag | false == flag);
 }

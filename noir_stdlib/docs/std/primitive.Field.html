@@ -39,12 +39,6 @@
 <h3>Trait implementations</h3>
 <ul class="sidebar-list">
 <li><a href="#impl-Add-for-Field">Add</a></li>
-<li><a href="#impl-AsPrimitive&lt;bool&gt;-for-Field">AsPrimitive&lt;bool&gt;</a></li>
-<li><a href="#impl-AsPrimitive&lt;u128&gt;-for-Field">AsPrimitive&lt;u128&gt;</a></li>
-<li><a href="#impl-AsPrimitive&lt;u16&gt;-for-Field">AsPrimitive&lt;u16&gt;</a></li>
-<li><a href="#impl-AsPrimitive&lt;u32&gt;-for-Field">AsPrimitive&lt;u32&gt;</a></li>
-<li><a href="#impl-AsPrimitive&lt;u64&gt;-for-Field">AsPrimitive&lt;u64&gt;</a></li>
-<li><a href="#impl-AsPrimitive&lt;u8&gt;-for-Field">AsPrimitive&lt;u8&gt;</a></li>
 <li><a href="#impl-Default-for-Field">Default</a></li>
 <li><a href="#impl-Div-for-Field">Div</a></li>
 <li><a href="#impl-Eq-for-Field">Eq</a></li>
@@ -58,6 +52,10 @@
 <li><a href="#impl-Mul-for-Field">Mul</a></li>
 <li><a href="#impl-Neg-for-Field">Neg</a></li>
 <li><a href="#impl-Sub-for-Field">Sub</a></li>
+<li><a href="#impl-TryFrom&lt;i&lt;N&gt;&gt;-for-Field">TryFrom&lt;i&lt;N&gt;&gt;</a></li>
+<li><a href="#impl-TryFrom&lt;u&lt;N&gt;&gt;-for-Field">TryFrom&lt;u&lt;N&gt;&gt;</a></li>
+<li><a href="#impl-UnsafeFrom&lt;i&lt;N&gt;&gt;-for-Field">UnsafeFrom&lt;i&lt;N&gt;&gt;</a></li>
+<li><a href="#impl-UnsafeFrom&lt;u&lt;N&gt;&gt;-for-Field">UnsafeFrom&lt;u&lt;N&gt;&gt;</a></li>
 <li><a href="#impl-WrappingAdd-for-Field">WrappingAdd</a></li>
 <li><a href="#impl-WrappingMul-for-Field">WrappingMul</a></li>
 <li><a href="#impl-WrappingSub-for-Field">WrappingSub</a></li>
@@ -240,30 +238,6 @@ field modulus.</p>
 
 <div class="padded-methods"><code class="code-header">pub fn <span class="fn">add</span>(self, other: Self) -> Self</code>
 
-</div><h3 id="impl-AsPrimitive&lt;bool&gt;-for-Field"><code class="code-header">impl <a href="../std/convert/trait.AsPrimitive.html" class="trait">AsPrimitive</a>&lt;<a href="../std/primitive.bool.html" class="primitive">bool</a>&gt; for <a href="../std/primitive.Field.html" class="primitive">Field</a></code></h3>
-
-<div class="padded-methods"><code class="code-header">pub fn <span class="fn">as_</span>(self) -> <a href="../std/primitive.bool.html" class="primitive">bool</a></code>
-
-</div><h3 id="impl-AsPrimitive&lt;u128&gt;-for-Field"><code class="code-header">impl <a href="../std/convert/trait.AsPrimitive.html" class="trait">AsPrimitive</a>&lt;<a href="../std/primitive.u128.html" class="primitive">u128</a>&gt; for <a href="../std/primitive.Field.html" class="primitive">Field</a></code></h3>
-
-<div class="padded-methods"><code class="code-header">pub fn <span class="fn">as_</span>(self) -> <a href="../std/primitive.u128.html" class="primitive">u128</a></code>
-
-</div><h3 id="impl-AsPrimitive&lt;u16&gt;-for-Field"><code class="code-header">impl <a href="../std/convert/trait.AsPrimitive.html" class="trait">AsPrimitive</a>&lt;<a href="../std/primitive.u16.html" class="primitive">u16</a>&gt; for <a href="../std/primitive.Field.html" class="primitive">Field</a></code></h3>
-
-<div class="padded-methods"><code class="code-header">pub fn <span class="fn">as_</span>(self) -> <a href="../std/primitive.u16.html" class="primitive">u16</a></code>
-
-</div><h3 id="impl-AsPrimitive&lt;u32&gt;-for-Field"><code class="code-header">impl <a href="../std/convert/trait.AsPrimitive.html" class="trait">AsPrimitive</a>&lt;<a href="../std/primitive.u32.html" class="primitive">u32</a>&gt; for <a href="../std/primitive.Field.html" class="primitive">Field</a></code></h3>
-
-<div class="padded-methods"><code class="code-header">pub fn <span class="fn">as_</span>(self) -> <a href="../std/primitive.u32.html" class="primitive">u32</a></code>
-
-</div><h3 id="impl-AsPrimitive&lt;u64&gt;-for-Field"><code class="code-header">impl <a href="../std/convert/trait.AsPrimitive.html" class="trait">AsPrimitive</a>&lt;<a href="../std/primitive.u64.html" class="primitive">u64</a>&gt; for <a href="../std/primitive.Field.html" class="primitive">Field</a></code></h3>
-
-<div class="padded-methods"><code class="code-header">pub fn <span class="fn">as_</span>(self) -> <a href="../std/primitive.u64.html" class="primitive">u64</a></code>
-
-</div><h3 id="impl-AsPrimitive&lt;u8&gt;-for-Field"><code class="code-header">impl <a href="../std/convert/trait.AsPrimitive.html" class="trait">AsPrimitive</a>&lt;<a href="../std/primitive.u8.html" class="primitive">u8</a>&gt; for <a href="../std/primitive.Field.html" class="primitive">Field</a></code></h3>
-
-<div class="padded-methods"><code class="code-header">pub fn <span class="fn">as_</span>(self) -> <a href="../std/primitive.u8.html" class="primitive">u8</a></code>
-
 </div><h3 id="impl-Default-for-Field"><code class="code-header">impl <a href="../std/default/trait.Default.html" class="trait">Default</a> for <a href="../std/primitive.Field.html" class="primitive">Field</a></code></h3>
 
 <div class="padded-methods"><code class="code-header">pub fn <span class="fn">default</span>() -> Self</code>
@@ -317,6 +291,22 @@ field modulus.</p>
 </div><h3 id="impl-Sub-for-Field"><code class="code-header">impl <a href="../std/ops/trait.Sub.html" class="trait">Sub</a> for <a href="../std/primitive.Field.html" class="primitive">Field</a></code></h3>
 
 <div class="padded-methods"><code class="code-header">pub fn <span class="fn">sub</span>(self, other: Self) -> Self</code>
+
+</div><h3 id="impl-TryFrom&lt;i&lt;N&gt;&gt;-for-Field"><code class="code-header">impl <a href="../std/convert/trait.TryFrom.html" class="trait">TryFrom</a>&lt;i&lt;N&gt;&gt; for <a href="../std/primitive.Field.html" class="primitive">Field</a></code></h3>
+
+<div class="padded-methods"><code class="code-header">pub fn <span class="fn">try_from</span>(input: i&lt;N&gt;) -> <a href="../std/option/struct.Option.html" class="struct">Option</a>&lt;Self&gt;</code>
+
+</div><h3 id="impl-TryFrom&lt;u&lt;N&gt;&gt;-for-Field"><code class="code-header">impl <a href="../std/convert/trait.TryFrom.html" class="trait">TryFrom</a>&lt;u&lt;N&gt;&gt; for <a href="../std/primitive.Field.html" class="primitive">Field</a></code></h3>
+
+<div class="padded-methods"><code class="code-header">pub fn <span class="fn">try_from</span>(input: u&lt;N&gt;) -> <a href="../std/option/struct.Option.html" class="struct">Option</a>&lt;Self&gt;</code>
+
+</div><h3 id="impl-UnsafeFrom&lt;i&lt;N&gt;&gt;-for-Field"><code class="code-header">impl <a href="../std/convert/trait.UnsafeFrom.html" class="trait">UnsafeFrom</a>&lt;i&lt;N&gt;&gt; for <a href="../std/primitive.Field.html" class="primitive">Field</a></code></h3>
+
+<div class="padded-methods"><code class="code-header">pub fn <span class="fn">unsafe_from</span>(input: i&lt;N&gt;) -> Self</code>
+
+</div><h3 id="impl-UnsafeFrom&lt;u&lt;N&gt;&gt;-for-Field"><code class="code-header">impl <a href="../std/convert/trait.UnsafeFrom.html" class="trait">UnsafeFrom</a>&lt;u&lt;N&gt;&gt; for <a href="../std/primitive.Field.html" class="primitive">Field</a></code></h3>
+
+<div class="padded-methods"><code class="code-header">pub fn <span class="fn">unsafe_from</span>(input: u&lt;N&gt;) -> Self</code>
 
 </div><h3 id="impl-WrappingAdd-for-Field"><code class="code-header">impl <a href="../std/ops/trait.WrappingAdd.html" class="trait">WrappingAdd</a> for <a href="../std/primitive.Field.html" class="primitive">Field</a></code></h3>
 

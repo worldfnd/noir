@@ -1,0 +1,6 @@
+[package]
+name = "field_cast_out_of_field_denied"
+type = "bin"
+authors = [""]
+
+[dependencies]

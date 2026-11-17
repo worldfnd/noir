@@ -18,12 +18,12 @@ fn main(x: [foo; 3], y: u32, z: u32) -> pub u8 {
     let mut b = [bar { value: 0, counter: 0, dummy: [0; 3] }; 3];
     let mut c = [bar_field { value: 0, counter: 0, dummy: [0; 3] }; 3];
     for i in 0..3 {
-        b[i].value = x[i].value as Field;
+        b[i].value = Field::from(x[i].value);
         b[i].counter = x[i].counter;
         b[i].dummy[0] = x[i].dummy;
-        c[i].value = x[i].value as Field;
+        c[i].value = Field::from(x[i].value);
         c[i].counter = x[i].counter;
-        c[i].dummy[0] = x[i].dummy as Field;
+        c[i].dummy[0] = Field::from(x[i].dummy);
     }
     if z == 0 {
         // offset

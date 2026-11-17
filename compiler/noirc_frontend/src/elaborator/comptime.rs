@@ -1019,7 +1019,7 @@ impl<'context> Elaborator<'context> {
 
         let result = f(self);
 
-        self.check_and_pop_function_context();
+        self.check_and_pop_nested_function_context();
         self.in_comptime_context = old_comptime_value;
         result
     }

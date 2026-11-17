@@ -2594,9 +2594,14 @@ impl Elaborator<'_> {
             }
         };
 
+        // Outside the standard library a cast of a literal that does not fit its target is an
+        // error, reported with the other casts between `Field` and an integer.
+        let in_stdlib = self.crate_id.is_stdlib();
+
         // Warn if a user casts to an integer from a negative field literal.
         // `-1 as i8 == 0`, not `-1` which can be confusing.
         if let Some(value) = &from_value_opt
+            && in_stdlib
             && *value < BigInt::ZERO
             && to.is_integer()
             && (from_follow_bindings.is_field() || from_follow_bindings.is_bindable())
@@ -2616,6 +2621,7 @@ impl Elaborator<'_> {
         // check that it fits or throw a warning
         if let (Some(from_value), Some(to_maximum_size)) =
             (from_value_opt, to.integral_maximum_size())
+            && in_stdlib
             && from_is_polymorphic
             && from_value >= BigInt::ZERO
             && from_value > to_maximum_size
@@ -2629,24 +2635,13 @@ impl Elaborator<'_> {
             self.push_err(TypeCheckError::DownsizingCast { from, to, location, reason });
         }
 
+        if matches!(to, Type::Integer(..) | Type::FieldElement) {
+            self.push_field_cast(*from_expr_id, from.clone(), to.clone(), location);
+        }
+
         match to {
             Type::Integer(sign, bits) => Type::Integer(sign, bits),
-            Type::FieldElement => {
-                if from_follow_bindings.is_signed() {
-                    self.push_err(TypeCheckError::UnsupportedFieldCast { location });
-                } else if let Type::Integer(Signedness::Unsigned, width) = &from_follow_bindings
-                    && let Some(bits) = width.constant_width()
-                    && !self.interner.field().fits_unsigned(bits)
-                {
-                    // `Field` never reduces a cast, so only a type whose every value lies below
-                    // the modulus may be cast to it. A source that is still a type variable, or
-                    // whose width still names a generic, is checked again by the monomorphizer.
-                    let typ = from_follow_bindings;
-                    self.push_err(TypeCheckError::IntegerTypeExceedsField { typ, location });
-                }
-
-                Type::FieldElement
-            }
+            Type::FieldElement => Type::FieldElement,
             Type::Bool => {
                 let from_is_numeric = match from_follow_bindings {
                     Type::Integer(..) | Type::FieldElement => true,

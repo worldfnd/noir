@@ -14,7 +14,7 @@ struct Foo {
 }
 
 fn main(x: pub u8, y: pub u32) {
-    let x = x as Field;
+    let x = Field::from(x);
     // Safety:
     let result = unsafe { read_ref(&x) };
     assert_eq(result, x);

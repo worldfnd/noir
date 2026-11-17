@@ -3,8 +3,8 @@ source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
 fn main(x: u8, y: pub u8) {
-    let x: Field = x as Field;
-    let y: Field = y as Field;
+    let x: Field = <Field as From<u8>>::from(x);
+    let y: Field = <Field as From<u8>>::from(y);
     let string: str<14> = "i: {i}, j: {j}";
     println(string);
     let fmt_str: fmtstr<14, (Field, Field)> = f"i: {x}, j: {y}";

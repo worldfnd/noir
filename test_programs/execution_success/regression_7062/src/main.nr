@@ -1,6 +1,6 @@
 fn main(value: u8, index: u32) {
     let mut args = [0, 1].as_vector();
-    args[index] = value as Field;
+    args[index] = Field::from(value);
     // Safety: n/a
     unsafe { store(args) };
     // Dummy test to remove the 'underconstraint bug'

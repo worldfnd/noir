@@ -1,7 +1,7 @@
 global FN_ARRAY: [fn() -> Field; 2] = [f1, f2];
 
 fn main(x: u32, y: u8) {
-    assert(FN_ARRAY[x]() == y as Field);
+    assert(FN_ARRAY[x]() == Field::from(y));
 }
 
 fn f1() -> Field {

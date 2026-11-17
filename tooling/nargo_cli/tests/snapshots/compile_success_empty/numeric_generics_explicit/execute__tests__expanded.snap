@@ -2,6 +2,8 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
+use std::convert::UnsafeFrom;
+
 pub global N: u32 = 1000;
 
 fn main() {
@@ -34,8 +36,11 @@ struct MyStruct<let S: u32> {
 
 impl<let S: u32> MyStruct<S> {
     pub fn insert(mut self, index: Field, elem: Field) -> Self {
-        assert((index as u32) < S);
-        self.data[index as u32] = elem;
+        assert(u32::unsafe_from(index) < S);
+        {
+            let i_0: u32 = u32::unsafe_from(index);
+            self.data[i_0] = elem;
+        };
         self
     }
 }
@@ -84,7 +89,7 @@ impl PublicStorage {
     {
         let mut fields: [Field; N] = [0_Field; N];
         for i in 0_u32..N {
-            fields[i] = (i as Field) + 1_Field;
+            fields[i] = <Field as From<u32>>::from(i) + 1_Field;
         }
         T::deserialize(fields)
     }

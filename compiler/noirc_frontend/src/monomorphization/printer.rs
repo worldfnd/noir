@@ -35,6 +35,9 @@ pub struct AstPrinter {
     pub show_id: bool,
     pub show_clone_and_drop: bool,
     pub show_specials_as_std: bool,
+    /// Print a cast between `Field` and an integer as the `std::convert::UnsafeFrom` call it
+    /// stands for, which is how user code writes one.
+    pub show_field_casts_as_std: bool,
     pub show_type_in_let: bool,
     pub show_type_of_int_literal: bool,
 }
@@ -47,6 +50,7 @@ impl Default for AstPrinter {
             show_id: true,
             show_clone_and_drop: true,
             show_specials_as_std: false,
+            show_field_casts_as_std: false,
             show_type_in_let: false,
             show_type_of_int_literal: false,
         }
@@ -164,9 +168,23 @@ impl AstPrinter {
                 write!(f, "]")
             }
             Expression::Cast(cast) => {
-                write!(f, "(")?;
-                self.print_expr(&cast.lhs, f)?;
-                write!(f, " as {})", cast.r#type)
+                let from = cast.lhs.return_type();
+                let crosses_field = from.as_deref().is_some_and(|from| {
+                    matches!(
+                        (from, &cast.r#type),
+                        (Type::Integer(..), Type::Field) | (Type::Field, Type::Integer(..))
+                    )
+                });
+                if let Some(from) = from.filter(|_| self.show_field_casts_as_std && crosses_field) {
+                    let to = &cast.r#type;
+                    write!(f, "<{to} as std::convert::UnsafeFrom<{from}>>::unsafe_from(")?;
+                    self.print_expr(&cast.lhs, f)?;
+                    write!(f, ")")
+                } else {
+                    write!(f, "(")?;
+                    self.print_expr(&cast.lhs, f)?;
+                    write!(f, " as {})", cast.r#type)
+                }
             }
             Expression::For(for_expr) => self.print_for(for_expr, f),
             Expression::Loop(block) => self.print_loop(block, f),
@@ -752,7 +770,7 @@ impl Display for Definition {
 mod tests {
     use std::rc::Rc;
 
-    use super::super::ast::{Assign, Expression, IdentId, Literal, LocalId};
+    use super::super::ast::{Assign, Cast, Expression, IdentId, Literal, LocalId};
     use super::*;
     use crate::shared::Signedness;
     use noirc_errors::Location;
@@ -844,5 +862,50 @@ mod tests {
         };
 
         assert_eq!(print(outer_index), "(*d)[1] = true");
+    }
+
+    fn print_cast(lhs_type: Type, target: Type, show_field_casts_as_std: bool) -> String {
+        struct PrintCast(Expression, bool);
+
+        impl Display for PrintCast {
+            fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+                let mut printer = AstPrinter {
+                    show_id: false,
+                    show_field_casts_as_std: self.1,
+                    ..Default::default()
+                };
+                printer.print_expr(&self.0, f)
+            }
+        }
+
+        let cast = Expression::Cast(Cast {
+            lhs: Box::new(Expression::Ident(local_ident("x", 0, lhs_type))),
+            r#type: target,
+            location: Location::dummy(),
+        });
+        format!("{}", PrintCast(cast, show_field_casts_as_std))
+    }
+
+    /// User code may not cast between `Field` and an integer, so source meant to be compiled as
+    /// user code names the conversion the cast stands for.
+    #[test]
+    fn field_casts_print_as_the_standard_library_conversion() {
+        let u64_t = Type::Integer(Signedness::Unsigned, 64);
+        let i8_t = Type::Integer(Signedness::Signed, 8);
+
+        assert_eq!(
+            print_cast(u64_t.clone(), Type::Field, true),
+            "<Field as std::convert::UnsafeFrom<u64>>::unsafe_from(x)"
+        );
+        assert_eq!(
+            print_cast(Type::Field, i8_t.clone(), true),
+            "<i8 as std::convert::UnsafeFrom<Field>>::unsafe_from(x)"
+        );
+
+        // Casts that do not cross the boundary, and every cast without the flag, print as written.
+        assert_eq!(print_cast(u64_t.clone(), i8_t, true), "(x as i8)");
+        assert_eq!(print_cast(Type::Bool, Type::Field, true), "(x as Field)");
+        assert_eq!(print_cast(Type::Field, Type::Field, true), "(x as Field)");
+        assert_eq!(print_cast(u64_t, Type::Field, false), "(x as Field)");
     }
 }

@@ -1,3 +1,4 @@
+use std::convert::UnsafeFrom;
 fn main(a: u32, b: bool) -> pub u32 {
     let mut s = 0;
     let c = [[1, 2]];
@@ -8,5 +9,5 @@ fn main(a: u32, b: bool) -> pub u32 {
             s += e;
         }
     }
-    s as u32
+    u32::unsafe_from(s)
 }

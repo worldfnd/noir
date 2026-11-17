@@ -289,12 +289,21 @@ impl ItemPrinter<'_, '_> {
             this.show_type(typ);
         });
         self.push_str("| ");
-        if hir_lambda.return_type != Type::Unit {
+        let has_return_type = hir_lambda.return_type != Type::Unit;
+        if has_return_type {
             self.push_str("-> ");
             self.show_type(&hir_lambda.return_type);
             self.push_str(" ");
         }
+        let body_start = self.string.len();
         self.show_hir_expression_id_maybe_inside_curly_braces(hir_lambda.body);
+
+        // Right after a return type, a body that starts with `<`, as `<T as Trait>::method`
+        // does, would be read as the generics of that type.
+        if has_return_type && self.string[body_start..].starts_with('<') {
+            self.string.insert(body_start, '{');
+            self.push('}');
+        }
     }
 
     fn show_hir_match(&mut self, hir_match: HirMatch) {

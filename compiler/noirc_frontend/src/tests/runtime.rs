@@ -192,17 +192,17 @@ fn trait_unconstrained_methods_typechecked_correctly() {
                 self
             }
 
-            unconstrained fn foo(self) -> Field;
+            unconstrained fn foo(self) -> u32;
         }
 
         impl Foo for u32 {
-            unconstrained fn foo(self) -> Field {
-                self as Field
+            unconstrained fn foo(self) -> u32 {
+                self
             }
         }
 
         unconstrained fn main() {
-            assert_eq(2.foo(), 2.identity() as Field);
+            assert_eq(2.foo(), 2.identity());
         }
     "#;
     assert_no_errors(src);

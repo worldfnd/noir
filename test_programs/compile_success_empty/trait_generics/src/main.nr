@@ -1,3 +1,4 @@
+use std::convert::UnsafeFrom;
 fn main() {
     let xs: [Field; 1] = [3];
     let ys: [u32; 1] = [3];
@@ -30,7 +31,7 @@ where
 
 impl MyInto<u32> for Field {
     fn into(self) -> u32 {
-        self as u32
+        u32::unsafe_from(self)
     }
 }
 

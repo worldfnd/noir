@@ -87,6 +87,6 @@ fn main(input: [u8; 4], randomness: u8, context_input: u32) {
     let b = [context_input, context_input, context_input];
     let mut context = Context { a: context_input, b, log_hashes: BoundedVec::new() };
 
-    let event0 = ExampleEvent0 { value0: input[0] as Field, value1: input[1] as Field };
-    event0.emit(encode_event_with_randomness(&mut context, randomness as Field));
+    let event0 = ExampleEvent0 { value0: Field::from(input[0]), value1: Field::from(input[1]) };
+    event0.emit(encode_event_with_randomness(&mut context, Field::from(randomness)));
 }
