@@ -774,7 +774,7 @@ impl ChunkFormatter<'_, '_> {
             formatter.write_space();
             formatter.write_keyword(Keyword::As);
             formatter.write_space();
-            formatter.format_type(cast_expression.r#type);
+            formatter.format_type_in_expression(cast_expression.r#type);
         }));
         group
     }
@@ -1697,6 +1697,16 @@ global y = 1;
     fn format_cast() {
         let src = "global x =  1  as  u8 ;";
         let expected = "global x = 1 as u8;\n";
+        assert_format(src, expected);
+    }
+
+    #[test]
+    fn format_cast_to_a_generic_width_keeps_the_turbofish() {
+        let src = "fn foo<let N: u32>(x: u8) -> u<N> {  x  as  u::<N>  }";
+        let expected = "fn foo<let N: u32>(x: u8) -> u<N> {
+    x as u::<N>
+}
+";
         assert_format(src, expected);
     }
 
