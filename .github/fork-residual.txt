@@ -28,6 +28,7 @@ compiler/integration-tests/scripts/generate-solidity-verifiers.sh
 compiler/integration-tests/test/browser/recursion.test.ts
 compiler/integration-tests/test/node/onchain_recursive_verification.test.ts
 compiler/noirc_driver/Cargo.toml
+compiler/noirc_driver/build.rs
 compiler/noirc_driver/src/abi_gen.rs
 compiler/noirc_driver/src/lib.rs
 compiler/noirc_driver/tests/allow_warnings.rs
@@ -45,6 +46,7 @@ compiler/noirc_evaluator/src/brillig/brillig_gen/tests/call.rs
 compiler/noirc_evaluator/src/brillig/brillig_gen/tests/mod.rs
 compiler/noirc_evaluator/src/errors.rs
 compiler/noirc_evaluator/src/lib.rs
+compiler/noirc_evaluator/src/ssa/builder.rs
 compiler/noirc_evaluator/src/ssa/checks/check_for_underconstrained_values.rs
 compiler/noirc_evaluator/src/ssa/interpreter/intrinsics.rs
 compiler/noirc_evaluator/src/ssa/interpreter/mod.rs
@@ -667,6 +669,7 @@ test_programs/noir_test_success/regression_9174/Prover.toml
 test_programs/noir_test_success/regression_9174/src/main.nr
 test_programs/provekit_skipped.txt
 tooling/artifact_cli/src/fs/inputs.rs
+tooling/ast_fuzzer/Cargo.toml
 tooling/ast_fuzzer/fuzz/src/targets/orig_vs_morph.rs
 tooling/ast_fuzzer/src/abi.rs
 tooling/ast_fuzzer/src/compare/compiled.rs
@@ -678,6 +681,7 @@ tooling/ast_fuzzer/src/program/types.rs
 tooling/ast_fuzzer/tests/mono.rs
 tooling/debugger/ignored-tests.txt
 tooling/debugger/tests/debug.rs
+tooling/greybox_fuzzer/Cargo.toml
 tooling/greybox_fuzzer/src/corpus.rs
 tooling/lsp/src/notifications/mod.rs
 tooling/lsp/src/requests/completion/builtins.rs
