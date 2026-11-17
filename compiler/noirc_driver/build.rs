@@ -1,17 +1,39 @@
 const GIT_COMMIT: &&str = &"GIT_COMMIT";
 use std::path::Path;
+use std::process::Command;
 
 fn main() -> Result<(), String> {
-    // Only use build_data if the environment variable isn't set.
+    // Only query git if the environment variable isn't set.
     if std::env::var(GIT_COMMIT).is_err() {
-        build_data::set_GIT_COMMIT()?;
-        build_data::set_GIT_DIRTY()?;
-        build_data::no_debug_rebuilds()?;
+        let commit = git(&["rev-parse", "HEAD"])?;
+        let dirty = !git(&["status", "-s"])?.is_empty();
+        println!("cargo:rustc-env=GIT_COMMIT={commit}");
+        println!("cargo:rustc-env=GIT_DIRTY={dirty}");
+        // Debug builds only rerun this script when PROFILE changes, not on every source edit.
+        if std::env::var("PROFILE").is_ok_and(|profile| profile == "debug") {
+            println!("cargo:rerun-if-env-changed=PROFILE");
+        }
     }
 
     let stdlib_src_dir = Path::new("../../noir_stdlib/");
     rerun_if_stdlib_changes(stdlib_src_dir);
     Ok(())
+}
+
+fn git(args: &[&str]) -> Result<String, String> {
+    let output = Command::new("git")
+        .args(args)
+        .output()
+        .map_err(|error| format!("error executing 'git {}': {error}", args.join(" ")))?;
+    if !output.status.success() {
+        return Err(format!(
+            "command 'git {}' failed: {}: {}",
+            args.join(" "),
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
 /// Expects that the given directory is an existing path
