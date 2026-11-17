@@ -383,6 +383,34 @@ fn try_from_is_some_exactly_when_the_value_fits() {
     }
 }
 
+/// Where `From` converts every value of the source, the denial of a cast into `Field` names it
+/// rather than the conversions for a value that may not fit. Goldilocks has no `From<u64>`.
+#[test]
+fn the_denial_of_a_cast_into_field_suggests_from_where_every_value_fits() {
+    for field in FieldId::ALL {
+        let suggests_from = |typ: &str| {
+            let source = format!(
+                "fn widen(x: {typ}) -> Field {{ x as Field }}
+                fn main() {{ let _ = widen(0); }}"
+            );
+            let errors = elaborate(&source, field);
+            assert_eq!(errors.len(), 1, "{field} {typ}: {}", errors.join("\n"));
+            errors[0].contains(&format!("Use `Field::from`, which converts every `{typ}` exactly"))
+        };
+        let wide_fits = field != FieldId::Goldilocks;
+        for (typ, expected) in [
+            ("u8", true),
+            ("u32", true),
+            ("u64", wide_fits),
+            ("u128", wide_fits),
+            ("u256", false),
+            ("i8", false),
+        ] {
+            assert_eq!(suggests_from(typ), expected, "{field} {typ}");
+        }
+    }
+}
+
 /// `Expr::resolve` type checks a quoted expression inside whatever function it is given. A cast
 /// written in user code is still user code when that function is the standard library's.
 #[test]

@@ -314,6 +314,55 @@ fn a_literal_outside_its_target_is_denied() {
     assert!(secondary.contains("`-1i8`"), "{secondary}");
 }
 
+/// Every legal width holds `0..=3` unsigned and `0..=1` signed, so such a literal is the same
+/// number at whatever width a generic is bound to.
+#[test]
+fn a_literal_that_fits_every_width_may_be_cast_to_a_generic_width() {
+    let program = |cast: &str, typ: &str| {
+        format!(
+            "fn literal<let W: u32>() -> {typ}<W> {{ {cast} }}
+            fn main() {{ let _ = literal::<8>(); }}"
+        )
+    };
+    for (cast, typ) in [("0 as u::<W>", "u"), ("3 as u::<W>", "u"), ("1 as i::<W>", "i")] {
+        assert_allowed(&program(cast, typ));
+    }
+    for (cast, typ) in [("4 as u::<W>", "u"), ("2 as i::<W>", "i"), ("-1 as i::<W>", "i")] {
+        assert_denied(&program(cast, typ));
+    }
+}
+
+/// The note under the one error of compiling `src` as user code.
+fn denial_note(src: &str) -> String {
+    let errors = get_program_errors(src);
+    assert!(errors.len() == 1 && is_denial(&errors[0]), "{src}\n{errors:?}");
+    let diagnostic = noirc_errors::CustomDiagnostic::from(&errors[0]);
+    diagnostic.secondaries[0].message.clone()
+}
+
+/// A value that is a `Field` only because nothing gave it another type is fixed by giving it
+/// one, not by converting it. A value declared a `Field` is converted.
+#[test]
+fn the_denial_of_a_defaulted_value_suggests_giving_it_a_type() {
+    assert_eq!(
+        denial_note("fn main() { let limit = 10; let _ = limit as u32; }"),
+        "`limit` is a `Field` only because nothing gives it another type: declare it with one, such as `u32`",
+    );
+    assert_eq!(
+        denial_note("fn main() { let s = [1, 2, 3]; let _ = s[0] as u8; }"),
+        "This value is a `Field` only because nothing gives it another type: declare it with one, such as `u8`",
+    );
+    // Bound to `Field` by a use after the cast, the value is a `Field` by more than default.
+    assert_eq!(
+        denial_note("fn main() { let x = 10; let _ = x as u32; let _f: Field = x; }"),
+        "Use `TryFrom` to get `None` when the value does not fit, or `UnsafeFrom` to wrap; both are in `std::convert`",
+    );
+    assert_eq!(
+        denial_note("fn main() { let x: Field = 10; let _ = x as u32; }"),
+        "Use `TryFrom` to get `None` when the value does not fit, or `UnsafeFrom` to wrap; both are in `std::convert`",
+    );
+}
+
 /// What a `comptime` block evaluates to is a literal in the program, and is judged as one.
 #[test]
 fn comptime_blocks_cannot_launder_a_field_value() {

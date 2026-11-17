@@ -128,6 +128,7 @@ compiler/noirc_frontend/src/hir/resolution/errors.rs
 compiler/noirc_frontend/src/hir/resolution/import.rs
 compiler/noirc_frontend/src/hir/type_check/errors.rs
 compiler/noirc_frontend/src/hir/type_check/generics.rs
+compiler/noirc_frontend/src/hir/type_check/mod.rs
 compiler/noirc_frontend/src/hir_def/expr.rs
 compiler/noirc_frontend/src/hir_def/types.rs
 compiler/noirc_frontend/src/hir_def/types/arithmetic.rs
