@@ -518,30 +518,15 @@ fn casts_to_field_follow_the_field_rule_at_every_width() {
         };
         for field in FieldId::ALL {
             let fits = FieldConfig::new(field).fits_unsigned(bits);
-            if generic {
-                // The type checker sees `u<N>`, so the rule is applied by the monomorphizer.
-                assert!(get_program_errors_for_field(&src, field).is_empty());
-                let result = get_monomorphized_for_field(&src, field);
-                assert_eq!(result.is_ok(), fits, "{field}, u{bits} through a generic: {result:?}");
-                if !fits {
-                    assert!(matches!(
-                        result.unwrap_err(),
-                        MonomorphizationError::InvalidFieldCast {
-                            err: TypeCheckError::IntegerTypeExceedsField { .. },
-                            ..
-                        }
-                    ));
-                }
-            } else {
-                let errors = get_program_errors_for_field(&src, field);
-                let refused = errors.iter().any(|error| {
-                    matches!(
-                        error,
-                        CompilationError::TypeError(TypeCheckError::IntegerTypeExceedsField { .. })
-                    )
-                });
-                assert_eq!(refused, !fits, "{field}, u{bits}: {errors:?}");
-            }
+            let errors = get_program_errors_for_field(&src, field);
+            let refused = errors.iter().any(|error| {
+                matches!(
+                    error,
+                    CompilationError::TypeError(TypeCheckError::IntegerTypeExceedsField { .. })
+                )
+            });
+            // Some width of `u<N>` can exceed the modulus, whatever `N` is bound to here.
+            assert_eq!(refused, generic || !fits, "{field}, u{bits}: {errors:?}");
         }
     }
 }

@@ -13,6 +13,7 @@ use crate::{
     node_interner::{
         DefinitionKind, ExprId, GlobalValue, ImplSearchErrorKind, TraitImplKind, TypeId,
     },
+    shared::Signedness,
 };
 use crate::{TypeVariableId, node_interner::DefinitionId};
 
@@ -41,6 +42,22 @@ pub(super) struct FunctionContext {
     /// All `ExprId` in a function that correspond to integer literals.
     /// At the end, if they don't fit in their type's min/max range, we'll produce an error.
     integer_literal_expr_ids: Vec<ExprId>,
+
+    /// All casts to `Field` or to an integer in a function. Their source may be a type variable
+    /// where the cast is written, so the rules for a cast between `Field` and an integer are
+    /// applied at the end, once it is bound.
+    field_casts: Vec<FieldCast>,
+}
+
+/// A cast that may be between `Field` and an integer, kept until its source type is known.
+#[derive(Debug)]
+struct FieldCast {
+    from: Type,
+    to: Type,
+    location: Location,
+    /// True in the body of a standard library `UnsafeFrom` impl, where a cast to `Field`
+    /// reduces modulo the field and so takes a source of any width.
+    reduces: bool,
 }
 
 /// A type variable that is required to be bound after type-checking a function.
@@ -157,6 +174,23 @@ impl Elaborator<'_> {
         self.get_function_context_mut().integer_literal_expr_ids.push(literal_expr_id);
     }
 
+    /// Push a cast of a value of type `from` to `Field` or to an integer type.
+    /// At the end of the current function we'll check that the cast may be written.
+    pub(super) fn push_field_cast(&mut self, from: Type, to: Type, location: Location) {
+        let reduces = self.in_unsafe_from_impl();
+        let cast = FieldCast { from, to, location, reduces };
+        self.get_function_context_mut().field_casts.push(cast);
+    }
+
+    /// Whether the body being elaborated belongs to a standard library `UnsafeFrom` impl.
+    fn in_unsafe_from_impl(&self) -> bool {
+        self.crate_id.is_stdlib()
+            && self.current_trait_impl.is_some_and(|trait_impl| {
+                let trait_id = self.interner.get_trait_implementation(trait_impl).borrow().trait_id;
+                self.interner.get_trait(trait_id).name.as_str() == "UnsafeFrom"
+            })
+    }
+
     pub(super) fn integer_literal_expr_ids_len(&mut self) -> usize {
         self.get_function_context_mut().integer_literal_expr_ids.len()
     }
@@ -180,12 +214,35 @@ impl Elaborator<'_> {
     /// all still-unsolved trait constraints in this context.
     #[tracing::instrument(level = "trace", skip_all)]
     pub(super) fn check_and_pop_function_context(&mut self) {
+        let unbound_casts = self.pop_function_context();
+        self.check_unbound_field_casts(unbound_casts);
+    }
+
+    /// Like [Self::check_and_pop_function_context], for a context nested in a function's own:
+    /// a cast there may name a variable of the function, which is bound only later, so such a
+    /// cast is checked when the enclosing context ends.
+    #[tracing::instrument(level = "trace", skip_all)]
+    pub(super) fn check_and_pop_nested_function_context(&mut self) {
+        let unbound_casts = self.pop_function_context();
+        // The bottom context belongs to no function, so nothing there binds a variable later.
+        if self.function_context.len() > 1 {
+            self.get_function_context_mut().field_casts.extend(unbound_casts);
+        } else {
+            self.check_unbound_field_casts(unbound_casts);
+        }
+    }
+
+    /// Checks and pops the current context, returning the casts whose source is still a type
+    /// variable.
+    fn pop_function_context(&mut self) -> Vec<FieldCast> {
         let context = self.function_context.pop().expect("Imbalanced function_context pushes");
         self.bind_type_variables_from_trait_constraints(&context.trait_constraints);
         self.check_defaultable_type_variables(context.defaultable_type_variables);
+        let unbound_casts = self.check_field_casts(context.field_casts);
         self.check_integer_literal_fit_their_type(context.integer_literal_expr_ids);
         self.check_trait_constraints(context.trait_constraints);
         self.check_required_type_variables(context.required_type_variables);
+        unbound_casts
     }
 
     /// Best-effort trait-constraint resolution that runs before integer-literal defaulting.
@@ -227,6 +284,54 @@ impl Elaborator<'_> {
             if let Some(error) = check_integer_literal_fits_its_type(self.interner, &expr_id) {
                 self.push_err(error);
             }
+        }
+    }
+
+    /// Applies the rules for a cast between `Field` and an integer to each cast whose source
+    /// type is known, and returns the rest.
+    fn check_field_casts(&mut self, casts: Vec<FieldCast>) -> Vec<FieldCast> {
+        let mut unbound = Vec::new();
+        for cast in casts {
+            let from = cast.from.follow_bindings();
+            if matches!(from, Type::TypeVariable(_)) {
+                unbound.push(cast);
+            } else if let Some(error) = self.field_cast_error(&cast, from) {
+                self.push_err(error);
+            }
+        }
+        unbound
+    }
+
+    /// Applies the same rules to casts whose source no context binds, which makes it the
+    /// default of its kind.
+    fn check_unbound_field_casts(&mut self, casts: Vec<FieldCast>) {
+        for cast in casts {
+            if let Type::TypeVariable(variable) = cast.from.follow_bindings()
+                && let Some(from) = variable.kind().default_type()
+                && let Some(error) = self.field_cast_error(&cast, from)
+            {
+                self.push_err(error);
+            }
+        }
+    }
+
+    /// The error of writing `cast` from a value of type `from`, if it may not be written.
+    fn field_cast_error(&self, cast: &FieldCast, from: Type) -> Option<TypeCheckError> {
+        let location = cast.location;
+        if !matches!(cast.to, Type::FieldElement) {
+            None
+        } else if from.is_signed() {
+            Some(TypeCheckError::UnsupportedFieldCast { location })
+        } else if let Type::Integer(Signedness::Unsigned, width) = &from
+            && !cast.reduces
+            && !width.constant_width().is_some_and(|bits| self.interner.field().fits_unsigned(bits))
+        {
+            // `Field` reduces a cast only in `UnsafeFrom`, so elsewhere only a type whose every
+            // value lies below the modulus may be cast to it. A width that names a generic can
+            // be bound to one that does not.
+            Some(TypeCheckError::IntegerTypeExceedsField { typ: from, location })
+        } else {
+            None
         }
     }
 

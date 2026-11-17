@@ -3688,6 +3688,7 @@ dependencies = [
  "noirc_errors",
  "noirc_evaluator",
  "noirc_frontend",
+ "num-bigint 0.5.1",
  "rust-embed",
  "rustc-hash",
  "tracing",

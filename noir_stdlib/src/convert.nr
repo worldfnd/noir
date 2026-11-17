@@ -212,6 +212,40 @@ impl From<bool> for Field {
 }
 // docs:end:from-impls
 
+/// Create a new `Self` value from the given `T` value, wrapping a value that does not fit
+// docs:start:unsafe-from-trait
+pub trait UnsafeFrom<T> {
+    fn unsafe_from(input: T) -> Self;
+}
+// docs:end:unsafe-from-trait
+
+// docs:start:unsafe-from-impls
+impl<let N: u32> UnsafeFrom<u<N>> for Field {
+    fn unsafe_from(input: u<N>) -> Field {
+        input as Field
+    }
+}
+
+// A signed integer converts as its bit pattern, so `-1_i8` is `255`.
+impl<let N: u32> UnsafeFrom<i<N>> for Field {
+    fn unsafe_from(input: i<N>) -> Field {
+        input as u::<N> as Field
+    }
+}
+
+impl<let N: u32> UnsafeFrom<Field> for u<N> {
+    fn unsafe_from(input: Field) -> u<N> {
+        input as Self
+    }
+}
+
+impl<let N: u32> UnsafeFrom<Field> for i<N> {
+    fn unsafe_from(input: Field) -> i<N> {
+        input as Self
+    }
+}
+// docs:end:unsafe-from-impls
+
 /// A generic interface for casting between primitive types,
 /// equivalent of using the `as` keyword between values.
 ///
@@ -318,7 +352,7 @@ comptime fn generate_as_primitive_impls(_: FunctionDefinition) -> Quoted {
 
 mod tests {
     use crate::meta::unquote;
-    use super::{From, Into};
+    use super::{From, Into, UnsafeFrom};
 
     #[test]
     fn from_identity() {
@@ -439,6 +473,20 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn unsafe_from_wraps() {
+        let small: u128 = 0x1234;
+        assert_eq(Field::unsafe_from(small), 0x1234);
+        let negative: i8 = -1;
+        assert_eq(Field::unsafe_from(negative), 255);
+
+        let element: Field = 0x1234;
+        assert_eq(u8::unsafe_from(element), 0x34);
+        assert_eq(u128::unsafe_from(element), 0x1234);
+        let byte: Field = 255;
+        assert_eq(i8::unsafe_from(byte), -1);
     }
 
     #[test]

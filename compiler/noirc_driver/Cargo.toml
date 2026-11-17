@@ -34,6 +34,7 @@ tracing.workspace = true
 
 [dev-dependencies]
 insta.workspace = true
+num-bigint.workspace = true
 
 [features]
 bn254 = ["noirc_frontend/bn254", "noirc_evaluator/bn254"]

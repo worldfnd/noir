@@ -7,7 +7,7 @@ use noirc_frontend::hir::def_collector::dc_crate::CompilationError;
 use noirc_frontend::hir::def_map::{CrateDefMap, parse_file};
 use noirc_frontend::hir::type_check::TypeCheckError;
 
-/// Every stdlib cast to `Field` starts from a type whose values all lie below the modulus of the field the compiler is built for; an impl that casts a wider type is gated to the fields where that type fits.
+/// Every stdlib cast to `Field` outside `UnsafeFrom`, where it reduces, starts from a type whose values all lie below the modulus of the field the compiler is built for; an impl that casts a wider type is gated to the fields where that type fits.
 #[test]
 fn stdlib_never_casts_a_wide_integer_to_field() {
     let root = Path::new("");

@@ -13,6 +13,7 @@ mod enums;
 mod expand;
 mod expressions;
 mod field_attribute;
+mod field_cast;
 mod field_contract;
 mod functions;
 mod globals;
@@ -75,6 +76,14 @@ pub(crate) fn get_program_errors(src: &str) -> Vec<CompilationError> {
 /// The errors of compiling `src` under `field` rather than the field the compiler is built with.
 pub(crate) fn get_program_errors_for_field(src: &str, field: FieldId) -> Vec<CompilationError> {
     get_program_with_options(src, GetProgramOptions::for_field(field)).2
+}
+
+/// The errors of compiling `src` as the standard library, the one crate that may cast between
+/// `Field` and an integer, under `field`.
+pub(crate) fn get_stdlib_errors_for_field(src: &str, field: FieldId) -> Vec<CompilationError> {
+    let options =
+        GetProgramOptions { root_and_stdlib: true, ..GetProgramOptions::for_field(field) };
+    get_program_with_options(src, options).2
 }
 
 pub(crate) fn assert_no_errors(src: &str) -> Context<'static, 'static> {

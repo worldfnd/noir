@@ -267,3 +267,71 @@ fn bn254_crypto_is_gated_by_the_configured_field() {
         }
     }
 }
+
+/// `UnsafeFrom` wraps: into `Field` modulo the field, a signed source by its bit pattern, and out
+/// of `Field` to the low bits of the target.
+#[test]
+fn unsafe_from_reduces_and_truncates_at_the_boundaries() {
+    use num_bigint::BigUint;
+
+    let u64_max = BigUint::from(u64::MAX);
+    let u256_max = (BigUint::from(1u8) << 256u32) - 1u8;
+    for field in FieldId::ALL {
+        let modulus = FieldConfig::new(field).modulus();
+        let source = format!(
+            "
+            use std::convert::UnsafeFrom;
+
+            fn main() {{
+                comptime {{
+                    let wide: u64 = {u64_max};
+                    assert(Field::unsafe_from(wide) == {});
+                    let wider: u256 = {u256_max};
+                    assert(Field::unsafe_from(wider) == {});
+                    let negative: i8 = -1;
+                    assert(Field::unsafe_from(negative) == 255);
+
+                    let element: Field = 0x1234;
+                    assert(u8::unsafe_from(element) == 0x34);
+                    let top: Field = {};
+                    assert(u256::unsafe_from(top) == {});
+                    let byte: Field = 255;
+                    assert(i8::unsafe_from(byte) == -1);
+                }}
+            }}
+            ",
+            &u64_max % modulus,
+            &u256_max % modulus,
+            modulus - 1u8,
+            modulus - 1u8,
+        );
+        let errors = elaborate(&source, field);
+        assert!(errors.is_empty(), "{field}: {}", errors.join("\n"));
+    }
+}
+
+/// The conversions can be named in full, with no import, in run-time and compile-time code.
+#[test]
+fn qualified_unsafe_from_path_resolves_in_runtime_and_comptime() {
+    let source = "
+        fn widen(x: u64) -> Field {
+            <Field as std::convert::UnsafeFrom<u64>>::unsafe_from(x)
+        }
+
+        fn narrow(x: Field) -> u8 {
+            <u8 as std::convert::UnsafeFrom<Field>>::unsafe_from(x)
+        }
+
+        fn main(x: u64) -> pub u8 {
+            comptime {
+                assert(widen(3) == 3);
+                assert(narrow(259) == 3);
+            }
+            narrow(widen(x))
+        }
+    ";
+    for field in FieldId::ALL {
+        let errors = elaborate(source, field);
+        assert!(errors.is_empty(), "{field}: {}", errors.join("\n"));
+    }
+}

@@ -907,31 +907,6 @@ impl<'interner> Monomorphizer<'interner> {
         Ok(())
     }
 
-    /// The type checker applies the `Field` cast rules while the source may still be a type variable; every type is concrete here, so a source that inference bound later is checked again before the cast reaches the monomorphized program.
-    fn check_cast_to_field(
-        &self,
-        lhs: ExprId,
-        to: &HirType,
-        location: Location,
-    ) -> Result<(), MonomorphizationError> {
-        use crate::hir::type_check::TypeCheckError;
-        if !matches!(to.follow_bindings(), HirType::FieldElement) {
-            return Ok(());
-        }
-        let from = self.interner.id_type(lhs).follow_bindings();
-        let err = if from.is_signed() {
-            TypeCheckError::UnsupportedFieldCast { location }
-        } else if let HirType::Integer(Signedness::Unsigned, width) = &from
-            && let Some(bits) = width.constant_width()
-            && !self.interner.field().fits_unsigned(bits)
-        {
-            TypeCheckError::IntegerTypeExceedsField { typ: from, location }
-        } else {
-            return Ok(());
-        };
-        Err(MonomorphizationError::InvalidFieldCast { err, location })
-    }
-
     /// The type checker bounds a literal where it is written, which is too early when the width
     /// of its type still names a generic; the bound is applied again once the width is a number.
     fn check_integer_literal_fits(
@@ -1126,7 +1101,6 @@ impl<'interner> Monomorphizer<'interner> {
 
             HirExpression::Cast(cast) => {
                 let location = self.interner.expr_location(&expr);
-                self.check_cast_to_field(cast.lhs, &cast.r#type, location)?;
                 let typ = Self::convert_type(&cast.r#type, location)?;
                 let lhs = Box::new(self.expr(cast.lhs)?);
                 ast::Expression::Cast(ast::Cast { lhs, r#type: typ, location })

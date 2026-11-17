@@ -2629,24 +2629,13 @@ impl Elaborator<'_> {
             self.push_err(TypeCheckError::DownsizingCast { from, to, location, reason });
         }
 
+        if matches!(to, Type::Integer(..) | Type::FieldElement) {
+            self.push_field_cast(from.clone(), to.clone(), location);
+        }
+
         match to {
             Type::Integer(sign, bits) => Type::Integer(sign, bits),
-            Type::FieldElement => {
-                if from_follow_bindings.is_signed() {
-                    self.push_err(TypeCheckError::UnsupportedFieldCast { location });
-                } else if let Type::Integer(Signedness::Unsigned, width) = &from_follow_bindings
-                    && let Some(bits) = width.constant_width()
-                    && !self.interner.field().fits_unsigned(bits)
-                {
-                    // `Field` never reduces a cast, so only a type whose every value lies below
-                    // the modulus may be cast to it. A source that is still a type variable, or
-                    // whose width still names a generic, is checked again by the monomorphizer.
-                    let typ = from_follow_bindings;
-                    self.push_err(TypeCheckError::IntegerTypeExceedsField { typ, location });
-                }
-
-                Type::FieldElement
-            }
+            Type::FieldElement => Type::FieldElement,
             Type::Bool => {
                 let from_is_numeric = match from_follow_bindings {
                     Type::Integer(..) | Type::FieldElement => true,

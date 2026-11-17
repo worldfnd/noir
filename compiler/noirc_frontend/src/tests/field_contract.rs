@@ -7,8 +7,7 @@ use num_bigint::BigUint;
 use crate::hir::def_collector::dc_crate::CompilationError;
 use crate::hir::type_check::TypeCheckError;
 use crate::test_utils::{
-    GetProgramOptions, get_monomorphized, get_monomorphized_for_field, get_program_with_options,
-    stdlib_src,
+    GetProgramOptions, get_monomorphized_for_field, get_program_with_options, stdlib_src,
 };
 use crate::tests::{
     assert_no_errors, check_errors, check_errors_with_options, get_program_errors_for_field,
@@ -141,47 +140,6 @@ fn narrowing_before_a_field_cast_is_accepted_under_every_field() {
         u32::MAX
     );
     assert_no_errors(&src);
-}
-
-/// The type checker sees the cast while the source is still a type variable, so the rule is
-/// applied again once inference has bound it, before the cast reaches the monomorphized AST.
-#[test]
-fn casts_to_field_through_an_inferred_type_follow_the_same_rule() {
-    let src = "fn apply<T>(f: fn(T) -> Field, x: T) -> Field { f(x) }
-
-    fn main(x: u32) {
-        let _ = apply(|v| v as Field, x as u64);
-    }";
-    for field in FieldId::ALL {
-        let result = get_monomorphized_for_field(src, field);
-        if FieldConfig::new(field).fits_unsigned(64) {
-            assert!(result.is_ok(), "{field}: {result:?}");
-        } else {
-            let error = result.expect_err("u64 can exceed the modulus");
-            let diagnostic = CustomDiagnostic::from(error);
-            assert!(
-                diagnostic.message.contains("can exceed the field modulus"),
-                "{field}: {}",
-                diagnostic.message
-            );
-        }
-    }
-}
-
-#[test]
-fn signed_casts_to_field_through_an_inferred_type_are_refused() {
-    let src = "fn apply<T>(f: fn(T) -> Field, x: T) -> Field { f(x) }
-
-    fn main(x: i8) {
-        let _ = apply(|v| v as Field, x);
-    }";
-    let error = get_monomorphized(src).expect_err("a signed source is never cast to Field");
-    let diagnostic = CustomDiagnostic::from(error);
-    assert!(
-        diagnostic.message.contains("Only unsigned integer types may be casted to Field"),
-        "{}",
-        diagnostic.message
-    );
 }
 
 #[test]

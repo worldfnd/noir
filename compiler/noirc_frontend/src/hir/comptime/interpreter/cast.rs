@@ -22,7 +22,7 @@ fn bit_size(field: FieldConfig, typ: &Type) -> u32 {
     }
 }
 
-/// An integer target takes the source's two's complement pattern at the target width and reads it by the target's signedness; a `Field` target takes the source's own-width pattern exactly, and is an error if that pattern is not below the modulus (the type checker admits only source types whose every pattern is).
+/// An integer target takes the source's two's complement pattern at the target width and reads it by the target's signedness; a `Field` target takes the source's own-width pattern modulo the field.
 pub(crate) fn evaluate_cast_one_step(
     field: FieldConfig,
     output_type: &Type,
@@ -39,13 +39,9 @@ pub(crate) fn evaluate_cast_one_step(
     match output_type.follow_bindings() {
         Type::FieldElement => {
             let pattern = twos_complement_pattern(&value, bit_size(field, &lhs_type));
-            FieldValue::try_from_bigint(&pattern, field.id()).map(Value::field).ok_or_else(|| {
-                InterpreterError::IntegerOutOfRangeForType {
-                    value: pattern,
-                    typ: Type::FieldElement,
-                    location,
-                }
-            })
+            let reduced = pattern.magnitude() % field.modulus();
+            let reduced = FieldValue::try_from_biguint(reduced, field.id());
+            Ok(Value::field(reduced.expect("a value reduced modulo the field is an element")))
         }
         Type::Integer(sign, width) => {
             let bits = width.evaluate_to_u32(location).map_err(|err| {
@@ -228,39 +224,178 @@ mod tests {
         }
     }
 
-    /// A `Field` target never reduces: a pattern below the modulus converts exactly and a pattern at or above it is an error. The largest `u128` below `p` converts under every field; `u64::MAX` fits under bn254 and exceeds Goldilocks' `p`.
+    /// A `Field` target takes the source's own-width pattern modulo the field. `u64::MAX` is itself under bn254 and `2^32 - 2` under Goldilocks.
     #[test]
-    fn field_casts_are_exact_or_refused() {
+    fn casts_into_field_reduce_modulo_the_field() {
         let location = Location::dummy();
-        let modulus = FieldElement::modulus();
-        let largest = BigUint::from(u128::MAX).min(&modulus - 1u8);
-        let expected_value = largest.clone();
+        for field_id in FieldId::ALL {
+            let field = FieldConfig::new(field_id);
+            let actual =
+                evaluate_cast_one_step(field, &Type::FieldElement, location, Value::u64(u64::MAX));
+            let expected = BigUint::from(u64::MAX) % field.modulus();
+            let expected = FieldValue::try_from_biguint(expected, field_id).unwrap();
+            assert_eq!(actual, Ok(Value::field(expected)), "{field_id}");
+        }
 
-        let source = Value::u128(u128::try_from(largest).unwrap());
+        let goldilocks = FieldConfig::new(FieldId::Goldilocks);
         let actual =
-            evaluate_cast_one_step(FieldConfig::linked(), &Type::FieldElement, location, source);
-        assert_eq!(actual, Ok(Value::field(linked(expected_value))));
+            evaluate_cast_one_step(goldilocks, &Type::FieldElement, location, Value::u64(u64::MAX));
+        let expected =
+            FieldValue::try_from_biguint(BigUint::from(0xFFFF_FFFEu32), FieldId::Goldilocks);
+        assert_eq!(actual, Ok(Value::field(expected.unwrap())));
+    }
 
-        let actual = evaluate_cast_one_step(
-            FieldConfig::linked(),
-            &Type::FieldElement,
-            location,
-            Value::u64(u64::MAX),
-        );
-        if BigUint::from(u64::MAX) < modulus {
-            assert_eq!(actual, Ok(field(u64::MAX)));
-        } else {
-            assert!(
-                matches!(
-                    actual,
-                    Err(InterpreterError::IntegerOutOfRangeForType {
-                        ref value,
-                        typ: Type::FieldElement,
-                        ..
-                    }) if *value == BigInt::from(u64::MAX)
-                ),
-                "{actual:?}"
-            );
+    /// The widths a cast across the field boundary is checked at: narrow ones, the host-limb
+    /// boundaries, either side of the field's own width and of 256 bits, and widths far past
+    /// any field.
+    fn corner_widths(field: FieldConfig) -> Vec<u32> {
+        let k = field.num_bits();
+        let mut widths =
+            vec![8, 32, 63, 64, 65, 127, 128, 129, k - 1, k, k + 1, 255, 256, 257, 1000, 16384];
+        widths.sort_unstable();
+        widths.dedup();
+        widths
+    }
+
+    /// Patterns of a `bits`-wide integer around the modulus and its multiples, the field's width
+    /// and the host limbs, each taken modulo `2^bits`.
+    fn corner_patterns(bits: u32, field: FieldConfig) -> Vec<BigUint> {
+        let one = BigUint::from(1u8);
+        let pow2 = |exponent: u32| &one << exponent;
+        let p = field.modulus();
+        let k = field.num_bits();
+        let top = pow2(bits) - 1u8;
+        let multiple = (&top / p) * p;
+
+        let mut patterns = vec![
+            BigUint::ZERO,
+            one.clone(),
+            p - 2u8,
+            p - 1u8,
+            p.clone(),
+            p + 1u8,
+            p * 2u8 - 1u8,
+            p * 2u8,
+            p * 2u8 + 1u8,
+            p * 3u8 - 1u8,
+            p * 3u8,
+            p * 3u8 + 1u8,
+            pow2(k - 1),
+            pow2(k) - 1u8,
+            pow2(k),
+            pow2(k) + 1u8,
+            pow2(k + 1) - 1u8,
+            pow2(64) - 1u8,
+            pow2(64),
+            pow2(128) - 1u8,
+            pow2(256) - 1u8,
+            pow2(256),
+            &multiple + 1u8,
+            multiple,
+            top,
+        ];
+        for word in [0x55u8, 0xAA] {
+            patterns.push(BigUint::from_bytes_le(&vec![word; bits.div_ceil(8) as usize]));
+        }
+        let mut patterns: Vec<_> = patterns.into_iter().map(|value| value % pow2(bits)).collect();
+        patterns.sort_unstable();
+        patterns.dedup();
+        patterns
+    }
+
+    /// Canonical field elements around the top of the field, its halves and the host limbs.
+    fn corner_elements(field: FieldConfig) -> Vec<BigUint> {
+        let one = BigUint::from(1u8);
+        let p = field.modulus();
+        let k = field.num_bits();
+        let mut elements = vec![
+            BigUint::ZERO,
+            one.clone(),
+            p - 1u8,
+            p - 2u8,
+            (p - 1u8) >> 1u32,
+            (p + 1u8) >> 1u32,
+        ];
+        for exponent in [7, 8, 31, 32, 33, 63, 64, 65, 127, 128, 129, k - 2, k - 1] {
+            elements.push((&one << exponent) - 1u8);
+            elements.push(&one << exponent);
+        }
+        elements.retain(|element| element < p);
+        elements.sort_unstable();
+        elements.dedup();
+        elements
+    }
+
+    /// An unsigned integer of any width into `Field` is its value modulo the field, under every
+    /// field and at widths on both sides of the field's own.
+    #[test]
+    fn casts_into_field_reduce_at_the_corners_of_every_width() {
+        let location = Location::dummy();
+        for field_id in FieldId::ALL {
+            let field = FieldConfig::new(field_id);
+            for bits in corner_widths(field) {
+                for pattern in corner_patterns(bits, field) {
+                    let source = BigInt::from(pattern.clone());
+                    let source = Integer::try_from_bigint(&source, &Type::uint(bits), field_id);
+                    let source = Value::Integer(source.expect("the pattern fits its width"));
+                    let actual =
+                        evaluate_cast_one_step(field, &Type::FieldElement, location, source);
+                    let expected = &pattern % field.modulus();
+                    let expected = FieldValue::try_from_biguint(expected, field_id).unwrap();
+                    assert_eq!(
+                        actual,
+                        Ok(Value::field(expected)),
+                        "{field_id}: {pattern} as a u{bits}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// A `Field` into an integer of any width keeps the low bits of its canonical value, read by
+    /// the target's signedness, and is the value itself once the width holds the whole field.
+    #[test]
+    fn casts_out_of_field_keep_the_low_bits_at_the_corners_of_every_width() {
+        let location = Location::dummy();
+        for field_id in FieldId::ALL {
+            let field = FieldConfig::new(field_id);
+            for bits in corner_widths(field) {
+                for element in corner_elements(field) {
+                    let low = &element % (BigUint::from(1u8) << bits);
+                    let source = FieldValue::try_from_biguint(element.clone(), field_id).unwrap();
+
+                    let actual = evaluate_cast_one_step(
+                        field,
+                        &Type::uint(bits),
+                        location,
+                        Value::field(source.clone()),
+                    );
+                    let expected =
+                        Integer::Int { signed: false, bits, value: BigInt::from(low.clone()) };
+                    assert_eq!(
+                        actual,
+                        Ok(Value::Integer(expected)),
+                        "{field_id}: {element} as u{bits}"
+                    );
+
+                    let actual = evaluate_cast_one_step(
+                        field,
+                        &Type::sint(bits),
+                        location,
+                        Value::field(source),
+                    );
+                    let mut value = BigInt::from(low);
+                    if value >= (BigInt::from(1) << (bits - 1)) {
+                        value -= BigInt::from(1) << bits;
+                    }
+                    let expected = Integer::Int { signed: true, bits, value };
+                    assert_eq!(
+                        actual,
+                        Ok(Value::Integer(expected)),
+                        "{field_id}: {element} as i{bits}"
+                    );
+                }
+            }
         }
     }
 
@@ -299,7 +434,7 @@ mod tests {
     }
 
     proptest! {
-        /// An integer target reads the source's two's complement pattern at the target width by the target's signedness; a `Field` target takes the source's own-width pattern exactly when it is below `p` and is an error otherwise.
+        /// An integer target reads the source's two's complement pattern at the target width by the target's signedness; a `Field` target takes the source's own-width pattern modulo `p`.
         #[test]
         fn casts_follow_the_bit_pattern_model_at_every_width(
             (source, value, source_bits) in source_value_and_width(),
@@ -315,25 +450,17 @@ mod tests {
                     } else {
                         low
                     };
-                    Some(Value::Integer(Integer::try_from_bigint(&value, &target, FieldId::linked()).unwrap()))
+                    Value::Integer(Integer::try_from_bigint(&value, &target, FieldId::linked()).unwrap())
                 }
                 Type::FieldElement => {
                     let modulus = BigInt::from(1) << source_bits;
                     let low = ((&value % &modulus) + &modulus) % &modulus;
-                    (low < BigInt::from(FieldElement::modulus())).then(|| {
-                        field(low.magnitude().clone())
-                    })
+                    field(low.magnitude() % FieldElement::modulus())
                 }
                 _ => unreachable!("integer and field targets only"),
             };
             let actual = evaluate_cast_one_step(FieldConfig::linked(), &target, Location::dummy(), source.clone());
-            match expected {
-                Some(expected) => prop_assert_eq!(actual, Ok(expected), "{:?} as {}", source, target),
-                None => prop_assert!(
-                    matches!(actual, Err(InterpreterError::IntegerOutOfRangeForType { .. })),
-                    "{:?} as {} gave {:?}", source, target, actual
-                ),
-            }
+            prop_assert_eq!(actual, Ok(expected), "{:?} as {}", source, target);
         }
     }
 }
