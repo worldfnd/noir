@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../../styles.css">
+<script>window.docRoot = "../../";</script>
+<script defer src="../../search-index.js"></script>
+<script defer src="../../nargo_doc.js"></script>
+<script defer src="../../search.js"></script>
+<title>Trait UnsafeFrom documentation</title>
+</head>
+<body>
+<div id="sidebar-toggle">
+<button id="sidebar-toggle-button"></button>
+<div id="sidebar-toggle-title">UnsafeFrom</div>
+</div>
+<span id="main-contents">
+<nav class="sidebar">
+<h1><a href="../../index.html">noir_stdlib</a></h1>
+<div><a href="../../all.html">All items</a></div>
+<h2 id="crate-name"><a href="../index.html">std</a></h2>
+<div id="crate-version">1.0.0-beta.26</div>
+<h2><a href="#trait">Trait UnsafeFrom</a></h2>
+<h3>Required methods</h3>
+<ul class="sidebar-list">
+<li><a href="#unsafe_from">unsafe_from</a></li>
+</ul>
+<h3>Implementors</h3>
+<ul class="sidebar-list">
+<li><a href="#impl-UnsafeFrom&lt;i&lt;N&gt;&gt;-for-Field">Field</a></li>
+<li><a href="#impl-UnsafeFrom&lt;u&lt;N&gt;&gt;-for-Field">Field</a></li>
+<li><a href="#impl-UnsafeFrom&lt;Field&gt;-for-i&lt;N&gt;">i&lt;N&gt;</a></li>
+<li><a href="#impl-UnsafeFrom&lt;Field&gt;-for-u&lt;N&gt;">u&lt;N&gt;</a></li>
+</ul>
+<h2>In module convert</h2>
+<h3>Traits</h3><ul class="item-list">
+<li><a href="trait.AsPrimitive.html">AsPrimitive</a></div></li>
+<li><a href="trait.From.html">From</a></div></li>
+<li><a href="trait.Into.html">Into</a></div></li>
+<li><a href="trait.TryFrom.html">TryFrom</a></div></li>
+<li><a href="trait.UnsafeFrom.html">UnsafeFrom</a></div></li>
+</ul>
+</nav>
+<main>
+<div><a href="../../index.html">noir_stdlib</a> - <a href="../index.html">std</a>::<a href="index.html">convert</a></div>
+<div class="heading-row">
+<h1 class="heading-content">Trait <span id="trait" class="trait">UnsafeFrom</span></h1>
+<button id="search-toggle" type="button">Search</button>
+</div>
+<input id="search-input" type="search" placeholder="Type 's' or '/' to search" autocomplete="off" spellcheck="false" aria-label="Search" hidden>
+<div id="search-results" hidden></div>
+<div id="page-content">
+<pre><code>pub trait UnsafeFrom&lt;T&gt; {
+    <span class="comment">// Required methods</span>
+    pub fn <a href="#unsafe_from" class="fn">unsafe_from</a>(input: T) -> Self;
+}</code></pre>
+
+<div class="comments">
+<p>Create a new <code>Self</code> value from the given <code>T</code> value, wrapping a value that does not fit</p>
+</div>
+<h2>Required methods</h2>
+<div class="padded-methods"><code id="unsafe_from" class="code-header">pub fn <a href="#unsafe_from" class="fn">unsafe_from</a>(input: T) -> Self</code>
+
+</div><h2>Implementors</h2>
+<h3 id="impl-UnsafeFrom&lt;i&lt;N&gt;&gt;-for-Field"><code class="code-header">impl <a href="../../std/convert/trait.UnsafeFrom.html" class="trait">UnsafeFrom</a>&lt;i&lt;N&gt;&gt; for <a href="../../std/primitive.Field.html" class="primitive">Field</a></code></h3>
+
+<h3 id="impl-UnsafeFrom&lt;u&lt;N&gt;&gt;-for-Field"><code class="code-header">impl <a href="../../std/convert/trait.UnsafeFrom.html" class="trait">UnsafeFrom</a>&lt;u&lt;N&gt;&gt; for <a href="../../std/primitive.Field.html" class="primitive">Field</a></code></h3>
+
+<h3 id="impl-UnsafeFrom&lt;Field&gt;-for-i&lt;N&gt;"><code class="code-header">impl <a href="../../std/convert/trait.UnsafeFrom.html" class="trait">UnsafeFrom</a>&lt;<a href="../../std/primitive.Field.html" class="primitive">Field</a>&gt; for i&lt;N&gt;</code></h3>
+
+<h3 id="impl-UnsafeFrom&lt;Field&gt;-for-u&lt;N&gt;"><code class="code-header">impl <a href="../../std/convert/trait.UnsafeFrom.html" class="trait">UnsafeFrom</a>&lt;<a href="../../std/primitive.Field.html" class="primitive">Field</a>&gt; for u&lt;N&gt;</code></h3>
+
+</div>
+</main>
+</span>
+</body>
+</html>

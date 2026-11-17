@@ -102,7 +102,7 @@ A program optimized for execution may leverage the binary representations of int
 The cryptography in a proving backend makes use of a `Field` type, and leveraging this lower level type correctly can reduce gate count, and thus proof size and proving time.
 
 In some instances simply replacing the integer type with a `Field` could save on some range checks (and hence gates).
-Note: when casting a `Field` to an integer type, the value is converted based on the integer binary representation. Eg a Field variable with a value of 260 `as u8` becomes 4
+Note: when converting a `Field` to an integer type with `std::convert::UnsafeFrom`, the value keeps the low bits of its binary representation. Eg `u8::unsafe_from` of a Field variable with a value of 260 is 4
 
 ### `Field`s for efficiency
 

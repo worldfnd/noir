@@ -27,13 +27,6 @@
 </ul>
 <h3>Implementors</h3>
 <ul class="sidebar-list">
-<li><a href="#impl-AsPrimitive&lt;bool&gt;-for-Field">Field</a></li>
-<li><a href="#impl-AsPrimitive&lt;u128&gt;-for-Field">Field</a></li>
-<li><a href="#impl-AsPrimitive&lt;u16&gt;-for-Field">Field</a></li>
-<li><a href="#impl-AsPrimitive&lt;u32&gt;-for-Field">Field</a></li>
-<li><a href="#impl-AsPrimitive&lt;u64&gt;-for-Field">Field</a></li>
-<li><a href="#impl-AsPrimitive&lt;u8&gt;-for-Field">Field</a></li>
-<li><a href="#impl-AsPrimitive&lt;Field&gt;-for-bool">bool</a></li>
 <li><a href="#impl-AsPrimitive&lt;bool&gt;-for-bool">bool</a></li>
 <li><a href="#impl-AsPrimitive&lt;i16&gt;-for-bool">bool</a></li>
 <li><a href="#impl-AsPrimitive&lt;i32&gt;-for-bool">bool</a></li>
@@ -84,7 +77,6 @@
 <li><a href="#impl-AsPrimitive&lt;u32&gt;-for-i8">i8</a></li>
 <li><a href="#impl-AsPrimitive&lt;u64&gt;-for-i8">i8</a></li>
 <li><a href="#impl-AsPrimitive&lt;u8&gt;-for-i8">i8</a></li>
-<li><a href="#impl-AsPrimitive&lt;Field&gt;-for-u128">u128</a></li>
 <li><a href="#impl-AsPrimitive&lt;bool&gt;-for-u128">u128</a></li>
 <li><a href="#impl-AsPrimitive&lt;i16&gt;-for-u128">u128</a></li>
 <li><a href="#impl-AsPrimitive&lt;i32&gt;-for-u128">u128</a></li>
@@ -95,7 +87,6 @@
 <li><a href="#impl-AsPrimitive&lt;u32&gt;-for-u128">u128</a></li>
 <li><a href="#impl-AsPrimitive&lt;u64&gt;-for-u128">u128</a></li>
 <li><a href="#impl-AsPrimitive&lt;u8&gt;-for-u128">u128</a></li>
-<li><a href="#impl-AsPrimitive&lt;Field&gt;-for-u16">u16</a></li>
 <li><a href="#impl-AsPrimitive&lt;bool&gt;-for-u16">u16</a></li>
 <li><a href="#impl-AsPrimitive&lt;i16&gt;-for-u16">u16</a></li>
 <li><a href="#impl-AsPrimitive&lt;i32&gt;-for-u16">u16</a></li>
@@ -106,7 +97,6 @@
 <li><a href="#impl-AsPrimitive&lt;u32&gt;-for-u16">u16</a></li>
 <li><a href="#impl-AsPrimitive&lt;u64&gt;-for-u16">u16</a></li>
 <li><a href="#impl-AsPrimitive&lt;u8&gt;-for-u16">u16</a></li>
-<li><a href="#impl-AsPrimitive&lt;Field&gt;-for-u32">u32</a></li>
 <li><a href="#impl-AsPrimitive&lt;bool&gt;-for-u32">u32</a></li>
 <li><a href="#impl-AsPrimitive&lt;i16&gt;-for-u32">u32</a></li>
 <li><a href="#impl-AsPrimitive&lt;i32&gt;-for-u32">u32</a></li>
@@ -117,7 +107,6 @@
 <li><a href="#impl-AsPrimitive&lt;u32&gt;-for-u32">u32</a></li>
 <li><a href="#impl-AsPrimitive&lt;u64&gt;-for-u32">u32</a></li>
 <li><a href="#impl-AsPrimitive&lt;u8&gt;-for-u32">u32</a></li>
-<li><a href="#impl-AsPrimitive&lt;Field&gt;-for-u64">u64</a></li>
 <li><a href="#impl-AsPrimitive&lt;bool&gt;-for-u64">u64</a></li>
 <li><a href="#impl-AsPrimitive&lt;i16&gt;-for-u64">u64</a></li>
 <li><a href="#impl-AsPrimitive&lt;i32&gt;-for-u64">u64</a></li>
@@ -128,7 +117,6 @@
 <li><a href="#impl-AsPrimitive&lt;u32&gt;-for-u64">u64</a></li>
 <li><a href="#impl-AsPrimitive&lt;u64&gt;-for-u64">u64</a></li>
 <li><a href="#impl-AsPrimitive&lt;u8&gt;-for-u64">u64</a></li>
-<li><a href="#impl-AsPrimitive&lt;Field&gt;-for-u8">u8</a></li>
 <li><a href="#impl-AsPrimitive&lt;bool&gt;-for-u8">u8</a></li>
 <li><a href="#impl-AsPrimitive&lt;i16&gt;-for-u8">u8</a></li>
 <li><a href="#impl-AsPrimitive&lt;i32&gt;-for-u8">u8</a></li>
@@ -145,6 +133,8 @@
 <li><a href="trait.AsPrimitive.html">AsPrimitive</a></div></li>
 <li><a href="trait.From.html">From</a></div></li>
 <li><a href="trait.Into.html">Into</a></div></li>
+<li><a href="trait.TryFrom.html">TryFrom</a></div></li>
+<li><a href="trait.UnsafeFrom.html">UnsafeFrom</a></div></li>
 </ul>
 </nav>
 <main>
@@ -165,7 +155,7 @@
 <p>A generic interface for casting between primitive types,
 equivalent of using the <code>as</code> keyword between values.</p>
 <h2>Example</h2>
-<pre><code><span class="kw">let</span> x: Field = <span class="number">1234567890</span>;
+<pre><code><span class="kw">let</span> x: u32 = <span class="number">1234567890</span>;
 <span class="kw">let</span> y: u8 = x <span class="kw">as</span> u8;
 <span class="kw">let</span> z: u8 = x.as_();
 <span class="kw">assert_eq</span>(y, z);</code></pre></div>
@@ -176,20 +166,6 @@ equivalent of using the <code>as</code> keyword between values.</p>
 <p>The equivalent of doing <code>self as T</code>.</p>
 </div>
 </div></div><h2>Implementors</h2>
-<h3 id="impl-AsPrimitive&lt;bool&gt;-for-Field"><code class="code-header">impl <a href="../../std/convert/trait.AsPrimitive.html" class="trait">AsPrimitive</a>&lt;<a href="../../std/primitive.bool.html" class="primitive">bool</a>&gt; for <a href="../../std/primitive.Field.html" class="primitive">Field</a></code></h3>
-
-<h3 id="impl-AsPrimitive&lt;u128&gt;-for-Field"><code class="code-header">impl <a href="../../std/convert/trait.AsPrimitive.html" class="trait">AsPrimitive</a>&lt;<a href="../../std/primitive.u128.html" class="primitive">u128</a>&gt; for <a href="../../std/primitive.Field.html" class="primitive">Field</a></code></h3>
-
-<h3 id="impl-AsPrimitive&lt;u16&gt;-for-Field"><code class="code-header">impl <a href="../../std/convert/trait.AsPrimitive.html" class="trait">AsPrimitive</a>&lt;<a href="../../std/primitive.u16.html" class="primitive">u16</a>&gt; for <a href="../../std/primitive.Field.html" class="primitive">Field</a></code></h3>
-
-<h3 id="impl-AsPrimitive&lt;u32&gt;-for-Field"><code class="code-header">impl <a href="../../std/convert/trait.AsPrimitive.html" class="trait">AsPrimitive</a>&lt;<a href="../../std/primitive.u32.html" class="primitive">u32</a>&gt; for <a href="../../std/primitive.Field.html" class="primitive">Field</a></code></h3>
-
-<h3 id="impl-AsPrimitive&lt;u64&gt;-for-Field"><code class="code-header">impl <a href="../../std/convert/trait.AsPrimitive.html" class="trait">AsPrimitive</a>&lt;<a href="../../std/primitive.u64.html" class="primitive">u64</a>&gt; for <a href="../../std/primitive.Field.html" class="primitive">Field</a></code></h3>
-
-<h3 id="impl-AsPrimitive&lt;u8&gt;-for-Field"><code class="code-header">impl <a href="../../std/convert/trait.AsPrimitive.html" class="trait">AsPrimitive</a>&lt;<a href="../../std/primitive.u8.html" class="primitive">u8</a>&gt; for <a href="../../std/primitive.Field.html" class="primitive">Field</a></code></h3>
-
-<h3 id="impl-AsPrimitive&lt;Field&gt;-for-bool"><code class="code-header">impl <a href="../../std/convert/trait.AsPrimitive.html" class="trait">AsPrimitive</a>&lt;<a href="../../std/primitive.Field.html" class="primitive">Field</a>&gt; for <a href="../../std/primitive.bool.html" class="primitive">bool</a></code></h3>
-
 <h3 id="impl-AsPrimitive&lt;bool&gt;-for-bool"><code class="code-header">impl <a href="../../std/convert/trait.AsPrimitive.html" class="trait">AsPrimitive</a>&lt;<a href="../../std/primitive.bool.html" class="primitive">bool</a>&gt; for <a href="../../std/primitive.bool.html" class="primitive">bool</a></code></h3>
 
 <h3 id="impl-AsPrimitive&lt;i16&gt;-for-bool"><code class="code-header">impl <a href="../../std/convert/trait.AsPrimitive.html" class="trait">AsPrimitive</a>&lt;<a href="../../std/primitive.i16.html" class="primitive">i16</a>&gt; for <a href="../../std/primitive.bool.html" class="primitive">bool</a></code></h3>
@@ -290,8 +266,6 @@ equivalent of using the <code>as</code> keyword between values.</p>
 
 <h3 id="impl-AsPrimitive&lt;u8&gt;-for-i8"><code class="code-header">impl <a href="../../std/convert/trait.AsPrimitive.html" class="trait">AsPrimitive</a>&lt;<a href="../../std/primitive.u8.html" class="primitive">u8</a>&gt; for <a href="../../std/primitive.i8.html" class="primitive">i8</a></code></h3>
 
-<h3 id="impl-AsPrimitive&lt;Field&gt;-for-u128"><code class="code-header">impl <a href="../../std/convert/trait.AsPrimitive.html" class="trait">AsPrimitive</a>&lt;<a href="../../std/primitive.Field.html" class="primitive">Field</a>&gt; for <a href="../../std/primitive.u128.html" class="primitive">u128</a></code></h3>
-
 <h3 id="impl-AsPrimitive&lt;bool&gt;-for-u128"><code class="code-header">impl <a href="../../std/convert/trait.AsPrimitive.html" class="trait">AsPrimitive</a>&lt;<a href="../../std/primitive.bool.html" class="primitive">bool</a>&gt; for <a href="../../std/primitive.u128.html" class="primitive">u128</a></code></h3>
 
 <h3 id="impl-AsPrimitive&lt;i16&gt;-for-u128"><code class="code-header">impl <a href="../../std/convert/trait.AsPrimitive.html" class="trait">AsPrimitive</a>&lt;<a href="../../std/primitive.i16.html" class="primitive">i16</a>&gt; for <a href="../../std/primitive.u128.html" class="primitive">u128</a></code></h3>
@@ -311,8 +285,6 @@ equivalent of using the <code>as</code> keyword between values.</p>
 <h3 id="impl-AsPrimitive&lt;u64&gt;-for-u128"><code class="code-header">impl <a href="../../std/convert/trait.AsPrimitive.html" class="trait">AsPrimitive</a>&lt;<a href="../../std/primitive.u64.html" class="primitive">u64</a>&gt; for <a href="../../std/primitive.u128.html" class="primitive">u128</a></code></h3>
 
 <h3 id="impl-AsPrimitive&lt;u8&gt;-for-u128"><code class="code-header">impl <a href="../../std/convert/trait.AsPrimitive.html" class="trait">AsPrimitive</a>&lt;<a href="../../std/primitive.u8.html" class="primitive">u8</a>&gt; for <a href="../../std/primitive.u128.html" class="primitive">u128</a></code></h3>
-
-<h3 id="impl-AsPrimitive&lt;Field&gt;-for-u16"><code class="code-header">impl <a href="../../std/convert/trait.AsPrimitive.html" class="trait">AsPrimitive</a>&lt;<a href="../../std/primitive.Field.html" class="primitive">Field</a>&gt; for <a href="../../std/primitive.u16.html" class="primitive">u16</a></code></h3>
 
 <h3 id="impl-AsPrimitive&lt;bool&gt;-for-u16"><code class="code-header">impl <a href="../../std/convert/trait.AsPrimitive.html" class="trait">AsPrimitive</a>&lt;<a href="../../std/primitive.bool.html" class="primitive">bool</a>&gt; for <a href="../../std/primitive.u16.html" class="primitive">u16</a></code></h3>
 
@@ -334,8 +306,6 @@ equivalent of using the <code>as</code> keyword between values.</p>
 
 <h3 id="impl-AsPrimitive&lt;u8&gt;-for-u16"><code class="code-header">impl <a href="../../std/convert/trait.AsPrimitive.html" class="trait">AsPrimitive</a>&lt;<a href="../../std/primitive.u8.html" class="primitive">u8</a>&gt; for <a href="../../std/primitive.u16.html" class="primitive">u16</a></code></h3>
 
-<h3 id="impl-AsPrimitive&lt;Field&gt;-for-u32"><code class="code-header">impl <a href="../../std/convert/trait.AsPrimitive.html" class="trait">AsPrimitive</a>&lt;<a href="../../std/primitive.Field.html" class="primitive">Field</a>&gt; for <a href="../../std/primitive.u32.html" class="primitive">u32</a></code></h3>
-
 <h3 id="impl-AsPrimitive&lt;bool&gt;-for-u32"><code class="code-header">impl <a href="../../std/convert/trait.AsPrimitive.html" class="trait">AsPrimitive</a>&lt;<a href="../../std/primitive.bool.html" class="primitive">bool</a>&gt; for <a href="../../std/primitive.u32.html" class="primitive">u32</a></code></h3>
 
 <h3 id="impl-AsPrimitive&lt;i16&gt;-for-u32"><code class="code-header">impl <a href="../../std/convert/trait.AsPrimitive.html" class="trait">AsPrimitive</a>&lt;<a href="../../std/primitive.i16.html" class="primitive">i16</a>&gt; for <a href="../../std/primitive.u32.html" class="primitive">u32</a></code></h3>
@@ -356,8 +326,6 @@ equivalent of using the <code>as</code> keyword between values.</p>
 
 <h3 id="impl-AsPrimitive&lt;u8&gt;-for-u32"><code class="code-header">impl <a href="../../std/convert/trait.AsPrimitive.html" class="trait">AsPrimitive</a>&lt;<a href="../../std/primitive.u8.html" class="primitive">u8</a>&gt; for <a href="../../std/primitive.u32.html" class="primitive">u32</a></code></h3>
 
-<h3 id="impl-AsPrimitive&lt;Field&gt;-for-u64"><code class="code-header">impl <a href="../../std/convert/trait.AsPrimitive.html" class="trait">AsPrimitive</a>&lt;<a href="../../std/primitive.Field.html" class="primitive">Field</a>&gt; for <a href="../../std/primitive.u64.html" class="primitive">u64</a></code></h3>
-
 <h3 id="impl-AsPrimitive&lt;bool&gt;-for-u64"><code class="code-header">impl <a href="../../std/convert/trait.AsPrimitive.html" class="trait">AsPrimitive</a>&lt;<a href="../../std/primitive.bool.html" class="primitive">bool</a>&gt; for <a href="../../std/primitive.u64.html" class="primitive">u64</a></code></h3>
 
 <h3 id="impl-AsPrimitive&lt;i16&gt;-for-u64"><code class="code-header">impl <a href="../../std/convert/trait.AsPrimitive.html" class="trait">AsPrimitive</a>&lt;<a href="../../std/primitive.i16.html" class="primitive">i16</a>&gt; for <a href="../../std/primitive.u64.html" class="primitive">u64</a></code></h3>
@@ -377,8 +345,6 @@ equivalent of using the <code>as</code> keyword between values.</p>
 <h3 id="impl-AsPrimitive&lt;u64&gt;-for-u64"><code class="code-header">impl <a href="../../std/convert/trait.AsPrimitive.html" class="trait">AsPrimitive</a>&lt;<a href="../../std/primitive.u64.html" class="primitive">u64</a>&gt; for <a href="../../std/primitive.u64.html" class="primitive">u64</a></code></h3>
 
 <h3 id="impl-AsPrimitive&lt;u8&gt;-for-u64"><code class="code-header">impl <a href="../../std/convert/trait.AsPrimitive.html" class="trait">AsPrimitive</a>&lt;<a href="../../std/primitive.u8.html" class="primitive">u8</a>&gt; for <a href="../../std/primitive.u64.html" class="primitive">u64</a></code></h3>
-
-<h3 id="impl-AsPrimitive&lt;Field&gt;-for-u8"><code class="code-header">impl <a href="../../std/convert/trait.AsPrimitive.html" class="trait">AsPrimitive</a>&lt;<a href="../../std/primitive.Field.html" class="primitive">Field</a>&gt; for <a href="../../std/primitive.u8.html" class="primitive">u8</a></code></h3>
 
 <h3 id="impl-AsPrimitive&lt;bool&gt;-for-u8"><code class="code-header">impl <a href="../../std/convert/trait.AsPrimitive.html" class="trait">AsPrimitive</a>&lt;<a href="../../std/primitive.bool.html" class="primitive">bool</a>&gt; for <a href="../../std/primitive.u8.html" class="primitive">u8</a></code></h3>
 

@@ -30,7 +30,6 @@
 <h3>Trait implementations</h3>
 <ul class="sidebar-list">
 <li><a href="#impl-Add-for-u&lt;N&gt;">Add</a></li>
-<li><a href="#impl-AsPrimitive&lt;Field&gt;-for-u128">AsPrimitive&lt;Field&gt;</a></li>
 <li><a href="#impl-AsPrimitive&lt;bool&gt;-for-u128">AsPrimitive&lt;bool&gt;</a></li>
 <li><a href="#impl-AsPrimitive&lt;i16&gt;-for-u128">AsPrimitive&lt;i16&gt;</a></li>
 <li><a href="#impl-AsPrimitive&lt;i32&gt;-for-u128">AsPrimitive&lt;i32&gt;</a></li>
@@ -60,6 +59,8 @@
 <li><a href="#impl-Shl-for-u&lt;N&gt;">Shl</a></li>
 <li><a href="#impl-Shr-for-u&lt;N&gt;">Shr</a></li>
 <li><a href="#impl-Sub-for-u&lt;N&gt;">Sub</a></li>
+<li><a href="#impl-TryFrom&lt;Field&gt;-for-u&lt;N&gt;">TryFrom&lt;Field&gt;</a></li>
+<li><a href="#impl-UnsafeFrom&lt;Field&gt;-for-u&lt;N&gt;">UnsafeFrom&lt;Field&gt;</a></li>
 <li><a href="#impl-WrappingAdd-for-u128">WrappingAdd</a></li>
 <li><a href="#impl-WrappingMul-for-u128">WrappingMul</a></li>
 <li><a href="#impl-WrappingSub-for-u128">WrappingSub</a></li>
@@ -160,10 +161,6 @@
 <h3 id="impl-Add-for-u&lt;N&gt;"><code class="code-header">impl <a href="../std/ops/trait.Add.html" class="trait">Add</a> for u&lt;N&gt;</code></h3>
 
 <div class="padded-methods"><code class="code-header">pub fn <span class="fn">add</span>(self, other: Self) -> Self</code>
-
-</div><h3 id="impl-AsPrimitive&lt;Field&gt;-for-u128"><code class="code-header">impl <a href="../std/convert/trait.AsPrimitive.html" class="trait">AsPrimitive</a>&lt;<a href="../std/primitive.Field.html" class="primitive">Field</a>&gt; for <a href="../std/primitive.u128.html" class="primitive">u128</a></code></h3>
-
-<div class="padded-methods"><code class="code-header">pub fn <span class="fn">as_</span>(self) -> <a href="../std/primitive.Field.html" class="primitive">Field</a></code>
 
 </div><h3 id="impl-AsPrimitive&lt;bool&gt;-for-u128"><code class="code-header">impl <a href="../std/convert/trait.AsPrimitive.html" class="trait">AsPrimitive</a>&lt;<a href="../std/primitive.bool.html" class="primitive">bool</a>&gt; for <a href="../std/primitive.u128.html" class="primitive">u128</a></code></h3>
 
@@ -282,6 +279,14 @@
 </div><h3 id="impl-Sub-for-u&lt;N&gt;"><code class="code-header">impl <a href="../std/ops/trait.Sub.html" class="trait">Sub</a> for u&lt;N&gt;</code></h3>
 
 <div class="padded-methods"><code class="code-header">pub fn <span class="fn">sub</span>(self, other: Self) -> Self</code>
+
+</div><h3 id="impl-TryFrom&lt;Field&gt;-for-u&lt;N&gt;"><code class="code-header">impl <a href="../std/convert/trait.TryFrom.html" class="trait">TryFrom</a>&lt;<a href="../std/primitive.Field.html" class="primitive">Field</a>&gt; for u&lt;N&gt;</code></h3>
+
+<div class="padded-methods"><code class="code-header">pub fn <span class="fn">try_from</span>(input: <a href="../std/primitive.Field.html" class="primitive">Field</a>) -> <a href="../std/option/struct.Option.html" class="struct">Option</a>&lt;Self&gt;</code>
+
+</div><h3 id="impl-UnsafeFrom&lt;Field&gt;-for-u&lt;N&gt;"><code class="code-header">impl <a href="../std/convert/trait.UnsafeFrom.html" class="trait">UnsafeFrom</a>&lt;<a href="../std/primitive.Field.html" class="primitive">Field</a>&gt; for u&lt;N&gt;</code></h3>
+
+<div class="padded-methods"><code class="code-header">pub fn <span class="fn">unsafe_from</span>(input: <a href="../std/primitive.Field.html" class="primitive">Field</a>) -> Self</code>
 
 </div><h3 id="impl-WrappingAdd-for-u128"><code class="code-header">impl <a href="../std/ops/trait.WrappingAdd.html" class="trait">WrappingAdd</a> for <a href="../std/primitive.u128.html" class="primitive">u128</a></code></h3>
 

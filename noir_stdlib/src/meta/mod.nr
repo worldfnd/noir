@@ -150,6 +150,7 @@ pub comptime fn make_trait_impl<Env1, Env2>(
 }
 
 mod tests {
+    use crate::convert::UnsafeFrom;
     use crate::meta::ctstring::AsCtString;
     use crate::meta::derive_via;
 
@@ -167,10 +168,10 @@ mod tests {
             // let _b: Field = 1;
             let _b: Field = quote_one!();
 
-            // Since integers default to fields, if we
-            // want a different type we have to explicitly cast
-            // let _c: i32 = 1 as i32;
-            let _c: i32 = quote_one!() as i32;
+            // Since integers default to fields, if we want a different
+            // type we have to convert explicitly, with `std::convert::UnsafeFrom`
+            // let _c: i32 = i32::unsafe_from(1);
+            let _c: i32 = i32::unsafe_from(quote_one!());
         }
     }
     // docs:end:quote-example
