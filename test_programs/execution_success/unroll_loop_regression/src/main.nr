@@ -1,7 +1,8 @@
+use std::convert::UnsafeFrom;
 global ROOTS: [Field; 16] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
 
 unconstrained fn main(fracs: [u8; 16]) -> pub [u32; 2] {
-    let fracs = fracs.map(|frac| frac as Field);
+    let fracs = fracs.map(|frac| Field::from(frac));
     let mut partial_sums: [Field; 2] = std::mem::zeroed();
 
     let mut partial_sum: Field = 0;
@@ -22,5 +23,5 @@ unconstrained fn main(fracs: [u8; 16]) -> pub [u32; 2] {
         partial_sums[i] = partial_sum;
     }
 
-    partial_sums.map(|partial_sum| partial_sum as u32)
+    partial_sums.map(|partial_sum| u32::unsafe_from(partial_sum))
 }

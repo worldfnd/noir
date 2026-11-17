@@ -2,6 +2,8 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
+use std::convert::UnsafeFrom;
+
 global G_A: [Field] = @[
     0x30644e72e131a029b85045b68181585ce4e38774236ffbe89d1069dc112813e3,
     0x24cb71e04d83e5508bf4e287ea9e3583,
@@ -9,7 +11,7 @@ global G_A: [Field] = @[
 ];
 
 fn main(b: pub u8) -> pub u8 {
-    let b: Field = b as Field;
+    let b: Field = <Field as From<u8>>::from(b);
     let result: Field = if b == -284015218230919225711528337869756109769_Field {
         -b
     } else if b == -64182487568962597178733740932221199270_Field {
@@ -17,5 +19,5 @@ fn main(b: pub u8) -> pub u8 {
     } else {
         b
     };
-    result as u8
+    u8::unsafe_from(result)
 }

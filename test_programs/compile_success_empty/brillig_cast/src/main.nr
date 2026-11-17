@@ -1,3 +1,4 @@
+use std::convert::UnsafeFrom;
 // Tests a very simple Brillig function.
 //
 // The features being tested are cast operations on brillig
@@ -12,8 +13,8 @@ fn main() {
 }
 
 unconstrained fn field_casts() {
-    assert(5 as u8 as Field == 5);
-    assert(256 as u8 as Field == 0);
+    assert(Field::from(5 as u8) == 5);
+    assert(Field::from(u8::unsafe_from(256)) == 0);
 }
 
 unconstrained fn uint_casts() {
@@ -31,6 +32,6 @@ unconstrained fn int_casts() {
 
 unconstrained fn mixed_casts() {
     assert(100 as u32 as i32 as u32 == 100);
-    assert(257 as u8 as u32 == 1);
+    assert(u8::unsafe_from(257) as u32 == 1);
     assert(true as i8 == 1);
 }

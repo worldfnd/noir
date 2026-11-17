@@ -1,3 +1,4 @@
+use std::convert::UnsafeFrom;
 global NUM_NON_ACCUMULATOR_PUBLIC_INPUTS: u32 = 4;
 
 use bb_proof_verification::{UltraHonkVerificationKey, UltraHonkZKProof, verify_honk_proof};
@@ -11,5 +12,5 @@ fn main(
     // verify sum was computed correctly
     verify_honk_proof(verification_key, proof, public_inputs, key_hash);
 
-    public_inputs[3] as u64
+    u64::unsafe_from(public_inputs[3])
 }

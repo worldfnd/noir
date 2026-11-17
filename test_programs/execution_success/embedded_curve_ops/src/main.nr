@@ -6,11 +6,11 @@ use std::{
 };
 
 fn main(priv_key: u8, pub_x: pub u8, pub_y: pub [u8; 32]) {
-    let pub_x = pub_x as Field;
+    let pub_x = Field::from(pub_x);
     let pub_y = Field::from_le_bytes_checked(pub_y);
 
     let g1 = EmbeddedCurvePoint::generator();
-    let scalar = EmbeddedCurveScalar { lo: priv_key as Field, hi: 0 };
+    let scalar = EmbeddedCurveScalar { lo: Field::from(priv_key), hi: 0 };
     // Test that multi_scalar_mul correctly derives the public key
     let res = multi_scalar_mul([g1], [scalar]);
     assert(res.x == pub_x);

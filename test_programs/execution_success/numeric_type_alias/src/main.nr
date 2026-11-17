@@ -1,3 +1,4 @@
+use std::convert::UnsafeFrom;
 type Double<let N: u32>: u32 = N * 2;
 
 // Composed numeric type aliases
@@ -13,7 +14,7 @@ global N: u32 = 100;
 type AliasN<let N: u32>: u32 = N;
 
 fn main(x: u8) {
-    let x = x as Field;
+    let x = Field::from(x);
 
     // Test composed aliases in type positions (array sizes)
     let arr: [Field; Quadruple::<2>] = [0; 8];
@@ -51,7 +52,7 @@ fn main(x: u8) {
 
     let mut m = new_matrix::<3, 4>();
     m.elements[3 * 2 + 3] = 10;
-    m.elements[3 * 2 + x as u32] = 5 + x;
+    m.elements[3 * 2 + u32::unsafe_from(x)] = 5 + x;
     assert(equal(m, m));
     let b = transpose(m);
     assert(b.elements != m.elements);

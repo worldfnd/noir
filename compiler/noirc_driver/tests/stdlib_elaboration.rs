@@ -118,7 +118,7 @@ fn generic_halves_source(is_bn254: bool) -> String {
 
         struct Limbs {{ values: [Field; 4], len: u32 }}
         impl Hasher for Limbs {{
-            fn finish(self) -> Field {{ self.len as Field }}
+            fn finish(self) -> Field {{ Field::from(self.len) }}
             fn write(&mut self, input: Field) {{
                 self.values[self.len] = input;
                 self.len += 1;

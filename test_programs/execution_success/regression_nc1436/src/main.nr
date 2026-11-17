@@ -1,3 +1,4 @@
+use std::convert::UnsafeFrom;
 // Regression for https://github.com/noir-lang/noir-claude/issues/1436
 //
 // The assignment `x = if cond { let mut y = x; ...; break; ... } else { x }` reads
@@ -27,5 +28,5 @@ unconstrained fn main(cond: bool, brk: bool) -> pub [u8; 2] {
             x
         };
     }
-    [x[0] as u8, z[0] as u8]
+    [u8::unsafe_from(x[0]), u8::unsafe_from(z[0])]
 }

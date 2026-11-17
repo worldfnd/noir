@@ -10,5 +10,5 @@ mod foo;
 //
 // To verify that proof, type `cargo run verify {proof_name}`
 fn main(x: u8, y: pub u8) {
-    assert(x as Field != foo::hello(y as Field));
+    assert(Field::from(x) != foo::hello(Field::from(y)));
 }

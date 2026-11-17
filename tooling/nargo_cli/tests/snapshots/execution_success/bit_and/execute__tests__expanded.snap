@@ -2,17 +2,19 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
+use std::convert::UnsafeFrom;
+
 fn main(x: u8, y: u8, a: u8, b: u8) {
-    let x: Field = x as Field;
-    let y: Field = y as Field;
-    let a: Field = a as Field;
-    let b: Field = b as Field;
-    let x_as_u8: u8 = x as u8;
-    let y_as_u8: u8 = y as u8;
+    let x: Field = <Field as From<u8>>::from(x);
+    let y: Field = <Field as From<u8>>::from(y);
+    let a: Field = <Field as From<u8>>::from(a);
+    let b: Field = <Field as From<u8>>::from(b);
+    let x_as_u8: u8 = u8::unsafe_from(x);
+    let y_as_u8: u8 = u8::unsafe_from(y);
     assert((x_as_u8 & y_as_u8) == x_as_u8);
     let flag: bool = (x == 0_Field) & (y == 16_Field);
     assert(flag);
-    let a_as_u8: u8 = a as u8;
-    let b_as_u8: u8 = b as u8;
+    let a_as_u8: u8 = u8::unsafe_from(a);
+    let b_as_u8: u8 = u8::unsafe_from(b);
     assert((a_as_u8 & b_as_u8) == a_as_u8);
 }

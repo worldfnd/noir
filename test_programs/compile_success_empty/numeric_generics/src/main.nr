@@ -1,3 +1,4 @@
+use std::convert::UnsafeFrom;
 fn main() {
     let a = id([1, 2]);
     let b = id([1, 2, 3]);
@@ -25,9 +26,9 @@ struct MyStruct<let S: u32> {
 impl<let S: u32> MyStruct<S> {
     pub fn insert(mut self: Self, index: Field, elem: Field) -> Self {
         // Regression test for numeric generics on impls
-        assert(index as u64 < S as u64);
+        assert(u64::unsafe_from(index) < S as u64);
 
-        self.data[index as u32] = elem;
+        self.data[u32::unsafe_from(index)] = elem;
         self
     }
 }

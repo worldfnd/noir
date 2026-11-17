@@ -2,7 +2,7 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-use std::meta::unquote;
+use std::{convert::UnsafeFrom, meta::unquote};
 
 fn main() {
     let foo: Foo = Foo { x: 4_Field, y: 4_u32 };
@@ -10,7 +10,7 @@ fn main() {
 }
 
 pub fn foo(x: Field, y: u32) -> u32 {
-    (x as u32) + y
+    u32::unsafe_from(x) + y
 }
 
 comptime fn output_struct(f: FunctionDefinition) -> Quoted {
@@ -24,7 +24,7 @@ comptime fn output_struct(f: FunctionDefinition) -> Quoted {
         }
         impl Foo {
             fn assert_equal(self) {
-                assert_eq(self.x as u32, self.y);
+                assert_eq(u32::unsafe_from(self.x), self.y);
             }
         }
     }
@@ -37,7 +37,7 @@ struct Foo {
 
 impl Foo {
     fn assert_equal(self) {
-        assert((self.x as u32) == self.y);
+        assert(u32::unsafe_from(self.x) == self.y);
     }
 }
 

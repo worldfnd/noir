@@ -1,3 +1,4 @@
+use std::convert::UnsafeFrom;
 pub fn main() -> pub u8 {
     println(foo); // normal
     println(std::as_witness); // intrinsic
@@ -10,7 +11,7 @@ pub fn main() -> pub u8 {
     take_as_witness(std::as_witness);
     std::as_witness(foo());
 
-    take_foo(foo) as u8
+    u8::unsafe_from(take_foo(foo))
 }
 
 fn foo() -> Field {

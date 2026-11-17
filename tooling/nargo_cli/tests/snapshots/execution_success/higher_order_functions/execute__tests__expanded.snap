@@ -2,6 +2,8 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
+use std::convert::UnsafeFrom;
+
 fn main(w: u8) -> pub u8 {
     let f: fn() -> [u32; 2] = if (3_u32 * 7_u32) > 200_u32 { foo } else { bar };
     assert(f()[1_u32] == 2_u32);
@@ -29,7 +31,7 @@ fn main(w: u8) -> pub u8 {
     regression_2154();
     let ret: Field = twice(add1, 3_Field);
     test_array_functions();
-    ((w as Field) + ret) as u8
+    u8::unsafe_from(<Field as From<u8>>::from(w) + ret)
 }
 
 /// Test the array functions in std::array

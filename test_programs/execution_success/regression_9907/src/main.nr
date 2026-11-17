@@ -1,7 +1,8 @@
+use std::convert::UnsafeFrom;
 fn main() -> pub [[u32; 1]; 1] {
     let a = unsafe { foo([[0xcafebabe]]) };
     assert(a[0][0] == 0xcafebabe);
-    [[a[0][0] as u32]]
+    [[u32::unsafe_from(a[0][0])]]
 }
 
 unconstrained fn foo(mut a: [[Field; 1]; 1]) -> [[Field; 1]; 1] {

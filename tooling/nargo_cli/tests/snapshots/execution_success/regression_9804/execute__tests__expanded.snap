@@ -2,6 +2,8 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
+use std::convert::UnsafeFrom;
+
 fn main(a: u32, b: bool) -> pub u32 {
     let mut s: Field = 0_Field;
     let c: [[Field; 2]; 1] = [[1_Field, 2_Field]];
@@ -12,5 +14,5 @@ fn main(a: u32, b: bool) -> pub u32 {
             s = s + e;
         }
     }
-    s as u32
+    u32::unsafe_from(s)
 }

@@ -48,7 +48,7 @@ fn main(input: [u8; 12], input_len: u32) -> pub [[u8; 32]; 4] {
     };
     let sponge: Poseidon2Sponge = absorb(
         sponge,
-        input.map(|x: u8| -> Field { x as Field }),
+        input.map(|x: u8| -> Field { <Field as From<u8>>::from(x) }),
         input_len,
     );
     sponge.state.map(|x: Field| -> [u8; 32] x.to_le_bytes())

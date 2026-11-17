@@ -3,8 +3,10 @@ source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
 fn main(x: u8, y: u8, expected_x: [u8; 32], expected_y: [u8; 32]) {
-    let commitment: std::embedded_curve_ops::EmbeddedCurvePoint =
-        std::hash::pedersen_commitment([x as Field, y as Field]);
+    let commitment: std::embedded_curve_ops::EmbeddedCurvePoint = std::hash::pedersen_commitment([
+        <Field as From<u8>>::from(x),
+        <Field as From<u8>>::from(y),
+    ]);
     assert(commitment.x.to_le_bytes() == expected_x);
     assert(commitment.y.to_le_bytes() == expected_y);
 }

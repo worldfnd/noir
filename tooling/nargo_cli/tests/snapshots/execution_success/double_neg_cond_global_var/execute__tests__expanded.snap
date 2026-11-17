@@ -2,24 +2,26 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
+use std::convert::UnsafeFrom;
+
 global G_A: bool = false;
 
 fn main(a: u8) -> pub u8 {
-    let a: Field = a as Field;
+    let a: Field = <Field as From<u8>>::from(a);
     if (
         if !G_A {
             if !G_A {
-                a as u128
+                u128::unsafe_from(a)
             } else {
-                a as u128
+                u128::unsafe_from(a)
             }
         } else {
-            a as u128
+            u128::unsafe_from(a)
         }
-            <= (a as u128)
+            <= u128::unsafe_from(a)
     ) as bool {
-        --a as u8
+        u8::unsafe_from(--a)
     } else {
-        --a as u8
+        u8::unsafe_from(--a)
     }
 }

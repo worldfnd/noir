@@ -12,7 +12,7 @@ impl Builder {
         let index_offset: u32 = self.note_hashes.len();
         for i in 0_u32..self.note_hashes.max_len() {
             if i < num_note_hashes {
-                self.add_new_note_hash((index_offset + i) as Field);
+                self.add_new_note_hash(<Field as From<u32>>::from(index_offset + i));
             }
         }
     }

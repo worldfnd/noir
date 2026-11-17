@@ -4,7 +4,7 @@
 // hoisting it into the header would break loop unrolling, which only
 // maps header parameters (not instruction results) to final-iteration values.
 fn main(x: u8) {
-    let result = compute(x as Field);
+    let result = compute(Field::from(x));
     assert(result != 0);
 }
 

@@ -2,6 +2,8 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
+use std::convert::UnsafeFrom;
+
 unconstrained fn main() {
     foo(true, 1_Field);
 }
@@ -10,7 +12,7 @@ unconstrained fn foo(a: bool, mut b: Field) -> Field {
     if a {
         0_Field
     } else {
-        for i in 0_u32..if (b as u128) != (b as u128) {
+        for i in 0_u32..if u128::unsafe_from(b) != u128::unsafe_from(b) {
             0_u32
         } else {
             0_u32

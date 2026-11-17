@@ -1,23 +1,24 @@
+use std::convert::UnsafeFrom;
 // Regression from issue #7964 (https://github.com/noir-lang/noir/issues/7964)
 global G_A: bool = false;
 fn main(a: u8) -> pub u8 {
-    let a = a as Field;
+    let a = Field::from(a);
     if (
         (
             if (!G_A) {
                 if (!G_A) {
-                    (a as u128)
+                    (u128::unsafe_from(a))
                 } else {
-                    (a as u128)
+                    (u128::unsafe_from(a))
                 }
             } else {
-                (a as u128)
+                (u128::unsafe_from(a))
             }
-                <= (a as u128)
+                <= (u128::unsafe_from(a))
         ) as bool
     ) {
-        (-(-a)) as u8
+        u8::unsafe_from(-(-a))
     } else {
-        (-(-a)) as u8
+        u8::unsafe_from(-(-a))
     }
 }

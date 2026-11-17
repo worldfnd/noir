@@ -2,6 +2,8 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
+use std::convert::UnsafeFrom;
+
 pub fn main() -> pub u8 {
     println(foo);
     println(std::as_witness);
@@ -10,7 +12,7 @@ pub fn main() -> pub u8 {
     unsafe { unconstrained_take_as_witness(std::as_witness); };
     take_as_witness(std::as_witness);
     std::as_witness(foo());
-    take_foo(foo) as u8
+    u8::unsafe_from(take_foo(foo))
 }
 
 fn foo() -> Field {

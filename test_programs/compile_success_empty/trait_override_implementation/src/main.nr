@@ -56,7 +56,7 @@ impl F for Bar {
 //     fn f5(self) -> Field { 505 }
 // }
 fn main(x: u64) {
-    let x = x as Field;
+    let x = Field::from(x);
     let first = Foo::method2(x);
     assert(first == 3 * x);
 

@@ -4,7 +4,7 @@ expression: expanded_code
 ---
 fn main(value: u8, index: u32) {
     let mut args: [Field] = [0_Field, 1_Field].as_vector();
-    args[index] = value as Field;
+    args[index] = <Field as From<u8>>::from(value);
     // Safety: comment added by `nargo expand`
     unsafe { store(args) };
     assert((args[0_u32] + args[1_u32]) != 0_Field);

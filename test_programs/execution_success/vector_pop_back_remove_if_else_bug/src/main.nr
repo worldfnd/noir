@@ -1,3 +1,4 @@
+use std::convert::UnsafeFrom;
 // Merging two vectors of unequal capacity produces a vector whose backing capacity (2) can exceed
 // its semantic length (1). Popping that vector must not leave a `remove_if_else` merge over-reading
 // the popped result, which would otherwise read element 0 of an empty vector.
@@ -16,6 +17,6 @@ fn main(choose: bool, do_pop: bool) -> pub u8 {
     if v.len() == 0 {
         0
     } else {
-        v[0] as u8
+        u8::unsafe_from(v[0])
     }
 }

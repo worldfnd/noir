@@ -1,9 +1,10 @@
+use std::convert::UnsafeFrom;
 fn main() -> pub (u32, u32) {
     // Safety: testing context
     unsafe {
         let result_tuple = foo_tuple();
         let result_field = foo_field();
-        (result_tuple as u32, result_field as u32)
+        (u32::unsafe_from(result_tuple), u32::unsafe_from(result_field))
     }
 }
 

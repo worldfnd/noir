@@ -1,3 +1,4 @@
+use std::convert::UnsafeFrom;
 // Regression: an out-of-bounds *constant* `array_get` of a field of a tuple, in a Brillig
 // function, must keep its result well-typed all the way through Brillig codegen.
 //
@@ -29,5 +30,5 @@ unconstrained fn main(run: bool) -> pub u8 {
             result = 1;
         }
     }
-    result as u8
+    u8::unsafe_from(result)
 }

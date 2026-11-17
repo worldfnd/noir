@@ -2,6 +2,8 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
+use std::convert::UnsafeFrom;
+
 fn main(choose: bool, do_pop: bool) -> pub u8 {
     let mut v: [Field] = if choose {
         [1_Field].as_vector()
@@ -15,6 +17,6 @@ fn main(choose: bool, do_pop: bool) -> pub u8 {
     if v.len() == 0_u32 {
         0_u8
     } else {
-        v[0_u32] as u8
+        u8::unsafe_from(v[0_u32])
     }
 }

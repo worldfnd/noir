@@ -9,11 +9,11 @@ pub fn field_from_bytes_32_trunc(bytes32: [u8; 32]) -> Field {
     let mut high: Field = 0_Field as Field;
     let mut low: Field = 0_Field as Field;
     for i in 0_u32..15_u32 {
-        low = low + ((bytes32[(15_u32 + 15_u32) - i] as Field) * v);
+        low = low + (<Field as From<u8>>::from(bytes32[(15_u32 + 15_u32) - i]) * v);
         v = v * 256_Field;
-        high = high + ((bytes32[14_u32 - i] as Field) * v);
+        high = high + (<Field as From<u8>>::from(bytes32[14_u32 - i]) * v);
     }
-    low = low + ((bytes32[15_u32] as Field) * v);
+    low = low + (<Field as From<u8>>::from(bytes32[15_u32]) * v);
     low + (high * v)
 }
 
@@ -25,7 +25,7 @@ pub fn blake2s_to_field<let N: u32>(bytes_to_hash: [u8; N]) -> Field {
 
 fn main(tx_effects_hash_input: [u32; 256]) -> pub [u8; 32] {
     let tx_effects_hash_input: [Field; 256] =
-        tx_effects_hash_input.map(|x: u32| -> Field { x as Field });
+        tx_effects_hash_input.map(|x: u32| -> Field { <Field as From<u32>>::from(x) });
     let mut hash_input_flattened: [u8; 8192] = [0_u8; 8192];
     for offset in 0_u32..TX_EFFECTS_HASH_INPUT_FIELDS {
         let input_as_bytes: [u8; 32] = tx_effects_hash_input[offset].to_be_bytes();

@@ -84,7 +84,7 @@ impl FixtureBuilder2 {
     pub fn set_public_teardown_call_request(&mut self) {
         let mut fields = [0; 5];
         for i in 0..5 {
-            fields[i] = i as Field;
+            fields[i] = Field::from(i);
         }
 
         self.public_teardown_call_request = zeroed();

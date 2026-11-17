@@ -3,5 +3,5 @@ source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
 fn main(x: u64) {
-    (x as Field).assert_max_bit_size::<48>();
+    <Field as From<u64>>::from(x).assert_max_bit_size::<48>();
 }

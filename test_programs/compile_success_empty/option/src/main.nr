@@ -1,3 +1,4 @@
+use std::convert::UnsafeFrom;
 fn main() {
     let ten = 10; // giving this a name, to ensure that the Option functions work with closures
     let none: Option<Field> = Option::none();
@@ -37,7 +38,7 @@ fn main() {
     assert(some.and(none).is_none());
     assert(some.and(some).is_some());
 
-    let add1_u64 = |value: Field| Option::some(value as u64 + 1);
+    let add1_u64 = |value: Field| Option::some(u64::unsafe_from(value) + 1);
 
     assert(none.and_then(|_value| none).is_none());
     assert(none.and_then(add1_u64).is_none());

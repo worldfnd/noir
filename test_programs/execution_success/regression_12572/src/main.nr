@@ -1,3 +1,4 @@
+use std::convert::UnsafeFrom;
 use std::default::Default;
 
 #[derive(Default)]
@@ -18,6 +19,8 @@ struct Bundle {
 
 fn main(input: u8) -> pub u8 {
     let mut b: Bundle = Default::default();
-    b.wrapped[0].log.fields[0] = input as Field;
-    (b.wrapped[0].log.fields[0] + b.wrapped[0].log.fields[1] + b.small[0].fields[0]) as u8
+    b.wrapped[0].log.fields[0] = Field::from(input);
+    u8::unsafe_from(
+        b.wrapped[0].log.fields[0] + b.wrapped[0].log.fields[1] + b.small[0].fields[0],
+    )
 }

@@ -1,3 +1,4 @@
+use std::convert::UnsafeFrom;
 struct bar {
     enable: [bool; 4],
     data: [Field; 2],
@@ -6,9 +7,9 @@ struct bar {
 
 fn main(enable: [u8; 2]) -> pub [u8; 4] {
     let mut result = [0; 4];
-    let a: [_; 4] = foo(enable[1] as Field);
+    let a: [_; 4] = foo(Field::from(enable[1]));
     for i in 0..4 {
-        result[i] = a[i].data[i % 2] as u8;
+        result[i] = u8::unsafe_from(a[i].data[i % 2]);
     }
     result
 }

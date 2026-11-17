@@ -1,3 +1,4 @@
+use std::convert::UnsafeFrom;
 trait Read {
     fn read(data: [Field; 1]) -> Self;
 }
@@ -10,7 +11,7 @@ impl Read for Field {
 
 impl Read for u32 {
     fn read(data: [Field; 1]) -> Self {
-        data[0] as u32
+        u32::unsafe_from(data[0])
     }
 }
 

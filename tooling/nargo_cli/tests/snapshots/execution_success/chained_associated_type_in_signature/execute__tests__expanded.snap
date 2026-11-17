@@ -72,7 +72,7 @@ trait Unwrappable {
 }
 
 fn main(x: u8) {
-    let result: u32 = (x as Field).chain();
+    let result: u32 = <Field as From<u8>>::from(x).chain();
     assert(result == 1_u32);
     let wrapped: Wrapper<u8> = Wrapper::<u8> { val: x };
     assert(wrapped.unwrap() == x);

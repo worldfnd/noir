@@ -62,7 +62,7 @@ fn comptime_check_field_expression(
         }}
 
         fn main(a: u32, b: u32) -> pub u8 {{
-            assert_eq(comptime {{ comptime_code() }}, runtime_code(a as Field, b as Field));
+            assert_eq(comptime {{ comptime_code() }}, runtime_code(Field::from(a), Field::from(b)));
             1
         }}");
 

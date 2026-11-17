@@ -1,3 +1,4 @@
+use std::convert::UnsafeFrom;
 use std::meta::unquote;
 
 fn main() {
@@ -7,7 +8,7 @@ fn main() {
 
 #[output_struct]
 pub fn foo(x: Field, y: u32) -> u32 {
-    x as u32 + y
+    u32::unsafe_from(x) + y
 }
 
 // Given a function, wrap its parameters in a struct definition
@@ -18,7 +19,7 @@ comptime fn output_struct(f: FunctionDefinition) -> Quoted {
         struct Foo { $fields }
     impl Foo {
             fn assert_equal(self) {
-                assert_eq(self.x as u32, self.y);
+                assert_eq(u32::unsafe_from(self.x), self.y);
             }
         }
     }

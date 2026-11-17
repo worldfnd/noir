@@ -11,7 +11,7 @@ fn main(
     let old_hash_path = old_hash_path.map(|node| Field::from_le_bytes_checked(node));
     let new_root = Field::from_le_bytes_checked(new_root);
     let leaf = Field::from_le_bytes_checked(leaf);
-    let index = index as Field;
+    let index = Field::from(index);
 
     assert(old_root == compute_merkle_root(old_leaf, index, old_hash_path));
 

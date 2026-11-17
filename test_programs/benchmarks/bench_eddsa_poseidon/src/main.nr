@@ -22,7 +22,7 @@ fn main(
     r8_y: [u8; 32],
     s: [u8; 32],
 ) -> pub bool {
-    let msg = msg as Field;
+    let msg = Field::from(msg);
     let pub_key_x = Field::from_le_bytes_checked(pub_key_x);
     let pub_key_y = Field::from_le_bytes_checked(pub_key_y);
     let r8_x = Field::from_le_bytes_checked(r8_x);

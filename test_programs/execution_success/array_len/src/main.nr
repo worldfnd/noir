@@ -11,8 +11,8 @@ fn nested_call<let N: u32>(b: [Field; N]) -> u32 {
 }
 
 fn main(x: u8, len3: [u8; 3], len4: [u8; 4]) {
-    let x = x as Field;
-    let len4 = len4.map(|v| v as Field);
+    let x = Field::from(x);
+    let len4 = len4.map(|v| Field::from(v));
 
     assert(len_plus_1(len3) == 4);
     assert(len_plus_1(len4) == 5);

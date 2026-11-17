@@ -1,6 +1,6 @@
 use bad_impl;
 
 fn main(x: u32) {
-    let x = x as Field;
+    let x = Field::from(x);
     x.something();
 }

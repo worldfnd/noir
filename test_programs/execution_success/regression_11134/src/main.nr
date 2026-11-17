@@ -1,3 +1,4 @@
+use std::convert::UnsafeFrom;
 fn main(c: bool) -> pub (u8, u8) {
     // We are creating lambdas which turn into (constrained, unconstrained) pairs,
     // but the return value is not valid when going from unconstrained to constrained.
@@ -22,7 +23,7 @@ fn main(c: bool) -> pub (u8, u8) {
         assert_eq(n + 1, m);
     };
 
-    (x as u8, y as u8)
+    (u8::unsafe_from(x), u8::unsafe_from(y))
 }
 
 unconstrained fn call_and_deref(f: fn() -> &mut Field) -> Field {

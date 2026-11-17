@@ -3,6 +3,6 @@ source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
 fn main(a: u8) -> pub u8 {
-    std::as_witness(a as Field);
+    std::as_witness(<Field as From<u8>>::from(a));
     a
 }

@@ -2,6 +2,8 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
+use std::convert::UnsafeFrom;
+
 fn main() {
     // Safety: comment added by `nargo expand`
     unsafe {
@@ -13,8 +15,8 @@ fn main() {
 }
 
 unconstrained fn field_casts() {
-    assert(((5_Field as u8) as Field) == 5_Field);
-    assert(((256_Field as u8) as Field) == 0_Field);
+    assert(<Field as From<u8>>::from(5_Field as u8) == 5_Field);
+    assert(<Field as From<u8>>::from(u8::unsafe_from(256_Field)) == 0_Field);
 }
 
 unconstrained fn uint_casts() {
@@ -32,6 +34,6 @@ unconstrained fn int_casts() {
 
 unconstrained fn mixed_casts() {
     assert((((100_Field as u32) as i32) as u32) == 100_u32);
-    assert(((257_Field as u8) as u32) == 1_u32);
+    assert((u8::unsafe_from(257_Field) as u32) == 1_u32);
     assert((true as i8) == 1_i8);
 }

@@ -1,5 +1,5 @@
 fn main(x: u32) -> pub [u8; 31] {
-    let x = x as Field;
+    let x = Field::from(x);
     // The result of this byte array will be big-endian
     let byte_array: [u8; 31] = x.to_be_bytes();
     let mut bytes = [0; 31];

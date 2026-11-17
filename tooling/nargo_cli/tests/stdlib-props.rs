@@ -91,15 +91,19 @@ fn fuzz_basic() {
 fn make_field_cast_test(size: u32, signed: bool) -> String {
     if signed {
         format!(
-            "fn main(x: i{size}) -> pub u128 {{
-            (x as u{size} as Field) as u128
+            "use std::convert::UnsafeFrom;
+
+         fn main(x: i{size}) -> pub u128 {{
+            u128::unsafe_from(Field::unsafe_from(x))
          }}
          "
         )
     } else {
         format!(
-            "fn main(x: u{size}) -> pub u128 {{
-            (x as Field) as u128
+            "use std::convert::UnsafeFrom;
+
+fn main(x: u{size}) -> pub u128 {{
+            u128::unsafe_from(Field::unsafe_from(x))
 }}"
         )
     }
@@ -252,9 +256,11 @@ fn fuzz_field_cast() {
 
 fn make_zero_extend_test(in_size: u32, out_size: u32) -> String {
     format!(
-        "fn main(x: u{in_size}) -> pub u128 {{
+        "use std::convert::UnsafeFrom;
+
+fn main(x: u{in_size}) -> pub u128 {{
         let y = x as u{out_size};
-        (y as Field - x as Field) as u128
+        u128::unsafe_from(Field::from(y) - Field::from(x))
 }}"
     )
 }
@@ -329,10 +335,12 @@ fn make_truncate_test(size: u32, truncate: u32) -> String {
     let max: u128 = 1 << truncate;
 
     format!(
-        "fn main(x: u{size}) -> pub u{size} {{
+        "use std::convert::UnsafeFrom;
+
+fn main(x: u{size}) -> pub u{size} {{
         let y = x as u{truncate};
-        let q = (x as Field - y as Field)/{max};
-        (q as u{size})*{max} + y as u{size}
+        let q = (Field::from(x) - Field::from(y))/{max};
+        u{size}::unsafe_from(q)*{max} + y as u{size}
 }}"
     )
 }

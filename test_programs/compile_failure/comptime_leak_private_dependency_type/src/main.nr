@@ -1,4 +1,5 @@
 use mylib::{anchor, PublicBox};
+use std::convert::UnsafeFrom;
 
 // A macro must not be able to splice a dependency-private type into a public API. The
 // `hidden::Secret` type is reachable here only by reflecting over `PublicBox`'s field; it
@@ -22,5 +23,5 @@ comptime fn emit_private_type_api(_f: FunctionDefinition) -> Quoted {
 
 #[emit_private_type_api]
 fn main() -> pub u8 {
-    anchor() as u8
+    u8::unsafe_from(anchor())
 }

@@ -1,5 +1,5 @@
 fn main(in0: u8) -> pub [u8; 32] {
-    let in0 = in0 as Field;
+    let in0 = Field::from(in0);
     let mut out0: Field = 0;
     let tmp1: Field = in0;
 

@@ -1,3 +1,4 @@
+use std::convert::UnsafeFrom;
 global G_B: [(str<2>, Field)] = [
     ("SM", 193432430920915057603408161267722629873),
     ("QK", 28517051330822917784420357897851281178),
@@ -6,8 +7,8 @@ global G_B: [(str<2>, Field)] = [
     .as_vector();
 fn main(b: bool) -> pub u128 {
     if b {
-        G_B[(1783103175_u32 % G_B.len())].1 as u128
+        u128::unsafe_from(G_B[(1783103175_u32 % G_B.len())].1)
     } else {
-        (G_B[1771627614_u32].1 / G_B[2334904280_u32].1) as u128
+        u128::unsafe_from(G_B[1771627614_u32].1 / G_B[2334904280_u32].1)
     }
 }

@@ -13,8 +13,8 @@ unconstrained fn baz(x: Field) -> Field {
 }
 
 fn main(x: u8, y: pub u8) {
-    let x = x as Field;
-    let y = y as Field;
+    let x = Field::from(x);
+    let y = Field::from(y);
     // Safety: test
     let x = unsafe { baz(x) };
     foo(x);

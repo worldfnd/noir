@@ -58,8 +58,8 @@ fn get_dog() -> Animal {
 struct Unit {}
 
 fn main(x: u8, y: u8) {
-    let x: Field = x as Field;
-    let y: Field = y as Field;
+    let x: Field = <Field as From<u8>>::from(x);
+    let y: Field = <Field as From<u8>>::from(y);
     let unit: Unit = Unit {};
     let first: Foo = Foo::default(x, y);
     let p: Pair = Pair { first: first, second: 1_Field };
@@ -72,7 +72,7 @@ fn main(x: u8, y: u8) {
     assert(struct_from_tuple.my_int == 5_u32);
     assert(struct_from_tuple.my_nest.a == 0_Field);
     let Animal { legs, eyes }: Animal = get_dog();
-    let six: Field = legs + (eyes as Field);
+    let six: Field = legs + <Field as From<u8>>::from(eyes);
     assert(six == 6_Field);
     let Animal { legs: _, eyes: _ }: Animal = get_dog();
     let mut Nested { a, b }: Nested = Nested { a: 1_Field, b: 2_Field };

@@ -39,8 +39,8 @@ impl<T> Bar<T> {
 }
 
 fn main(x: u8, y: u8) {
-    let x = x as Field;
-    let y = y as Field;
+    let x = Field::from(x);
+    let y = Field::from(y);
     let bar1: Bar<Field> = Bar { one: x, two: y, other: 0 };
     let bar2 = Bar { one: x, two: y, other: [0] };
 
@@ -77,7 +77,7 @@ fn regression_2055<let LEN: u32>(bytes: [u8; LEN]) -> Field {
     let mut len = LEN - 1; // FAILS
     for i in 0..LEN {
         let j = len - i;
-        f += (bytes[j] as Field) * b;
+        f += (Field::from(bytes[j])) * b;
         b *= 256;
     }
     f

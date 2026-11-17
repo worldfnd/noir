@@ -3,7 +3,7 @@ source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
 fn main(x: u8) {
-    let mut x: Field = x as Field;
+    let mut x: Field = <Field as From<u8>>::from(x);
     add1(&mut x);
     assert(x == 3_Field);
     let mut s: S = S { y: x };
