@@ -6,7 +6,7 @@ use num_bigint::BigUint;
 use crate::hir::comptime::ComptimeError;
 use crate::hir::def_collector::dc_crate::CompilationError;
 use crate::hir::type_check::TypeCheckError;
-use crate::test_utils::get_monomorphized_with_stdlib;
+use crate::test_utils::{get_monomorphized_with_stdlib, stdlib_src};
 use crate::tests::{get_program_errors, get_program_errors_for_field, get_stdlib_errors_for_field};
 
 /// The standard library's wrapping conversion, as `convert.nr` defines it.
@@ -142,10 +142,11 @@ fn a_width_generic_cast_to_field_is_refused_outside_unsafe_from() {
 fn unsafe_from_wraps_under_every_field() {
     let u64_max = BigUint::from(u64::MAX);
     let u256_max = (BigUint::from(1u8) << 256u32) - 1u8;
+    let unsafe_from = stdlib_src::UNSAFE_FROM;
     for field in FieldId::ALL {
         let modulus = FieldConfig::new(field).modulus();
         let src = format!(
-            "{UNSAFE_FROM}
+            "{unsafe_from}
             fn main() {{
                 comptime {{
                     let wide: u64 = {u64_max};
