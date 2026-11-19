@@ -139,8 +139,9 @@ pub trait WrappingAdd {
 }
 // docs:end:wrapping-add-trait
 
-// An integer wraps in the type twice its width where every field holds that type, and under
-// bn254, which holds every type the wider one can be. Elsewhere it wraps inside its own type.
+// The operation is done in the type twice as wide and cut back. `u8` and `u16` do so under every
+// field, since every field holds a `u32`. `u32` and `u64` do so under bn254 only: elsewhere the
+// wider type can reach the modulus, so they wrap inside their own type.
 impl WrappingAdd for u8 {
     fn wrapping_add(self: u8, y: u8) -> u8 {
         ((self as u16) + (y as u16)) as u8
