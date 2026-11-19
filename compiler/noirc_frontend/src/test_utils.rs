@@ -358,7 +358,7 @@ pub mod stdlib_src {
             // Noir doesn't have enums yet so we emulate (Lt | Eq | Gt) with a struct
             // that has 3 public functions for constructing the struct.
             pub struct Ordering {
-                result: Field,
+                result: u8,
             }
 
             impl Ordering {

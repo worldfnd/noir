@@ -228,6 +228,24 @@ fn integer_wrapping_arithmetic_uses_field_only_in_the_cheaper_bn254_halves() {
     }
 }
 
+/// An `Ordering` is one of three small integers, so comparing integers through `Ord` involves
+/// no `Field`.
+#[test]
+fn ordering_holds_no_field() {
+    let source = "
+        #[derive(Eq, Ord)]
+        struct Version { major: u32, minor: u32 }
+
+        fn main(a: u32, b: u32) -> pub bool {
+            let (older, newer) = (Version { major: a, minor: b }, Version { major: b, minor: a });
+            (older < newer) & (older.cmp(newer) == std::cmp::Ordering::less())
+        }";
+    for field in FieldId::ALL {
+        let program = monomorphized(source, field);
+        assert!(!program.contains("Field"), "{field}:\n{program}");
+    }
+}
+
 /// The standard library has no item that says which field it is compiled for.
 #[test]
 fn the_standard_library_does_not_name_its_field() {

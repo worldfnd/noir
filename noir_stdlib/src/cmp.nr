@@ -187,7 +187,7 @@ impl Eq for Ordering {
 /// A value with three states: `Ordering::less()`, `Ordering::equal()` or `Ordering::greater()`.
 /// Most often used to encode the result of a comparison operation.
 pub struct Ordering {
-    result: Field,
+    result: u8,
 }
 
 impl Ordering {

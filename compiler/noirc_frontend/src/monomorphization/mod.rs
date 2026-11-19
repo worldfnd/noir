@@ -3202,8 +3202,8 @@ impl<'interner> Monomorphizer<'interner> {
             // (a > b) => a.cmp(b) == Ordering::Greater
             // (a >= b) => a.cmp(b) != Ordering::Less
             Less | LessEqual | Greater | GreaterEqual => {
-                // Comparing an Ordering directly to a field value in this way takes advantage
-                // of the fact the Ordering struct contains a single Field type, and our SSA
+                // Comparing an Ordering directly to an integer in this way takes advantage
+                // of the fact the Ordering struct contains a single `u8`, and our SSA
                 // pass will automatically unpack tuple values.
                 let ordering_value = if matches!(operator.kind, Less | GreaterEqual) {
                     BigInt::ZERO // Ordering::Less
@@ -3214,7 +3214,8 @@ impl<'interner> Monomorphizer<'interner> {
                 let operator =
                     if matches!(operator.kind, Less | Greater) { Equal } else { NotEqual };
 
-                let int_value = ast::Literal::Integer(ordering_value, ast::Type::Field, location);
+                let ordering_type = ast::Type::Integer(Signedness::Unsigned, 8);
+                let int_value = ast::Literal::Integer(ordering_value, ordering_type, location);
                 let rhs = Box::new(ast::Expression::Literal(int_value));
                 let lhs = Box::new(ast::Expression::ExtractTupleField(Box::new(result), 0));
 

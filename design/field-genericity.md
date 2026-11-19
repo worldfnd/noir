@@ -52,6 +52,8 @@ Wrapping arithmetic in [`arith`](../noir_stdlib/src/ops/arith.nr) follows from t
 
 `Hash` for `u64`, `u128` and `i64` in [`hash`](../noir_stdlib/src/hash/mod.nr) writes the value as one field element under bn254 (5 opcodes) and as 32-bit limbs elsewhere (14, 34 and 14 on bn254), since a `Hasher` takes field elements.
 
+`Ordering` in [`cmp`](../noir_stdlib/src/cmp.nr) holds its three states as a `u8`, so comparing integers through `Ord` names no `Field` (`ordering_holds_no_field` in `stdlib_elaboration`). The compiler reads that value where it lowers `<`, `<=`, `>` and `>=` on a type with an `Ord` impl, in the monomorphizer and in the comptime interpreter's `evaluate_ordering`, and both compare it as a `u8`. A program that compares through `Ord` takes the same number of ACIR and Brillig opcodes on bn254 as it did when the value was a `Field`.
+
 `Field::lt` uses the BN254 implementation under that field and canonical byte comparison elsewhere, sized to the configured modulus. The embedded curve and Poseidon2 module are BN254-only. The derive registry uses a non-cryptographic multiply-add hasher for its comptime map.
 
 # The width-generic standard library
