@@ -224,28 +224,24 @@ pub trait UnsafeFrom<T> {
 
 // docs:start:unsafe-from-impls
 impl<let N: u32> UnsafeFrom<u<N>> for Field {
-    fn unsafe_from(input: u<N>) -> Field {
-        input as Field
-    }
+    #[builtin(field_cast)]
+    fn unsafe_from(input: u<N>) -> Field {}
 }
 
 // A signed integer converts as its bit pattern, so `-1_i8` is `255`.
 impl<let N: u32> UnsafeFrom<i<N>> for Field {
-    fn unsafe_from(input: i<N>) -> Field {
-        input as u::<N> as Field
-    }
+    #[builtin(field_cast)]
+    fn unsafe_from(input: i<N>) -> Field {}
 }
 
 impl<let N: u32> UnsafeFrom<Field> for u<N> {
-    fn unsafe_from(input: Field) -> u<N> {
-        input as Self
-    }
+    #[builtin(field_cast)]
+    fn unsafe_from(input: Field) -> u<N> {}
 }
 
 impl<let N: u32> UnsafeFrom<Field> for i<N> {
-    fn unsafe_from(input: Field) -> i<N> {
-        input as Self
-    }
+    #[builtin(field_cast)]
+    fn unsafe_from(input: Field) -> i<N> {}
 }
 // docs:end:unsafe-from-impls
 

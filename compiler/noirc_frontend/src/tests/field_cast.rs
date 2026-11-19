@@ -6,10 +6,11 @@ use num_bigint::BigUint;
 use crate::hir::comptime::ComptimeError;
 use crate::hir::def_collector::dc_crate::CompilationError;
 use crate::hir::type_check::TypeCheckError;
-use crate::test_utils::{get_monomorphized_with_stdlib, stdlib_src};
+use crate::test_utils::stdlib_src;
 use crate::tests::{get_program_errors, get_program_errors_for_field, get_stdlib_errors_for_field};
 
-/// The standard library's wrapping conversion, as `convert.nr` defines it.
+/// A wrapping conversion written with casts, which only an `UnsafeFrom` impl of the standard
+/// library may hold.
 const UNSAFE_FROM: &str = "
     pub trait UnsafeFrom<T> {
         fn unsafe_from(input: T) -> Self;
@@ -172,33 +173,6 @@ fn unsafe_from_wraps_under_every_field() {
         let errors = stdlib_errors(&src, field);
         assert!(errors.is_empty(), "{field}: {errors:?}");
     }
-}
-
-/// The conversions are nothing but the casts they are written with, which is what a backend
-/// reading the monomorphized program lowers.
-#[test]
-fn unsafe_from_monomorphizes_to_plain_casts() {
-    let src = "
-    fn main(x: u64, y: i8, z: u8) -> pub u8 {
-        let sum = Field::unsafe_from(x) + Field::unsafe_from(y);
-        u8::unsafe_from(sum) + z
-    }";
-    let program = get_monomorphized_with_stdlib(src, &[UNSAFE_FROM]).unwrap();
-    insta::assert_snapshot!(program, @r"
-    fn main$f0(x$l0: u64, y$l1: i8, z$l2: u8) -> pub u8 {
-        let sum$l3 = (unsafe_from$f1(x$l0) + unsafe_from$f2(y$l1));
-        (unsafe_from$f3(sum$l3) + z$l2)
-    }
-    fn unsafe_from$f1(input$l4: u64) -> Field {
-        (input$l4 as Field)
-    }
-    fn unsafe_from$f2(input$l5: i8) -> Field {
-        ((input$l5 as u8) as Field)
-    }
-    fn unsafe_from$f3(input$l6: Field) -> u8 {
-        (input$l6 as u8)
-    }
-    ");
 }
 
 /// Asserts that `src`, compiled as user code, gets the denial and no other diagnostic, under

@@ -1,11 +1,12 @@
 use std::path::Path;
 
-use noirc_driver::{file_manager_with_stdlib, prepare_crate};
+use noirc_driver::{CompileOptions, check_crate, file_manager_with_stdlib, prepare_crate};
 use noirc_frontend::elaborator::FrontendOptions;
 use noirc_frontend::hir::Context;
 use noirc_frontend::hir::def_collector::dc_crate::CompilationError;
 use noirc_frontend::hir::def_map::{CrateDefMap, parse_file};
 use noirc_frontend::hir::type_check::TypeCheckError;
+use noirc_frontend::monomorphization::monomorphize;
 
 /// Every stdlib cast to `Field` outside `UnsafeFrom`, where it reduces, starts from a type whose values all lie below the modulus of the field the compiler is built for; an impl that casts a wider type is gated to the fields where that type fits.
 #[test]
@@ -79,6 +80,42 @@ fn stdlib_conversions_into_field_follow_the_field_width() {
             assert!(!errors.is_empty(), "u{bits} should have no conversion into Field");
         }
     }
+}
+
+/// The stdlib's conversions between `Field` and an integer are the casts themselves: a program
+/// that calls them holds the casts and no call, which is what a backend reading the monomorphized
+/// program lowers.
+#[test]
+fn stdlib_conversions_between_field_and_integers_are_casts() {
+    let source = "
+    use std::convert::UnsafeFrom;
+
+    fn main(x: u32, y: i8) -> pub u8 {
+        let sum = Field::unsafe_from(x) + Field::unsafe_from(y);
+        u8::unsafe_from(sum)
+    }";
+    let root = Path::new("");
+    let file_name = Path::new("main.nr");
+    let mut file_manager = file_manager_with_stdlib(root);
+    file_manager.add_file_with_source(file_name, source.to_owned()).unwrap();
+    let parsed_files = file_manager
+        .as_file_map()
+        .all_file_ids()
+        .map(|&file_id| (file_id, parse_file(&file_manager, file_id)))
+        .collect();
+    let mut context = Context::new(file_manager, parsed_files);
+    let crate_id = prepare_crate(&mut context, file_name);
+    check_crate(&mut context, crate_id, &CompileOptions::default()).expect("the program compiles");
+    let main = context.get_main_function(&crate_id).expect("main is defined");
+    let files = context.file_manager.as_file_map();
+    let program = monomorphize(main, &mut context.def_interner, files, false).unwrap();
+
+    insta::assert_snapshot!(program, @r"
+    fn main$f0(x$l0: u32, y$l1: i8) -> pub u8 {
+        let sum$l2 = ((x$l0 as Field) + ((y$l1 as u8) as Field));
+        (sum$l2 as u8)
+    }
+    ");
 }
 
 /// `AsPrimitive` converts between the integer types only: across the `Field` boundary the one
