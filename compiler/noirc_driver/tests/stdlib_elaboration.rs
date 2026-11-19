@@ -8,6 +8,7 @@ use noirc_frontend::graph::CrateId;
 use noirc_frontend::hir::Context;
 use noirc_frontend::hir::comptime::EvaluationTracker;
 use noirc_frontend::hir::def_map::{CrateDefMap, parse_file};
+use noirc_frontend::monomorphization::monomorphize;
 
 fn elaborate(source: &str, field: FieldId) -> Vec<String> {
     let options =
@@ -148,6 +149,23 @@ fn generic_halves_source(is_bn254: bool) -> String {
                 assert(i64::min_value().wrapping_sub(1) == i64::max_value());
                 assert(i64::min_value().wrapping_mul(-1) == i64::min_value());
 
+                let max8 = u8::max_value();
+                let max16 = u16::max_value();
+                let max32 = u32::max_value();
+                assert(max8.wrapping_add(1) == 0);
+                assert(0u8.wrapping_sub(1) == max8);
+                assert(max8.wrapping_mul(max8) == 1);
+                assert(max16.wrapping_add(max16) == max16 - 1);
+                assert(0u16.wrapping_sub(max16) == 1);
+                assert(max16.wrapping_mul(max16) == 1);
+                assert(max32.wrapping_add(1) == 0);
+                assert(max32.wrapping_add(max32) == max32 - 1);
+                assert(0u32.wrapping_sub(1) == max32);
+                assert(0u32.wrapping_sub(max32) == 1);
+                assert(max32.wrapping_mul(max32) == 1);
+                assert(0x10000u32.wrapping_mul(0x10000) == 0);
+                assert(0x12345678u32.wrapping_mul(0x9abcdef0) == 0x242d2080);
+
                 let mut limbs = Limbs {{ values: [0; 4], len: 0 }};
                 max64.hash(&mut limbs);
                 assert(limbs.len == 2);
@@ -175,6 +193,41 @@ fn generic_halves_source(is_bn254: bool) -> String {
     )
 }
 
+/// The monomorphized program of `source`, compiled against the stdlib under `field`.
+fn monomorphized(source: &str, field: FieldId) -> String {
+    let (mut context, crate_id) = context_with_stdlib(source);
+    let options = CompileOptions { field, ..Default::default() };
+    check_crate(&mut context, crate_id, &options).expect("the program compiles");
+    let main = context.get_main_function(&crate_id).expect("main is defined");
+    let files = context.file_manager.as_file_map();
+    monomorphize(main, &mut context.def_interner, files, false).unwrap().to_string()
+}
+
+/// Wrapping arithmetic on integers is integer code under every field. It goes through `Field`
+/// only in the bn254 halves that take fewer ACIR opcodes than the integer code does.
+#[test]
+fn integer_wrapping_arithmetic_uses_field_only_in_the_cheaper_bn254_halves() {
+    let field_halves = [("Sub", 128), ("Mul", 64), ("Mul", 128)];
+    for field in FieldId::ALL {
+        for op in ["Add", "Sub", "Mul"] {
+            for bits in [8, 16, 32, 64, 128] {
+                let method = op.to_lowercase();
+                let source = format!(
+                    "use std::ops::Wrapping{op};
+                    fn main(x: u{bits}, y: u{bits}) -> pub u{bits} {{ x.wrapping_{method}(y) }}"
+                );
+                let program = monomorphized(&source, field);
+                let expected = field == FieldId::Bn254 && field_halves.contains(&(op, bits));
+                assert_eq!(
+                    program.contains("Field"),
+                    expected,
+                    "{field}: wrapping_{method} on u{bits}\n{program}"
+                );
+            }
+        }
+    }
+}
+
 #[test]
 fn goldilocks_stdlib_fallbacks_preserve_values() {
     let errors = elaborate(&generic_halves_source(false), FieldId::Goldilocks);
@@ -184,7 +237,7 @@ fn goldilocks_stdlib_fallbacks_preserve_values() {
 /// `--generic-builtins` compiles the field-generic halves on bn254 too, where they pass the same
 /// checks; without it bn254's own `Hash for u64` writes one element, so the limb check fails.
 /// What the mode leaves behind is at most an unused private helper of a dropped bn254 half
-/// (`wrapping_mul128_hlp` of `WrappingMul for u128`): a stdlib warning `check_crate` never shows.
+/// (`bn254::wrapping_mul128` of `WrappingMul for u128`): a stdlib warning `check_crate` never shows.
 #[test]
 fn bn254_takes_the_generic_halves_under_generic_builtins() {
     let source = generic_halves_source(true);
