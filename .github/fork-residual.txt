@@ -247,6 +247,7 @@ noir_stdlib/docs/std/cmp/index.html
 noir_stdlib/docs/std/cmp/trait.Eq.html
 noir_stdlib/docs/std/cmp/trait.Ord.html
 noir_stdlib/docs/std/collections/index.html
+noir_stdlib/docs/std/compat/fn.is_bn254.html
 noir_stdlib/docs/std/compat/index.html
 noir_stdlib/docs/std/convert/index.html
 noir_stdlib/docs/std/convert/trait.AsPrimitive.html

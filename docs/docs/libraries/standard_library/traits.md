@@ -118,6 +118,8 @@ The `UnsafeFrom` trait converts a value that may not fit by wrapping it. It is i
 
 #include_code unsafe-from-impls noir_stdlib/src/convert.nr rust
 
+The compiler provides these conversions itself, which is why the impls are marked `#[builtin(field_cast)]` and have no body.
+
 `as` does not convert between a `Field` and an integer, so these two traits and `From` are how one becomes the other. Neither `TryFrom` nor `UnsafeFrom` is in the prelude: import them from `std::convert`.
 
 ## `std::cmp`
