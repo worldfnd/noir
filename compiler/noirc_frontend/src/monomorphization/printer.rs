@@ -177,9 +177,10 @@ impl AstPrinter {
                 });
                 if let Some(from) = from.filter(|_| self.show_field_casts_as_std && crosses_field) {
                     let to = &cast.r#type;
-                    write!(f, "<{to} as std::convert::UnsafeFrom<{from}>>::unsafe_from(")?;
+                    // Parenthesized like a cast: after a `<` the leading `<` would read as a shift.
+                    write!(f, "(<{to} as std::convert::UnsafeFrom<{from}>>::unsafe_from(")?;
                     self.print_expr(&cast.lhs, f)?;
-                    write!(f, ")")
+                    write!(f, "))")
                 } else {
                     write!(f, "(")?;
                     self.print_expr(&cast.lhs, f)?;
@@ -886,6 +887,28 @@ mod tests {
         format!("{}", PrintCast(cast, show_field_casts_as_std))
     }
 
+    /// Two `<` in a row are a shift, so a conversion printed after a `<` has to stay one operand.
+    #[test]
+    fn a_printed_conversion_parses_as_the_right_hand_side_of_a_comparison() {
+        use crate::ast::{BinaryOpKind, ExpressionKind};
+        use crate::parser::Parser;
+
+        let u64_t = Type::Integer(Signedness::Unsigned, 64);
+        let source = format!("y < {}", print_cast(Type::Field, u64_t, true));
+        let mut parser = Parser::for_str_with_dummy_file(&source);
+        let expression = parser.parse_expression_or_error();
+        assert!(parser.errors.is_empty(), "{source}: {:?}", parser.errors);
+        let ExpressionKind::Infix(infix) = expression.kind else {
+            panic!("{source} should be a comparison, found {expression}");
+        };
+        assert_eq!(infix.operator.contents, BinaryOpKind::Less, "{source}");
+        assert!(
+            matches!(infix.lhs.kind, ExpressionKind::Variable(..)),
+            "{source} should compare `y`, found {}",
+            infix.lhs
+        );
+    }
+
     /// User code may not cast between `Field` and an integer, so source meant to be compiled as
     /// user code names the conversion the cast stands for.
     #[test]
@@ -895,11 +918,11 @@ mod tests {
 
         assert_eq!(
             print_cast(u64_t.clone(), Type::Field, true),
-            "<Field as std::convert::UnsafeFrom<u64>>::unsafe_from(x)"
+            "(<Field as std::convert::UnsafeFrom<u64>>::unsafe_from(x))"
         );
         assert_eq!(
             print_cast(Type::Field, i8_t.clone(), true),
-            "<i8 as std::convert::UnsafeFrom<Field>>::unsafe_from(x)"
+            "(<i8 as std::convert::UnsafeFrom<Field>>::unsafe_from(x))"
         );
 
         // Casts that do not cross the boundary, and every cast without the flag, print as written.
