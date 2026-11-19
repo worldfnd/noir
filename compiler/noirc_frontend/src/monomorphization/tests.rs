@@ -1408,6 +1408,71 @@ fn evaluates_builtin_checked_transmute() {
     ");
 }
 
+/// A call lowers to the cast it stands for, whichever way the method is named. A signed integer
+/// enters the field as its bit pattern, through the unsigned type of its width.
+#[test]
+fn lowers_the_field_cast_builtin_to_casts() {
+    let src = r#"
+    fn main(x: u64, y: i8) -> pub u8 {
+        let by_type = Field::unsafe_from(x);
+        let by_trait: Field = UnsafeFrom::unsafe_from(y);
+        let narrowed: i16 = UnsafeFrom::unsafe_from(by_type + by_trait);
+        u8::unsafe_from(by_type) + generic(narrowed)
+    }
+
+    fn generic<T>(value: T) -> u8 where Field: UnsafeFrom<T> {
+        u8::unsafe_from(Field::unsafe_from(value))
+    }
+    "#;
+
+    let program = get_monomorphized_with_stdlib(src, &[stdlib_src::UNSAFE_FROM]).unwrap();
+
+    insta::assert_snapshot!(program, @r"
+    fn main$f0(x$l0: u64, y$l1: i8) -> pub u8 {
+        let by_type$l2 = (x$l0 as Field);
+        let by_trait$l3 = ((y$l1 as u8) as Field);
+        let narrowed$l4 = ((by_type$l2 + by_trait$l3) as i16);
+        ((by_type$l2 as u8) + generic$f1(narrowed$l4))
+    }
+    fn generic$f1(value$l5: i16) -> u8 {
+        (((value$l5 as u16) as Field) as u8)
+    }
+    ");
+}
+
+/// Used as a value, the builtin becomes a function holding the cast.
+#[test]
+fn wraps_the_field_cast_builtin_as_a_function_value() {
+    let src = r#"
+    fn main(x: i8) -> pub bool {
+        apply(Field::unsafe_from, x) == 0
+    }
+
+    fn apply(f: fn(i8) -> Field, x: i8) -> Field {
+        f(x)
+    }
+    "#;
+
+    let program = get_monomorphized_with_stdlib(src, &[stdlib_src::UNSAFE_FROM]).unwrap();
+
+    insta::assert_snapshot!(program, @r"
+    fn main$f0(x$l0: i8) -> pub bool {
+        (apply$f1((unsafe_from$f2, unsafe_from$f3), x$l0) == 0)
+    }
+    fn apply$f1(f$l3: (fn(i8) -> Field, unconstrained fn(i8) -> Field), x$l4: i8) -> Field {
+        f$l3.0(x$l4)
+    }
+    #[inline_always]
+    fn unsafe_from$f2(x$l1: i8) -> Field {
+        ((x$l1 as u8) as Field)
+    }
+    #[inline_always]
+    unconstrained fn unsafe_from$f3(x$l2: i8) -> Field {
+        ((x$l2 as u8) as Field)
+    }
+    ");
+}
+
 #[test]
 fn wraps_aliased_builtin_functions() {
     let src = r#"

@@ -408,6 +408,32 @@ pub mod stdlib_src {
         pub fn checked_transmute<T, U>(value: T) -> U {}
     ";
 
+    pub const UNSAFE_FROM: &str = "
+        pub trait UnsafeFrom<T> {
+            fn unsafe_from(input: T) -> Self;
+        }
+
+        impl<let N: u32> UnsafeFrom<u<N>> for Field {
+            #[builtin(field_cast)]
+            fn unsafe_from(input: u<N>) -> Field {}
+        }
+
+        impl<let N: u32> UnsafeFrom<i<N>> for Field {
+            #[builtin(field_cast)]
+            fn unsafe_from(input: i<N>) -> Field {}
+        }
+
+        impl<let N: u32> UnsafeFrom<Field> for u<N> {
+            #[builtin(field_cast)]
+            fn unsafe_from(input: Field) -> u<N> {}
+        }
+
+        impl<let N: u32> UnsafeFrom<Field> for i<N> {
+            #[builtin(field_cast)]
+            fn unsafe_from(input: Field) -> i<N> {}
+        }
+    ";
+
     // Note that in the stdlib these are all comptime functions, which I thought meant
     // that the comptime interpreter was used to evaluate them, however they do seem to
     // hit the `try_evaluate_call::try_evaluate_call`.

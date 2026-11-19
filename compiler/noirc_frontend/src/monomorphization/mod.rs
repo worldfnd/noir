@@ -995,7 +995,8 @@ impl<'interner> Monomorphizer<'interner> {
 
                     // `true` here to use the current runtime since we're immediately calling this
                     // method in our current runtime.
-                    let func = self.resolve_trait_item_expr(expr, function_type, method, true)?;
+                    let func =
+                        self.resolve_trait_item_expr(expr, function_type, method, true, true)?;
                     self.create_prefix_operator_impl_call(func, rhs, ret, location)?
                 } else {
                     let operator = prefix.operator;
@@ -1027,7 +1028,8 @@ impl<'interner> Monomorphizer<'interner> {
                     let method = method.expect("ICE: Monomorphizer::expr: expected the infix operator method to be resolved by monomorphization");
                     // `true` here to use the current runtime since we're immediately calling this
                     // operator method in the current runtime.
-                    let func = self.resolve_trait_item_expr(expr, function_type, method, true)?;
+                    let func =
+                        self.resolve_trait_item_expr(expr, function_type, method, true, true)?;
                     let operator = infix.operator;
                     self.create_infix_operator_impl_call(func, lhs, operator, rhs, ret, location)?
                 } else {
@@ -1595,7 +1597,13 @@ impl<'interner> Monomorphizer<'interner> {
         let typ = self.interner.id_type(expr_id);
 
         if let ImplKind::TraitItem(item) = ident.impl_kind {
-            return self.resolve_trait_item_expr(expr_id, typ, item.id(), use_current_runtime);
+            return self.resolve_trait_item_expr(
+                expr_id,
+                typ,
+                item.id(),
+                use_current_runtime,
+                evaluate_builtin,
+            );
         }
 
         // Ensure all instantiation bindings are bound.
@@ -2294,6 +2302,7 @@ impl<'interner> Monomorphizer<'interner> {
         function_type: HirType,
         trait_item_id: TraitItemId,
         use_current_runtime: bool,
+        evaluate_builtin: bool,
     ) -> Result<ast::Expression, MonomorphizationError> {
         // `resolve_trait_item_impl` extends the call expression's stored
         // instantiation bindings with the resolved impl's bindings (so the
@@ -2323,7 +2332,15 @@ impl<'interner> Monomorphizer<'interner> {
         let result = self.monomorphize_constrained_and_unconstrained(
             use_current_runtime,
             self.force_unconstrained,
-            |this| this.resolve_trait_method_expr(func_id, expr_id, function_type, trait_item_id),
+            |this| {
+                this.resolve_trait_method_expr(
+                    func_id,
+                    expr_id,
+                    function_type,
+                    trait_item_id,
+                    evaluate_builtin,
+                )
+            },
         );
 
         if let Some(saved) = saved_bindings {
@@ -2341,20 +2358,24 @@ impl<'interner> Monomorphizer<'interner> {
         expr_id: ExprId,
         function_type: HirType,
         trait_item_id: TraitItemId,
+        evaluate_builtin: bool,
     ) -> Result<ast::Expression, MonomorphizationError> {
         let location = self.interner.expr_location(&expr_id);
         let typ = Rc::new(Self::convert_type(&function_type, location)?);
 
-        let Definition::Function(func_id) =
-            self.lookup_function(func_id, expr_id, &function_type, &[], Some(trait_item_id), true)?
-        else {
-            unreachable!();
-        };
+        let definition = self.lookup_function(
+            func_id,
+            expr_id,
+            &function_type,
+            &[],
+            Some(trait_item_id),
+            evaluate_builtin,
+        )?;
 
         let name = self.interner.definition_name(trait_item_id.item_id).to_string();
 
         Ok(ast::Expression::Ident(ast::Ident {
-            definition: Definition::Function(func_id),
+            definition,
             mutable: false,
             location: None,
             name,
