@@ -94,33 +94,33 @@ impl From<u64> for u128 {
 
 impl From<u8> for Field {
     fn from(value: u8) -> Field {
-        value as Field
+        Field::unsafe_from(value)
     }
 }
 
 impl From<u16> for Field {
     fn from(value: u16) -> Field {
-        value as Field
+        Field::unsafe_from(value)
     }
 }
 
 impl From<u32> for Field {
     fn from(value: u32) -> Field {
-        value as Field
+        Field::unsafe_from(value)
     }
 }
 // These conversions require every source value to fit in the field.
 #[field(not(goldilocks))]
 impl From<u64> for Field {
     fn from(value: u64) -> Field {
-        value as Field
+        Field::unsafe_from(value)
     }
 }
 
 #[field(not(goldilocks))]
 impl From<u128> for Field {
     fn from(value: u128) -> Field {
-        value as Field
+        Field::unsafe_from(value)
     }
 }
 

@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use acvm::{FieldConfig, FieldId};
 use noirc_driver::{CompileOptions, check_crate, file_manager_with_stdlib, prepare_crate};
 use noirc_frontend::elaborator::FrontendOptions;
 use noirc_frontend::hir::Context;
@@ -42,6 +43,11 @@ fn stdlib_never_casts_a_wide_integer_to_field() {
 
 /// Compiles `source` against the stdlib and returns the error messages.
 fn compile_errors(source: &str) -> Vec<String> {
+    compile_errors_with(source, FrontendOptions::test_default())
+}
+
+/// Like `compile_errors`, under the configured field of `options`.
+fn compile_errors_with(source: &str, options: FrontendOptions) -> Vec<String> {
     let root = Path::new("");
     let file_name = Path::new("main.nr");
     let mut file_manager = file_manager_with_stdlib(root);
@@ -53,7 +59,7 @@ fn compile_errors(source: &str) -> Vec<String> {
         .collect();
     let mut context = Context::new(file_manager, parsed_files);
     let crate_id = prepare_crate(&mut context, file_name);
-    let errors = CrateDefMap::collect_defs(crate_id, &mut context, FrontendOptions::test_default());
+    let errors = CrateDefMap::collect_defs(crate_id, &mut context, options);
     let root_files = context.crate_files(&crate_id);
     errors
         .iter()
@@ -62,22 +68,27 @@ fn compile_errors(source: &str) -> Vec<String> {
         .collect()
 }
 
-/// The stdlib's conversions from an unsigned integer into `Field` exist exactly for the types whose values all lie below the modulus.
+/// The stdlib's lossless conversions from an unsigned integer into `Field` exist exactly for the
+/// types whose values all lie below the modulus, under every field. They are written with the
+/// wrapping conversion, so this is what keeps one from reducing a value.
 #[test]
 fn stdlib_conversions_into_field_follow_the_field_width() {
-    use acvm::FieldConfig;
-    for bits in [8u32, 16, 32, 64, 128] {
-        let source = format!(
-            "fn main() {{
-                let x: u{bits} = 1;
-                assert(Field::from(x) == 1);
-            }}"
-        );
-        let errors = compile_errors(&source);
-        if FieldConfig::linked().fits_unsigned(bits) {
-            assert!(errors.is_empty(), "u{bits}: {errors:?}");
-        } else {
-            assert!(!errors.is_empty(), "u{bits} should have no conversion into Field");
+    for field in FieldId::ALL {
+        let config = FieldConfig::new(field);
+        for bits in [8u32, 16, 32, 64, 128] {
+            let source = format!(
+                "fn main() {{
+                    let x: u{bits} = 1;
+                    assert(Field::from(x) == 1);
+                }}"
+            );
+            let options = FrontendOptions { field: config, ..FrontendOptions::test_default() };
+            let errors = compile_errors_with(&source, options);
+            if config.fits_unsigned(bits) {
+                assert!(errors.is_empty(), "{field}, u{bits}: {errors:?}");
+            } else {
+                assert!(!errors.is_empty(), "{field}: u{bits} should not convert into Field");
+            }
         }
     }
 }
