@@ -692,9 +692,10 @@ impl DefCollector {
         // Because a use tree like `use foo::{bar, baz}` is desugared into `use foo::bar; use foo::baz;`,
         // if `foo` is not found then the error will happen twice. Given that only one error kind can happen
         // per path segment (either the segment was not found, or it's private, or it doesn't resolve to a module),
-        // it's safe to only keep one error per location.
+        // it's safe to only keep one error per location. The errors stay in the order they were
+        // found, which a map ordered by the hash of a location would not keep.
         let inner_errors = inner_errors.into_iter().map(|error| (error.location(), error));
-        let inner_errors = inner_errors.collect::<HashMap<_, _>>().into_values();
+        let inner_errors = inner_errors.collect::<IndexMap<_, _, FxBuildHasher>>().into_values();
         outer_errors.extend(inner_errors);
     }
 
