@@ -133,7 +133,7 @@ fn generic_halves_source(is_bn254: bool) -> String {
 
         fn main() {{
             comptime {{
-                assert({not}std::compat::is_bn254());
+                assert({not}(std::field::modulus_num_bits() == 254));
                 let max64 = u64::max_value();
                 let max128 = u128::max_value();
                 assert(max64.wrapping_add(1) == 0);
@@ -225,6 +225,19 @@ fn integer_wrapping_arithmetic_uses_field_only_in_the_cheaper_bn254_halves() {
                 );
             }
         }
+    }
+}
+
+/// The standard library has no item that says which field it is compiled for.
+#[test]
+fn the_standard_library_does_not_name_its_field() {
+    let source = "fn main() { assert(std::compat::is_bn254()); }";
+    for field in FieldId::ALL {
+        let errors = elaborate(source, field);
+        assert!(
+            errors.iter().any(|error| error.contains("Could not resolve 'compat' in path")),
+            "{field}: {errors:?}"
+        );
     }
 }
 
