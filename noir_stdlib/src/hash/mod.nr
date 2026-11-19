@@ -1,7 +1,7 @@
 #[field(bn254)]
 pub(crate) mod poseidon2;
 
-use crate::default::Default;
+use crate::{convert::From, default::Default};
 use crate::meta::derive_via;
 use crate::static_assert;
 
@@ -94,7 +94,7 @@ pub fn pedersen_hash_with_separator<let N: u32>(input: [Field; N], separator: u3
         scalars[i] = EmbeddedCurveScalar::from_field(input[i]);
         generators[i] = domain_generators[i];
     }
-    scalars[N] = EmbeddedCurveScalar { lo: N as Field, hi: 0 as Field };
+    scalars[N] = EmbeddedCurveScalar { lo: Field::from(N), hi: 0 };
 
     let length_generator: [EmbeddedCurvePoint; 1] =
         derive_generators("pedersen_hash_length".as_bytes(), 0);
@@ -242,7 +242,7 @@ impl Hash for u8 {
     where
         H: Hasher,
     {
-        H::write(state, self as Field);
+        H::write(state, Field::from(self));
     }
 }
 
@@ -251,7 +251,7 @@ impl Hash for u16 {
     where
         H: Hasher,
     {
-        H::write(state, self as Field);
+        H::write(state, Field::from(self));
     }
 }
 
@@ -260,7 +260,7 @@ impl Hash for u32 {
     where
         H: Hasher,
     {
-        H::write(state, self as Field);
+        H::write(state, Field::from(self));
     }
 }
 
@@ -270,7 +270,7 @@ impl Hash for u64 {
     where
         H: Hasher,
     {
-        H::write(state, self as Field);
+        H::write(state, Field::from(self));
     }
 }
 
@@ -281,8 +281,8 @@ impl Hash for u64 {
     where
         H: Hasher,
     {
-        H::write(state, (self % 0x100000000) as u32 as Field);
-        H::write(state, (self / 0x100000000) as u32 as Field);
+        H::write(state, Field::from((self % 0x100000000) as u32));
+        H::write(state, Field::from((self / 0x100000000) as u32));
     }
 }
 
@@ -292,7 +292,7 @@ impl Hash for u128 {
     where
         H: Hasher,
     {
-        H::write(state, self as Field);
+        H::write(state, Field::from(self));
     }
 }
 
@@ -304,7 +304,7 @@ impl Hash for u128 {
     {
         let mut rest = self;
         for _ in 0..4 {
-            H::write(state, (rest % 0x100000000) as u32 as Field);
+            H::write(state, Field::from((rest % 0x100000000) as u32));
             rest = rest / 0x100000000;
         }
     }
@@ -315,7 +315,7 @@ impl Hash for i8 {
     where
         H: Hasher,
     {
-        H::write(state, self as u8 as Field);
+        H::write(state, Field::from(self as u8));
     }
 }
 
@@ -324,7 +324,7 @@ impl Hash for i16 {
     where
         H: Hasher,
     {
-        H::write(state, self as u16 as Field);
+        H::write(state, Field::from(self as u16));
     }
 }
 
@@ -333,7 +333,7 @@ impl Hash for i32 {
     where
         H: Hasher,
     {
-        H::write(state, self as u32 as Field);
+        H::write(state, Field::from(self as u32));
     }
 }
 
@@ -343,7 +343,7 @@ impl Hash for i64 {
     where
         H: Hasher,
     {
-        H::write(state, self as u64 as Field);
+        H::write(state, Field::from(self as u64));
     }
 }
 

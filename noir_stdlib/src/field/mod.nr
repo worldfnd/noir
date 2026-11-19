@@ -1,6 +1,6 @@
 #[field(bn254)]
 pub mod bn254;
-use crate::{runtime::is_unconstrained, static_assert};
+use crate::{convert::{From, UnsafeFrom}, runtime::is_unconstrained, static_assert};
 
 impl Field {
     /// Asserts that `self` can be represented in `bit_size` bits.
@@ -191,7 +191,7 @@ impl Field {
 
     // Parity of (prime) Field element, i.e. sgn0(x mod p) = false if x `elem` {0, ..., p-1} is even, otherwise sgn0(x mod p) = true.
     pub fn sgn0(self) -> bool {
-        (self as u8) % 2 == 1
+        u8::unsafe_from(self) % 2 == 1
     }
 
     #[field(bn254)]
@@ -220,7 +220,7 @@ impl Field {
         let mut result = 0;
 
         for i in 0..N {
-            result += (bytes[i] as Field) * v;
+            result += Field::from(bytes[i]) * v;
             v = v * 256;
         }
         result
@@ -242,7 +242,7 @@ impl Field {
         let mut result = 0;
 
         for i in 0..N {
-            result += (bytes[N - 1 - i] as Field) * v;
+            result += Field::from(bytes[N - 1 - i]) * v;
             v = v * 256;
         }
         result

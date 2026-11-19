@@ -326,12 +326,15 @@ noir_stdlib/docs/std/test/index.html
 noir_stdlib/docs/std/test/struct.OracleMock.html
 noir_stdlib/docs/std/vector/index.html
 noir_stdlib/src/cmp.nr
+noir_stdlib/src/collections/bounded_vec.nr
 noir_stdlib/src/collections/umap.nr
 noir_stdlib/src/compat.nr
 noir_stdlib/src/convert.nr
 noir_stdlib/src/default.nr
+noir_stdlib/src/field/bn254.nr
 noir_stdlib/src/field/mod.nr
 noir_stdlib/src/hash/mod.nr
+noir_stdlib/src/hash/poseidon2.nr
 noir_stdlib/src/integer.nr
 noir_stdlib/src/lib.nr
 noir_stdlib/src/mem.nr

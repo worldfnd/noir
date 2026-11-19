@@ -1,4 +1,4 @@
-use crate::field::field_less_than;
+use crate::{convert::{From, UnsafeFrom}, field::field_less_than};
 use crate::runtime::is_unconstrained;
 
 // The low and high decomposition of the field modulus
@@ -11,7 +11,7 @@ pub(crate) global TWO_POW_128: Field = 0x100000000000000000000000000000000;
 fn compute_decomposition(x: Field) -> (Field, Field) {
     // Here's we're taking advantage of truncating 128 bit limbs from the input field
     // and then subtracting them from the input such the field division is equivalent to integer division.
-    let low = (x as u128) as Field;
+    let low = Field::from(u128::unsafe_from(x));
     let high = (x - low) / TWO_POW_128;
 
     (low, high)
@@ -119,6 +119,7 @@ pub fn lt(a: Field, b: Field) -> bool {
 
 mod tests {
     // TODO: Allow imports from "super"
+    use crate::convert::From;
     use crate::field::bn254::{assert_gt, decompose, gt, lt, lte_hint, PHI, PLO, TWO_POW_128};
     use crate::internal::test_unconstrained;
     use super::assert_lt;
@@ -165,8 +166,8 @@ mod tests {
 
         let mut offset = 1;
         for i in 0..16 {
-            p_low += (p_bytes[i] as Field) * offset;
-            p_high += (p_bytes[i + 16] as Field) * offset;
+            p_low += Field::from(p_bytes[i]) * offset;
+            p_high += Field::from(p_bytes[i + 16]) * offset;
             offset *= 256;
         }
         assert_eq(p_low, PLO);
