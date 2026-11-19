@@ -541,50 +541,30 @@ pub struct DisplayAstAsNoirComptime<'a>(pub &'a Program);
 
 impl std::fmt::Display for DisplayAstAsNoirComptime<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let show_field_casts_as_std = true;
-        fmt_comptime(self.0, f, show_field_casts_as_std)
-    }
-}
+        let mut printer = AstPrinter::default();
+        printer.show_id = false;
+        printer.show_clone_and_drop = false;
+        printer.show_specials_as_std = true;
+        printer.show_field_casts_as_std = true;
+        // Declare the type in `let` so that when we parse snippets we can match the types which
+        // the AST had, otherwise a literal which was a `u32` in the AST might be inferred as `Field`.
+        printer.show_type_in_let = true;
+        // Also annotate literals with their type, so we don't have subtle differences in expressions,
+        // for example `for i in (5 / 10) as u32 .. 2` is `0..2` or `1..2` depending on whether 5 and 10
+        // were some number in the AST or `Field` when parsed by the test.
+        printer.show_type_of_int_literal = true;
 
-/// Like [`DisplayAstAsNoirComptime`], for source that is compiled as the standard library
-/// itself: it has no `std` to call, and it may write a cast between `Field` and an integer.
-pub struct DisplayAstAsNoirComptimeStdlib<'a>(pub &'a Program);
-
-impl std::fmt::Display for DisplayAstAsNoirComptimeStdlib<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let show_field_casts_as_std = false;
-        fmt_comptime(self.0, f, show_field_casts_as_std)
-    }
-}
-
-fn fmt_comptime(
-    program: &Program,
-    f: &mut std::fmt::Formatter<'_>,
-    show_field_casts_as_std: bool,
-) -> std::fmt::Result {
-    let mut printer = AstPrinter::default();
-    printer.show_id = false;
-    printer.show_clone_and_drop = false;
-    printer.show_specials_as_std = true;
-    printer.show_field_casts_as_std = show_field_casts_as_std;
-    // Declare the type in `let` so that when we parse snippets we can match the types which
-    // the AST had, otherwise a literal which was a `u32` in the AST might be inferred as `Field`.
-    printer.show_type_in_let = true;
-    // Also annotate literals with their type, so we don't have subtle differences in expressions,
-    // for example `for i in (5 / 10) as u32 .. 2` is `0..2` or `1..2` depending on whether 5 and 10
-    // were some number in the AST or `Field` when parsed by the test.
-    printer.show_type_of_int_literal = true;
-
-    for function in &program.functions {
-        if function.id == Program::main_id() {
-            let mut function = function.clone();
-            function.return_visibility = Visibility::Public;
-            let fpo = FunctionPrintOptions { comptime_wrap_body: true, ..Default::default() };
-            printer.print_function(&function, f, fpo)?;
-        } else {
-            printer.print_function(function, f, FunctionPrintOptions::default())?;
+        for function in &self.0.functions {
+            if function.id == Program::main_id() {
+                let mut function = function.clone();
+                function.return_visibility = Visibility::Public;
+                let fpo = FunctionPrintOptions { comptime_wrap_body: true, ..Default::default() };
+                printer.print_function(&function, f, fpo)?;
+            } else {
+                printer.print_function(function, f, FunctionPrintOptions::default())?;
+            }
         }
-    }
 
-    Ok(())
+        Ok(())
+    }
 }

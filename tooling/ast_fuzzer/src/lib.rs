@@ -13,8 +13,8 @@ pub use compare::encode_to_ssa;
 pub use input::arb_inputs;
 use program::freq::Freqs;
 pub use program::{
-    DisplayAstAsNoir, DisplayAstAsNoirComptime, DisplayAstAsNoirComptimeStdlib, arb_program,
-    arb_program_comptime, program_wrap_expression,
+    DisplayAstAsNoir, DisplayAstAsNoirComptime, arb_program, arb_program_comptime,
+    program_wrap_expression,
 };
 pub use program::{expr, rewrite, scope, types};
 
