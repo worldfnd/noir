@@ -14,7 +14,7 @@ use crate::shared::{MAX_INTEGER_WIDTH, Signedness};
 use crate::test_utils::{GetProgramOptions, get_monomorphized_for_field, get_program_with_options};
 use crate::tests::{
     check_errors, check_errors_with_options, check_monomorphization_error, get_program_errors,
-    get_program_errors_for_field, get_stdlib_errors_for_field,
+    get_program_errors_for_field,
 };
 
 /// Widths the circuit backend does not lower, from the narrowest the language has to the widest.
@@ -506,50 +506,24 @@ fn a_generic_width_at_an_entry_point_is_refused_before_monomorphization() {
 }
 
 #[test]
-fn casts_to_field_follow_the_field_rule_at_every_width() {
-    for (bits, generic) in [(66, false), (66, true), (256, false), (256, true)] {
-        let src = if generic {
-            format!(
-                "fn to_field<let N: u32>(x: u<N>) -> Field {{ x as Field }}
-                 fn main(x: u8) {{ let _ = to_field(x as u{bits}); }}"
-            )
-        } else {
-            format!("fn main(x: u8) {{ let _ = (x as u{bits}) as Field; }}")
-        };
-        for field in FieldId::ALL {
-            let fits = FieldConfig::new(field).fits_unsigned(bits);
-            let errors = get_stdlib_errors_for_field(&src, field);
-            let refused = errors.iter().any(|error| {
-                matches!(
-                    error,
-                    CompilationError::TypeError(TypeCheckError::IntegerTypeExceedsField { .. })
-                )
-            });
-            // Some width of `u<N>` can exceed the modulus, whatever `N` is bound to here.
-            assert_eq!(refused, generic || !fits, "{field}, u{bits}: {errors:?}");
-        }
-    }
-}
-
-#[test]
-fn the_downsizing_warning_reaches_widths_above_128_bits() {
+fn the_literal_cast_rule_reaches_widths_above_128_bits() {
     // An untyped literal in a cast is a `Field` first, so it must stay below the modulus: only
-    // a field wider than the target width can carry a value the warning is about.
+    // a field wider than the target width can carry a value the target does not hold.
     let field = FieldId::Bn254;
     let two_to_200 = BigInt::one() << 200;
     let src = format!("fn main() {{ let _ = {two_to_200} as u130; }}");
-    let errors = get_stdlib_errors_for_field(&src, field);
+    let errors = get_program_errors_for_field(&src, field);
     assert!(
         errors.iter().any(|error| matches!(
             error,
-            CompilationError::TypeError(TypeCheckError::DownsizingCast { .. })
+            CompilationError::TypeError(TypeCheckError::FieldCastDenied { .. })
         )),
         "{errors:?}"
     );
 
     let two_to_129 = BigInt::one() << 129;
     let src = format!("fn main() {{ let _ = {two_to_129} as u130; }}");
-    let errors = get_stdlib_errors_for_field(&src, field);
+    let errors = get_program_errors_for_field(&src, field);
     assert!(errors.is_empty(), "{errors:?}");
 }
 

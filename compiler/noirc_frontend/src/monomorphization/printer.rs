@@ -36,7 +36,7 @@ pub struct AstPrinter {
     pub show_clone_and_drop: bool,
     pub show_specials_as_std: bool,
     /// Print a cast between `Field` and an integer as the `std::convert::UnsafeFrom` call it
-    /// stands for, which is how user code writes one.
+    /// stands for, which is how Noir source writes one.
     pub show_field_casts_as_std: bool,
     pub show_type_in_let: bool,
     pub show_type_of_int_literal: bool,
@@ -909,8 +909,8 @@ mod tests {
         );
     }
 
-    /// User code may not cast between `Field` and an integer, so source meant to be compiled as
-    /// user code names the conversion the cast stands for.
+    /// Noir source may not cast between `Field` and an integer, so a program printed to be
+    /// compiled names the conversion the cast stands for.
     #[test]
     fn field_casts_print_as_the_standard_library_conversion() {
         let u64_t = Type::Integer(Signedness::Unsigned, 64);

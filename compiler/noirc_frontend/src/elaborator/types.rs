@@ -21,7 +21,7 @@ use crate::{
     },
     elaborator::{PrimitiveType, Turbofish, UnstableFeature, path_resolution::PathResolution},
     hir::{
-        comptime::{Integer, Value, evaluate_cast_one_step},
+        comptime::Integer,
         def_collector::dc_crate::CompilationError,
         def_map::{ModuleDefId, ModuleId, Namespace, fully_qualified_module_path},
         resolution::{
@@ -36,7 +36,7 @@ use crate::{
     },
     hir_def::{
         expr::{
-            HirBinaryOp, HirCallExpression, HirExpression, HirIdent, HirLiteral, HirMemberAccess,
+            HirBinaryOp, HirCallExpression, HirExpression, HirIdent, HirMemberAccess,
             HirMethodReference, HirPrefixExpression, HirTraitMethodReference, ImplKind, TraitItem,
         },
         function::FuncMeta,
@@ -2565,16 +2565,10 @@ impl Elaborator<'_> {
         let to = to.follow_bindings();
         let from_follow_bindings = from.follow_bindings();
 
-        use HirExpression::Literal;
-        let from_value_opt = match self.interner.expression(from_expr_id) {
-            Literal(HirLiteral::Integer(field)) => Some(field),
-            _ => None,
-        };
+        match from_follow_bindings {
+            Type::Integer(..) | Type::FieldElement | Type::Bool => (),
 
-        let from_is_polymorphic = match from_follow_bindings {
-            Type::Integer(..) | Type::FieldElement | Type::Bool => false,
-
-            Type::TypeVariable(ref var) if var.is_integer() || var.is_integer_or_field() => true,
+            Type::TypeVariable(ref var) if var.is_integer() || var.is_integer_or_field() => (),
             Type::TypeVariable(_) => {
                 // NOTE: in reality the expected type can also include bool, but for the compiler's simplicity
                 // we only allow integer types. If a bool is in `from` it will need an explicit type annotation.
@@ -2584,7 +2578,6 @@ impl Elaborator<'_> {
                     location,
                     reason: "casting from a non-integral type is unsupported".into(),
                 });
-                true
             }
             Type::Error => return Type::Error,
             from => {
@@ -2592,47 +2585,6 @@ impl Elaborator<'_> {
                 self.push_err(TypeCheckError::InvalidCast { from, location, reason });
                 return Type::Error;
             }
-        };
-
-        // Outside the standard library a cast of a literal that does not fit its target is an
-        // error, reported with the other casts between `Field` and an integer.
-        let in_stdlib = self.crate_id.is_stdlib();
-
-        // Warn if a user casts to an integer from a negative field literal.
-        // `-1 as i8 == 0`, not `-1` which can be confusing.
-        if let Some(value) = &from_value_opt
-            && in_stdlib
-            && *value < BigInt::ZERO
-            && to.is_integer()
-            && (from_follow_bindings.is_field() || from_follow_bindings.is_bindable())
-            && let Some(from) = FieldValue::try_from_bigint(value, self.interner.field().id())
-            && let Ok(Value::Integer(result)) =
-                evaluate_cast_one_step(self.interner.field(), &to, location, Value::field(from))
-        {
-            self.push_err(TypeCheckError::NegativeLiteralCastToInteger {
-                value: value.clone(),
-                result: result.to_string(),
-                to: to.clone(),
-                location,
-            });
-        }
-
-        // when casting a polymorphic value to a specifically sized type,
-        // check that it fits or throw a warning
-        if let (Some(from_value), Some(to_maximum_size)) =
-            (from_value_opt, to.integral_maximum_size())
-            && in_stdlib
-            && from_is_polymorphic
-            && from_value >= BigInt::ZERO
-            && from_value > to_maximum_size
-        {
-            let from = from.clone();
-            let to = to.clone();
-            let reason = format!(
-                "casting untyped value ({from_value}) to a type with a maximum size ({to_maximum_size}) that's smaller than it"
-            );
-            // we warn that the 'to' type is too small for the value
-            self.push_err(TypeCheckError::DownsizingCast { from, to, location, reason });
         }
 
         if matches!(to, Type::Integer(..) | Type::FieldElement) {

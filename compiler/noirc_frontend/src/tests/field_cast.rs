@@ -9,132 +9,14 @@ use crate::hir::type_check::TypeCheckError;
 use crate::test_utils::stdlib_src;
 use crate::tests::{get_program_errors, get_program_errors_for_field, get_stdlib_errors_for_field};
 
-/// A wrapping conversion written with casts, which only an `UnsafeFrom` impl of the standard
-/// library may hold.
-const UNSAFE_FROM: &str = "
-    pub trait UnsafeFrom<T> {
-        fn unsafe_from(input: T) -> Self;
-    }
-
-    impl<let N: u32> UnsafeFrom<u<N>> for Field {
-        fn unsafe_from(input: u<N>) -> Field {
-            input as Field
-        }
-    }
-
-    impl<let N: u32> UnsafeFrom<i<N>> for Field {
-        fn unsafe_from(input: i<N>) -> Field {
-            input as u::<N> as Field
-        }
-    }
-
-    impl<let N: u32> UnsafeFrom<Field> for u<N> {
-        fn unsafe_from(input: Field) -> u<N> {
-            input as Self
-        }
-    }
-
-    impl<let N: u32> UnsafeFrom<Field> for i<N> {
-        fn unsafe_from(input: Field) -> i<N> {
-            input as Self
-        }
-    }
-";
-
 /// The errors of compiling `src` as the standard library under `field`, warnings left out.
 fn stdlib_errors(src: &str, field: FieldId) -> Vec<CompilationError> {
     let errors = get_stdlib_errors_for_field(src, field);
     errors.into_iter().filter(CompilationError::is_error).collect()
 }
 
-fn exceeds_field(errors: &[CompilationError]) -> bool {
-    errors.iter().any(|error| {
-        matches!(error, CompilationError::TypeError(TypeCheckError::IntegerTypeExceedsField { .. }))
-    })
-}
-
 fn is_denial(error: &CompilationError) -> bool {
     matches!(error, CompilationError::TypeError(TypeCheckError::FieldCastDenied { .. }))
-}
-
-fn signed_to_field(errors: &[CompilationError]) -> bool {
-    errors.iter().any(|error| {
-        matches!(error, CompilationError::TypeError(TypeCheckError::UnsupportedFieldCast { .. }))
-    })
-}
-
-/// A closure's parameter is still a type variable where the cast is written, so the rule is
-/// applied once inference has bound it.
-#[test]
-fn a_cast_source_bound_by_inference_is_checked_by_the_type_checker() {
-    let unsigned = "fn apply<T>(f: fn(T) -> Field, x: T) -> Field { f(x) }
-
-    fn main(x: u32) {
-        let _ = apply(|v| v as Field, x as u64);
-    }";
-    for field in FieldId::ALL {
-        let errors = stdlib_errors(unsigned, field);
-        let fits = FieldConfig::new(field).fits_unsigned(64);
-        assert_eq!(exceeds_field(&errors), !fits, "{field}: {errors:?}");
-        assert_eq!(errors.is_empty(), fits, "{field}: {errors:?}");
-    }
-
-    let signed = "fn apply<T>(f: fn(T) -> Field, x: T) -> Field { f(x) }
-
-    fn main(x: i8) {
-        let _ = apply(|v| v as Field, x);
-    }";
-    let errors = stdlib_errors(signed, FieldId::linked());
-    assert!(signed_to_field(&errors), "{errors:?}");
-}
-
-/// A macro argument is checked in a context of its own, which ends before the variable it casts
-/// is bound.
-#[test]
-fn a_cast_source_bound_after_a_macro_argument_is_still_checked() {
-    let src = "comptime fn quoted(_x: Field) -> Quoted { quote { 0 } }
-
-    comptime fn caller() -> i8 {
-        let x = 3;
-        let _ = quoted!(x as Field);
-        x
-    }
-
-    fn main() {
-        comptime {
-            let _ = caller();
-        }
-    }";
-    let errors = stdlib_errors(src, FieldId::linked());
-    assert!(signed_to_field(&errors), "{errors:?}");
-}
-
-/// Some width of `u<N>` can exceed any modulus, so the cast is refused whatever `N` is bound to.
-/// The one exception is the body of the standard library's `UnsafeFrom` impls.
-#[test]
-fn a_width_generic_cast_to_field_is_refused_outside_unsafe_from() {
-    let helper = "fn to_field<let N: u32>(x: u<N>) -> Field { x as Field }
-
-    fn main(x: u8) {
-        let _ = to_field(x);
-    }";
-    let through_the_trait = format!(
-        "{UNSAFE_FROM}
-        fn main(x: u8) {{
-            let _ = Field::unsafe_from(x);
-        }}"
-    );
-    for field in FieldId::ALL {
-        let errors = stdlib_errors(helper, field);
-        assert!(exceeds_field(&errors), "{field}: {errors:?}");
-
-        let errors = stdlib_errors(&through_the_trait, field);
-        assert!(errors.is_empty(), "{field}: {errors:?}");
-
-        // A trait of that name outside the standard library is user code like any other.
-        let errors = get_program_errors_for_field(&through_the_trait, field);
-        assert!(errors.iter().all(is_denial) && errors.len() == 4, "{field}: {errors:?}");
-    }
 }
 
 /// Into `Field` the conversion reduces modulo the field, and a signed source is read as its bit
@@ -450,14 +332,15 @@ fn a_macro_result_cast_is_denied_in_run_time_and_comptime_code() {
     );
 }
 
+/// No crate may write the cast: the standard library converts through its own builtin.
 #[test]
-fn the_stdlib_may_cast() {
+fn the_standard_library_is_denied_the_cast_too() {
     let src = "fn main(x: u8) {
         let f = x as Field;
         let _ = f as u8;
     }";
     for field in FieldId::ALL {
         let errors = stdlib_errors(src, field);
-        assert!(errors.is_empty(), "{field}: {errors:?}");
+        assert!(errors.iter().all(is_denial) && errors.len() == 2, "{field}: {errors:?}");
     }
 }

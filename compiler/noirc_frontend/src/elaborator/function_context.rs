@@ -1,6 +1,5 @@
 //! Function-local context management for type variables and trait constraints.
 
-use fm::FileId;
 use noirc_errors::Location;
 use num_bigint::BigInt;
 
@@ -19,7 +18,7 @@ use crate::{
         DefinitionKind, ExprId, GlobalValue, ImplSearchErrorKind, TraitImplKind, TraitLookupMode,
         TypeId,
     },
-    shared::{MIN_INTEGER_WIDTH, Signedness},
+    shared::MIN_INTEGER_WIDTH,
 };
 use crate::{TypeVariableId, node_interner::DefinitionId};
 
@@ -62,13 +61,6 @@ struct FieldCast {
     from: Type,
     to: Type,
     location: Location,
-    /// True for a cast the standard library writes itself, the one crate that may write one:
-    /// a cast in its own source, checked as part of it. Code from elsewhere that is only
-    /// type checked inside one of its functions, as `Expr::resolve` can do, is not.
-    in_stdlib: bool,
-    /// True in the body of a standard library `UnsafeFrom` impl, where a cast to `Field`
-    /// reduces modulo the field and so takes a source of any width.
-    reduces: bool,
     /// True when nothing but defaulting gives the source its type.
     defaulted: bool,
 }
@@ -196,27 +188,8 @@ impl Elaborator<'_> {
         to: Type,
         location: Location,
     ) {
-        let in_stdlib = self.crate_id.is_stdlib() && self.is_stdlib_file(location.file);
-        let reduces = self.in_unsafe_from_impl();
-        let cast = FieldCast { lhs, from, to, location, in_stdlib, reduces, defaulted: false };
+        let cast = FieldCast { lhs, from, to, location, defaulted: false };
         self.get_function_context_mut().field_casts.push(cast);
-    }
-
-    /// Whether `file` is one of the standard library's own source files.
-    fn is_stdlib_file(&self, file: FileId) -> bool {
-        self.def_maps.iter().any(|(crate_id, def_map)| {
-            crate_id.is_stdlib()
-                && def_map.modules().iter().any(|(_, module)| module.location.file == file)
-        })
-    }
-
-    /// Whether the body being elaborated belongs to a standard library `UnsafeFrom` impl.
-    fn in_unsafe_from_impl(&self) -> bool {
-        self.crate_id.is_stdlib()
-            && self.current_trait_impl.is_some_and(|trait_impl| {
-                let trait_id = self.interner.get_trait_implementation(trait_impl).borrow().trait_id;
-                self.interner.get_trait(trait_id).name.as_str() == "UnsafeFrom"
-            })
     }
 
     pub(super) fn integer_literal_expr_ids_len(&mut self) -> usize {
@@ -348,39 +321,22 @@ impl Elaborator<'_> {
         }
     }
 
-    /// The error of writing `cast` from a value of type `from`, if it may not be written.
+    /// The error of writing `cast` from a value of type `from`, if it crosses between `Field`
+    /// and an integer. A value crosses through `From`, `TryFrom` or `UnsafeFrom`, which say what
+    /// happens to one that does not fit. A literal that fits is the same number under every
+    /// field.
     fn field_cast_error(&self, cast: &FieldCast, from: Type) -> Option<TypeCheckError> {
-        let location = cast.location;
         let to_field = matches!(cast.to, Type::FieldElement);
-        if !cast.in_stdlib {
-            // Outside the standard library a value crosses between `Field` and an integer
-            // through `UnsafeFrom` or `TryFrom`, which say what happens to one that does not
-            // fit. A literal that fits is the same number under every field.
-            let crosses = match from {
-                Type::Integer(..) => to_field,
-                Type::FieldElement => !to_field && !self.is_literal_that_fits(cast),
-                _ => false,
-            };
-            crosses.then(|| {
-                let to = cast.to.clone();
-                let suggestion = self.field_cast_suggestion(cast, &from);
-                TypeCheckError::FieldCastDenied { from, to, suggestion, location }
-            })
-        } else if !to_field {
-            None
-        } else if from.is_signed() {
-            Some(TypeCheckError::UnsupportedFieldCast { location })
-        } else if let Type::Integer(Signedness::Unsigned, width) = &from
-            && !cast.reduces
-            && !width.constant_width().is_some_and(|bits| self.interner.field().fits_unsigned(bits))
-        {
-            // `Field` reduces a cast only in `UnsafeFrom`, so elsewhere only a type whose every
-            // value lies below the modulus may be cast to it. A width that names a generic can
-            // be bound to one that does not.
-            Some(TypeCheckError::IntegerTypeExceedsField { typ: from, location })
-        } else {
-            None
-        }
+        let crosses = match from {
+            Type::Integer(..) => to_field,
+            Type::FieldElement => !to_field && !self.is_literal_that_fits(cast),
+            _ => false,
+        };
+        crosses.then(|| {
+            let to = cast.to.clone();
+            let suggestion = self.field_cast_suggestion(cast, &from);
+            TypeCheckError::FieldCastDenied { from, to, suggestion, location: cast.location }
+        })
     }
 
     /// The value of the integer literal `cast` is written on, if it is one.

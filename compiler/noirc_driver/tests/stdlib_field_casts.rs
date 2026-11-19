@@ -9,36 +9,50 @@ use noirc_frontend::hir::def_map::{CrateDefMap, parse_file};
 use noirc_frontend::hir::type_check::TypeCheckError;
 use noirc_frontend::monomorphization::monomorphize;
 
-/// Every stdlib cast to `Field` outside `UnsafeFrom`, where it reduces, starts from a type whose values all lie below the modulus of the field the compiler is built for; an impl that casts a wider type is gated to the fields where that type fits.
+/// The standard library writes no cast between `Field` and an integer, under any field and
+/// whichever halves of its gated items are compiled: it converts as every other crate does.
 #[test]
-fn stdlib_never_casts_a_wide_integer_to_field() {
-    let root = Path::new("");
-    let file_name = Path::new("main.nr");
-    let mut file_manager = file_manager_with_stdlib(root);
-    file_manager.add_file_with_source(file_name, "fn main() {}".to_owned()).unwrap();
-    let parsed_files = file_manager
-        .as_file_map()
-        .all_file_ids()
-        .map(|&file_id| (file_id, parse_file(&file_manager, file_id)))
-        .collect();
+fn stdlib_never_casts_between_field_and_an_integer() {
+    for field in FieldId::ALL {
+        for generic_builtins in [false, true] {
+            let root = Path::new("");
+            let file_name = Path::new("main.nr");
+            let mut file_manager = file_manager_with_stdlib(root);
+            file_manager.add_file_with_source(file_name, "fn main() {}".to_owned()).unwrap();
+            let parsed_files = file_manager
+                .as_file_map()
+                .all_file_ids()
+                .map(|&file_id| (file_id, parse_file(&file_manager, file_id)))
+                .collect();
 
-    let mut context = Context::new(file_manager, parsed_files);
-    let crate_id = prepare_crate(&mut context, file_name);
-    let errors = CrateDefMap::collect_defs(crate_id, &mut context, FrontendOptions::test_default());
+            let mut context = Context::new(file_manager, parsed_files);
+            let crate_id = prepare_crate(&mut context, file_name);
+            let options = FrontendOptions {
+                field: FieldConfig::new(field),
+                generic_builtins,
+                ..FrontendOptions::test_default()
+            };
+            let errors = CrateDefMap::collect_defs(crate_id, &mut context, options);
 
-    let offenders: Vec<_> = errors
-        .iter()
-        .filter_map(|error| match error {
-            CompilationError::TypeError(
-                inner @ TypeCheckError::IntegerTypeExceedsField { location, .. },
-            ) => {
-                let path = context.file_manager.path(location.file).unwrap().display();
-                Some(format!("{path} @ {}: {inner}", location.span.start()))
-            }
-            _ => None,
-        })
-        .collect();
-    assert!(offenders.is_empty(), "{}", offenders.join("\n"));
+            let offenders: Vec<_> = errors
+                .iter()
+                .filter_map(|error| match error {
+                    CompilationError::TypeError(
+                        inner @ TypeCheckError::FieldCastDenied { location, .. },
+                    ) => {
+                        let path = context.file_manager.path(location.file).unwrap().display();
+                        Some(format!("{path} @ {}: {inner}", location.span.start()))
+                    }
+                    _ => None,
+                })
+                .collect();
+            assert!(
+                offenders.is_empty(),
+                "{field}, generic_builtins = {generic_builtins}:\n{}",
+                offenders.join("\n")
+            );
+        }
+    }
 }
 
 /// Compiles `source` against the stdlib and returns the error messages.

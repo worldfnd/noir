@@ -78,8 +78,7 @@ pub(crate) fn get_program_errors_for_field(src: &str, field: FieldId) -> Vec<Com
     get_program_with_options(src, GetProgramOptions::for_field(field)).2
 }
 
-/// The errors of compiling `src` as the standard library, the one crate that may cast between
-/// `Field` and an integer, under `field`.
+/// The errors of compiling `src` as the standard library under `field`.
 pub(crate) fn get_stdlib_errors_for_field(src: &str, field: FieldId) -> Vec<CompilationError> {
     let options =
         GetProgramOptions { root_and_stdlib: true, ..GetProgramOptions::for_field(field) };

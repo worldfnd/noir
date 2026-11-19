@@ -465,7 +465,7 @@ fn the_denial_of_a_cast_into_field_suggests_from_where_every_value_fits() {
 }
 
 /// `Expr::resolve` type checks a quoted expression inside whatever function it is given. A cast
-/// written in user code is still user code when that function is the standard library's.
+/// is denied wherever it is resolved, a standard library function included.
 #[test]
 fn a_cast_resolved_inside_the_stdlib_is_denied_where_it_is_spliced() {
     let source = "
@@ -484,7 +484,7 @@ fn a_cast_resolved_inside_the_stdlib_is_denied_where_it_is_spliced() {
             let _: Field = launder!();
         }
     ";
-    // Resolved in the function that splices it, the cast is user code throughout.
+    // The same cast resolved in the function that splices it.
     let in_place = source.replace("Option::some(inside)", "Option::none()");
     for field in FieldId::ALL {
         for source in [source, in_place.as_str()] {

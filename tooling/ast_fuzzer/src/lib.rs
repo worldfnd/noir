@@ -83,7 +83,7 @@ pub struct Config {
     pub avoid_match: bool,
     /// Avoid using the vector type.
     pub avoid_vectors: bool,
-    /// Avoid casts between `Field` and an integer, which the frontend refuses in user code.
+    /// Avoid casts between `Field` and an integer, which the frontend refuses.
     pub avoid_field_casts: bool,
     /// Only use comptime friendly expressions.
     pub comptime_friendly: bool,
