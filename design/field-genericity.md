@@ -68,7 +68,7 @@ The two measures disagree in two of those cells: through `Field`, `wrapping_mul`
 
 `integer_wrapping_arithmetic_names_field_only_where_it_is_cheaper` in [`stdlib_elaboration`](../compiler/noirc_driver/tests/stdlib_elaboration.rs) pins which operations name `Field` in the monomorphized program under each field, and `goldilocks_stdlib_fallbacks_preserve_values` checks the integer definitions at the corners of every width.
 
-`Hash` for `u64`, `u128` and `i64` in [`hash`](../noir_stdlib/src/hash/mod.nr) writes the value as one field element under bn254 (5 opcodes) and as 32-bit limbs elsewhere (14, 34 and 14 on bn254), since a `Hasher` takes field elements.
+`Hash` for `u64`, `u128` and `i64` in [`hash`](../noir_stdlib/src/hash/mod.nr) writes the value as one field element under bn254 and as 32-bit limbs elsewhere, since a `Hasher` takes field elements. Under bn254 the one element is the cheaper of the two by both measures: a program that hashes a `u64` into a hasher that mixes linearly takes 163 R1CS rows against 187 with limbs (179 against 562 for a `u128`), and the `Hash` call takes 5 ACIR opcodes against 14, 34 and 14 for `u64`, `u128` and `i64`.
 
 `Ordering` in [`cmp`](../noir_stdlib/src/cmp.nr) holds its three states as a `u8`, so comparing integers through `Ord` names no `Field` (`ordering_holds_no_field` in `stdlib_elaboration`). The compiler reads that value where it lowers `<`, `<=`, `>` and `>=` on a type with an `Ord` impl, in the monomorphizer and in the comptime interpreter's `evaluate_ordering`, and both compare it as a `u8`. A program that compares through `Ord` takes the same number of ACIR and Brillig opcodes on bn254 as it did when the value was a `Field`.
 
