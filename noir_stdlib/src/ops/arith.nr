@@ -141,7 +141,7 @@ pub trait WrappingAdd {
 
 // The operation is done in the type twice as wide and cut back. `u8` and `u16` do so under every
 // field, since every field holds a `u32`. `u32` and `u64` do so under bn254 only: elsewhere the
-// wider type can reach the modulus, so they wrap inside their own type.
+// wider type can reach the modulus, so `u32` goes through `Field` and `u64` wraps inside its type.
 impl WrappingAdd for u8 {
     fn wrapping_add(self: u8, y: u8) -> u8 {
         ((self as u16) + (y as u16)) as u8
@@ -164,7 +164,7 @@ impl WrappingAdd for u32 {
 #[field(not(bn254))]
 impl WrappingAdd for u32 {
     fn wrapping_add(self: u32, y: u32) -> u32 {
-        wrapping_add_int(self, y)
+        through_field::wrapping_add32(self, y)
     }
 }
 
@@ -250,7 +250,7 @@ impl WrappingSub for u32 {
 #[field(not(bn254))]
 impl WrappingSub for u32 {
     fn wrapping_sub(self: u32, y: u32) -> u32 {
-        wrapping_sub_int(self, y)
+        through_field::wrapping_sub32(self, y)
     }
 }
 
@@ -344,7 +344,7 @@ impl WrappingMul for u32 {
 #[field(not(bn254))]
 impl WrappingMul for u32 {
     fn wrapping_mul(self: u32, y: u32) -> u32 {
-        wrapping_mul_int(self, y, 0x10000)
+        through_field::wrapping_mul32(self, y)
     }
 }
 
@@ -400,7 +400,7 @@ impl WrappingMul for u128 {
 #[field(not(bn254))]
 impl WrappingMul for u128 {
     fn wrapping_mul(self: u128, y: u128) -> u128 {
-        wrapping_mul_int(self, y, two_pow_64)
+        wrapping_mul128_int(self, y)
     }
 }
 
@@ -433,20 +433,41 @@ fn wrapping_sub_int<let N: u32>(x: u<N>, y: u<N>) -> u<N> {
 
 global two_pow_64: u128 = 0x10000000000000000;
 
-/// Multiplies modulo `2^N` using limbs of half the width, so that no product leaves the type.
-/// `half` must be `2^(N/2)`.
+/// Multiplies modulo `2^128` using 64-bit limbs.
 #[field(not(bn254))]
-fn wrapping_mul_int<let N: u32>(x: u<N>, y: u<N>, half: u<N>) -> u<N> {
-    let x_lo = x % half;
-    let x_hi = x / half;
-    let y_lo = y % half;
-    let y_hi = y / half;
+fn wrapping_mul128_int(x: u128, y: u128) -> u128 {
+    let x_lo = x % two_pow_64;
+    let x_hi = x / two_pow_64;
+    let y_lo = y % two_pow_64;
+    let y_hi = y / two_pow_64;
 
     let low = x_lo * y_lo;
-    // Discard cross-product high limbs; the remaining sum fits in the type.
-    let high = (x_lo * y_hi) % half + (x_hi * y_lo) % half + low / half;
+    // Discard cross-product high limbs; the remaining sum fits in u128.
+    let high = (x_lo * y_hi) % two_pow_64 + (x_hi * y_lo) % two_pow_64 + low / two_pow_64;
 
-    low % half + (high % half) * half
+    low % two_pow_64 + (high % two_pow_64) * two_pow_64
+}
+
+/// `u32` arithmetic through `Field`, for the fields other than bn254. Their modulus holds the sum
+/// and the product of two `u32`, which makes this cheaper than integer code that stays inside
+/// the type.
+#[field(not(bn254))]
+mod through_field {
+    use crate::convert::{From, UnsafeFrom};
+
+    pub(crate) fn wrapping_add32(x: u32, y: u32) -> u32 {
+        u32::unsafe_from(Field::from(x) + Field::from(y))
+    }
+
+    pub(crate) fn wrapping_sub32(x: u32, y: u32) -> u32 {
+        // `2^32` keeps the difference from wrapping around the field without changing its low
+        // 32 bits.
+        u32::unsafe_from(Field::from(x) + 0x100000000 - Field::from(y))
+    }
+
+    pub(crate) fn wrapping_mul32(x: u32, y: u32) -> u32 {
+        u32::unsafe_from(Field::from(x) * Field::from(y))
+    }
 }
 
 /// The wrapping operations that take fewer constraints through `Field` arithmetic than as integer

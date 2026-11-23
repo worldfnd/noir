@@ -203,11 +203,12 @@ fn monomorphized(source: &str, field: FieldId) -> String {
     monomorphize(main, &mut context.def_interner, files, false).unwrap().to_string()
 }
 
-/// Wrapping arithmetic on integers is integer code under every field. It goes through `Field`
-/// only in the bn254 halves that take fewer ACIR opcodes than the integer code does.
+/// Wrapping arithmetic names `Field` only where that is the cheaper way to do it: three bn254
+/// halves, and `u32` under the other fields, whose modulus holds the sum and the product of two
+/// `u32` while the type twice as wide does not fit it. Everything else is integer code.
 #[test]
-fn integer_wrapping_arithmetic_uses_field_only_in_the_cheaper_bn254_halves() {
-    let field_halves = [("Sub", 128), ("Mul", 64), ("Mul", 128)];
+fn integer_wrapping_arithmetic_names_field_only_where_it_is_cheaper() {
+    let bn254_halves = [("Sub", 128), ("Mul", 64), ("Mul", 128)];
     for field in FieldId::ALL {
         for op in ["Add", "Sub", "Mul"] {
             for bits in [8, 16, 32, 64, 128] {
@@ -217,7 +218,11 @@ fn integer_wrapping_arithmetic_uses_field_only_in_the_cheaper_bn254_halves() {
                     fn main(x: u{bits}, y: u{bits}) -> pub u{bits} {{ x.wrapping_{method}(y) }}"
                 );
                 let program = monomorphized(&source, field);
-                let expected = field == FieldId::Bn254 && field_halves.contains(&(op, bits));
+                let expected = if field == FieldId::Bn254 {
+                    bn254_halves.contains(&(op, bits))
+                } else {
+                    bits == 32
+                };
                 assert_eq!(
                     program.contains("Field"),
                     expected,
@@ -226,6 +231,28 @@ fn integer_wrapping_arithmetic_uses_field_only_in_the_cheaper_bn254_halves() {
             }
         }
     }
+}
+
+/// The limb multiplication of a `u128` divides by a constant. A divisor passed in as an argument
+/// is a variable to a backend that does not specialise the callee, and costs it far more.
+#[test]
+fn wrapping_u128_multiplication_divides_by_a_constant() {
+    let source = "use std::ops::WrappingMul;
+        fn main(x: u128, y: u128) -> pub u128 { x.wrapping_mul(y) }";
+    let program = monomorphized(source, FieldId::Goldilocks);
+    // A local is printed as `name$l<id>`, a global as `name$g<id>`.
+    let by_a_local = program
+        .lines()
+        .filter(|line| {
+            line.split(" / ").chain(line.split(" % ")).skip(1).any(|divisor| {
+                divisor
+                    .split(|c: char| !c.is_alphanumeric() && c != '_' && c != '$')
+                    .next()
+                    .is_some_and(|name| name.contains("$l"))
+            })
+        })
+        .collect::<Vec<_>>();
+    assert!(by_a_local.is_empty(), "{by_a_local:?}\n{program}");
 }
 
 /// An `Ordering` is one of three small integers, so comparing integers through `Ord` involves
