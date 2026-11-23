@@ -116,7 +116,7 @@ fn stdlib_conversions_between_field_and_integers_are_casts() {
     use std::convert::UnsafeFrom;
 
     fn main(x: u32, y: i8) -> pub u8 {
-        let sum = Field::unsafe_from(x) + Field::unsafe_from(y);
+        let sum = Field::unsafe_from(x) + Field::unsafe_from(y) + Field::from(x);
         u8::unsafe_from(sum)
     }";
     let root = Path::new("");
@@ -137,8 +137,11 @@ fn stdlib_conversions_between_field_and_integers_are_casts() {
 
     insta::assert_snapshot!(program, @r"
     fn main$f0(x$l0: u32, y$l1: i8) -> pub u8 {
-        let sum$l2 = ((x$l0 as Field) + ((y$l1 as u8) as Field));
+        let sum$l2 = (((x$l0 as Field) + ((y$l1 as u8) as Field)) + from$f1(x$l0));
         (sum$l2 as u8)
+    }
+    fn from$f1(value$l3: u32) -> Field {
+        (value$l3 as Field)
     }
     ");
 }
