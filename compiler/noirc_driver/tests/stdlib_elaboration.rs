@@ -251,7 +251,7 @@ fn wrapping_arithmetic_on_u64_widens_under_every_field() {
 }
 
 /// The limb multiplication of a `u128` divides by a constant. A divisor passed in as an argument
-/// is a variable to a backend that does not specialise the callee, and costs it far more.
+/// is a variable to a backend that does not specialize the callee, and costs it far more.
 #[test]
 fn wrapping_u128_multiplication_divides_by_a_constant() {
     let source = "use std::ops::WrappingMul;
