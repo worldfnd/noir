@@ -140,8 +140,9 @@ pub trait WrappingAdd {
 // docs:end:wrapping-add-trait
 
 // The operation is done in the type twice as wide and cut back. `u8` and `u16` do so under every
-// field, since every field holds a `u32`. `u32` and `u64` do so under bn254 only: elsewhere the
-// wider type can reach the modulus, so `u32` goes through `Field` and `u64` wraps inside its type.
+// field, since every field holds a `u32`. So does `u64`: a field whose modulus a `u128` can reach
+// is one a `u64` reaches already. `u32` does so under bn254 only: elsewhere `u64` can reach the
+// modulus and `u32` cannot, so it goes through `Field`.
 impl WrappingAdd for u8 {
     fn wrapping_add(self: u8, y: u8) -> u8 {
         ((self as u16) + (y as u16)) as u8
@@ -168,17 +169,9 @@ impl WrappingAdd for u32 {
     }
 }
 
-#[field(bn254)]
 impl WrappingAdd for u64 {
     fn wrapping_add(self: u64, y: u64) -> u64 {
         ((self as u128) + (y as u128)) as u64
-    }
-}
-
-#[field(not(bn254))]
-impl WrappingAdd for u64 {
-    fn wrapping_add(self: u64, y: u64) -> u64 {
-        wrapping_add_int(self, y)
     }
 }
 
@@ -254,28 +247,12 @@ impl WrappingSub for u32 {
     }
 }
 
-#[field(bn254)]
 impl WrappingSub for u64 {
     fn wrapping_sub(self: u64, y: u64) -> u64 {
         ((self as u128) + (0x10000000000000000 - (y as u128))) as u64
     }
 }
 
-#[field(not(bn254))]
-impl WrappingSub for u64 {
-    fn wrapping_sub(self: u64, y: u64) -> u64 {
-        wrapping_sub_int(self, y)
-    }
-}
-
-#[field(bn254)]
-impl WrappingSub for u128 {
-    fn wrapping_sub(self: u128, y: u128) -> u128 {
-        bn254::wrapping_sub128(self, y)
-    }
-}
-
-#[field(not(bn254))]
 impl WrappingSub for u128 {
     fn wrapping_sub(self: u128, y: u128) -> u128 {
         wrapping_sub_int(self, y)
@@ -348,14 +325,6 @@ impl WrappingMul for u32 {
     }
 }
 
-#[field(bn254)]
-impl WrappingMul for u64 {
-    fn wrapping_mul(self: u64, y: u64) -> u64 {
-        bn254::wrapping_mul64(self, y)
-    }
-}
-
-#[field(not(bn254))]
 impl WrappingMul for u64 {
     fn wrapping_mul(self: u64, y: u64) -> u64 {
         ((self as u128) * (y as u128)) as u64
@@ -420,7 +389,6 @@ fn wrapping_add_int<let N: u32>(x: u<N>, y: u<N>) -> u<N> {
     }
 }
 
-#[field(not(bn254))]
 fn wrapping_sub_int<let N: u32>(x: u<N>, y: u<N>) -> u<N> {
     let max: u<N> = !0;
     if x >= y {
@@ -470,23 +438,12 @@ mod through_field {
     }
 }
 
-/// The wrapping operations that take fewer constraints through `Field` arithmetic than as integer
-/// code. Every `u64` and `u128` lies below the bn254 modulus.
+/// `u128` multiplication through `Field` arithmetic, which takes fewer constraints than the
+/// integer limb multiplication. Every `u64` and `u128` lies below the bn254 modulus.
 #[field(bn254)]
 mod bn254 {
     use crate::convert::{From, UnsafeFrom};
     use crate::ops::arith::two_pow_64;
-
-    pub(crate) fn wrapping_sub128(x: u128, y: u128) -> u128 {
-        // `2^128` keeps the difference from wrapping around the field without changing its low
-        // 128 bits.
-        let bias = 0x100000000000000000000000000000000;
-        u128::unsafe_from(Field::from(x) + bias - Field::from(y))
-    }
-
-    pub(crate) fn wrapping_mul64(x: u64, y: u64) -> u64 {
-        u64::unsafe_from(Field::from(x) * Field::from(y))
-    }
 
     /// Splits a 128 bits number into two 64 bits limbs
     pub(crate) unconstrained fn split64(x: u128) -> (u64, u64) {

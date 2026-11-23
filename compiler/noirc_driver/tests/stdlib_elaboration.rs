@@ -203,12 +203,13 @@ fn monomorphized(source: &str, field: FieldId) -> String {
     monomorphize(main, &mut context.def_interner, files, false).unwrap().to_string()
 }
 
-/// Wrapping arithmetic names `Field` only where that is the cheaper way to do it: three bn254
-/// halves, and `u32` under the other fields, whose modulus holds the sum and the product of two
-/// `u32` while the type twice as wide does not fit it. Everything else is integer code.
+/// Wrapping arithmetic names `Field` only where that takes the fewest R1CS rows: `u128`
+/// multiplication under bn254, and `u32` under the other fields, whose modulus holds the sum and
+/// the product of two `u32` while the type twice as wide does not fit it. Everything else is
+/// integer code.
 #[test]
 fn integer_wrapping_arithmetic_names_field_only_where_it_is_cheaper() {
-    let bn254_halves = [("Sub", 128), ("Mul", 64), ("Mul", 128)];
+    let bn254_halves = [("Mul", 128)];
     for field in FieldId::ALL {
         for op in ["Add", "Sub", "Mul"] {
             for bits in [8, 16, 32, 64, 128] {
@@ -229,6 +230,22 @@ fn integer_wrapping_arithmetic_names_field_only_where_it_is_cheaper() {
                     "{field}: wrapping_{method} on u{bits}\n{program}"
                 );
             }
+        }
+    }
+}
+
+/// A `u64` wraps in `u128` under every field: a field whose modulus a `u128` can reach is one a
+/// `u64` reaches already, so the wider type crosses no modulus the operands had not crossed.
+#[test]
+fn wrapping_arithmetic_on_u64_widens_under_every_field() {
+    for field in FieldId::ALL {
+        for method in ["add", "sub", "mul"] {
+            let source = format!(
+                "use std::ops::{{WrappingAdd, WrappingMul, WrappingSub}};
+                fn main(x: u64, y: u64) -> pub u64 {{ x.wrapping_{method}(y) }}"
+            );
+            let program = monomorphized(&source, field);
+            assert!(program.contains("as u128"), "{field}: wrapping_{method}\n{program}");
         }
     }
 }

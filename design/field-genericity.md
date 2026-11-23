@@ -38,31 +38,33 @@ Inherent and trait impls directly naming an excluded local struct or enum are sk
 
 # Integer code first
 
-Standard library code on integers is integer code under every field. A definition written for bn254 is kept beside it only where it takes strictly fewer ACIR opcodes on bn254, measured with `nargo info` on a program that is one call (`--generic-builtins` gives the other half's count from the same binary), and it goes through `Field` only where that is what makes it cheaper.
+Standard library code on integers is integer code under every field. A definition that goes through `Field` is kept only where it takes strictly fewer R1CS rows through Mavros, the backend this fork compiles for, measured on a program that is one call. ACIR opcode counts from `nargo info` are recorded beside the rows; where the two measures disagree, the rows decide.
 
-Wrapping arithmetic in [`arith`](../noir_stdlib/src/ops/arith.nr) follows from that. An operation on `u8` or `u16` is done in the type twice as wide and cut back, with no gate, since every field holds a `u32`. `u32` and `u64` do the same under bn254, which holds the wider type; elsewhere the wider type can reach the modulus, which the linked backend refuses. There `u32` goes through `Field` (the `through_field` module of `arith`): the other fields' moduli hold the sum and the product of two `u32`, and under a 64-bit field that costs a backend less than integer code that stays inside the type. `u64` stays inside its type, where addition and subtraction avoid overflow through a comparison and multiplication is done in `u128`. `u128` has no wider type the backend lowers: addition is the comparison form under every field, and subtraction and multiplication keep a bn254 half beside the integer one, whose multiplication combines 64-bit limbs and divides by a constant (`wrapping_u128_multiplication_divides_by_a_constant`: a divisor handed in as an argument is a variable to a backend that does not specialise the callee). The halves that go through `Field` are `WrappingSub for u128`, `WrappingMul for u64` and `WrappingMul for u128`, in the `bn254` module of `arith`, which is the only part of the file that names the conversions. Measured ACIR opcodes on bn254, the kept definition first and its integer twin after it where there is one:
+Wrapping arithmetic in [`arith`](../noir_stdlib/src/ops/arith.nr) follows from that. An operation on `u8` or `u16` is done in the type twice as wide and cut back, with no gate, since every field holds a `u32`. `u64` is done in `u128` under every field as well: a field whose modulus a `u128` can reach is one a `u64` reaches already, so the wider type crosses no modulus the operands had not crossed (`wrapping_arithmetic_on_u64_widens_under_every_field`). `u32` is done in `u64` under bn254 only. Elsewhere `u64` can reach the modulus and `u32` cannot, and the linked backend refuses a type that reaches it, so there `u32` goes through `Field` (the `through_field` module of `arith`): the other fields' moduli hold the sum and the product of two `u32`. `u128` has no wider type the backend lowers. Its addition and subtraction avoid overflow through a comparison under every field. Its multiplication combines 64-bit limbs and divides by a constant (`wrapping_u128_multiplication_divides_by_a_constant`: a divisor handed in as an argument is a variable to a backend that does not specialise the callee), and under bn254 it is done on the limbs as field elements instead, in the `bn254` module of `arith`. That module and `through_field` are the only parts of the file that name the conversions.
 
-| | `u8` | `u16` | `u32` | `u64` | `u128` |
-|---|---|---|---|---|---|
-| `wrapping_add` | 7 | 7 | 7 / 13 | 7 / 13 | 15 |
-| `wrapping_sub` | 9 | 9 | 9 / 15 | 9 / 15 | 16 / 17 |
-| `wrapping_mul` | 7 | 7 | 7 / 49 | 14 / 16 | 46 / 68 |
-
-Run through Mavros, one call takes these R1CS rows, the definitions before this rule first:
+R1CS rows of one call through Mavros, the definition in use first and the cheapest other definition after it. The others are the same operation through `Field`, in the type twice as wide, as a comparison inside the type, or on limbs:
 
 | bn254 | `u8` | `u16` | `u32` | `u64` | `u128` |
 |---|---|---|---|---|---|
-| `wrapping_add` | 151 → 23 | 155 → 35 | 163 → 51 | 179 → 83 | 211 → 202 |
-| `wrapping_sub` | 151 → 23 | 155 → 35 | 163 → 51 | 179 → 83 | 211 |
-| `wrapping_mul` | 152 → 24 | 156 → 36 | 164 → 52 | 180 | 425 |
+| `wrapping_add` | 23 / 36 | 35 / 48 | 51 / 72 | 83 / 120 | 202 / 211 |
+| `wrapping_sub` | 23 / 37 | 35 / 49 | 51 / 73 | 83 / 121 | 203 / 211 |
+| `wrapping_mul` | 24 / 44 | 36 / 65 | 52 / 107 | 84 / 180 | 425 / 638 |
 
 | Goldilocks | `u8` | `u16` | `u32` | `u64` | `u128` |
 |---|---|---|---|---|---|
-| `wrapping_add` | 161 → 65 | 173 → 93 | 197 | 432 | 820 |
-| `wrapping_sub` | 161 → 65 | 173 → 93 | 197 | 439 | 835 |
-| `wrapping_mul` | 162 → 66 | 174 → 94 | 198 | 356 | 1925 |
+| `wrapping_add` | 65 / 94 | 93 / 130 | 197 / 201 | 254 / 432 | 820 |
+| `wrapping_sub` | 65 / 95 | 93 / 131 | 197 / 203 | 357 / 439 | 835 |
+| `wrapping_mul` | 66 / 120 | 94 / 174 | 198 / 240 | 356 / 996 | 1925 |
 
-A conversion out of `Field` is what costs Mavros the most (it decomposes the element), which is why the wider type wins under bn254 and why `u32` under a 64-bit field does not lose by going through `Field`. The two measures disagree in two bn254 cells, where the kept half follows ACIR: `wrapping_mul` on `u64` would take 84 rows in `u128` against 180, and `wrapping_sub` on `u128` 203 as a comparison against 211. Under Goldilocks `u64` addition and subtraction would take 254 and 357 rows in `u128` against 432 and 439.
+A conversion out of `Field` is what costs Mavros the most (it decomposes the element), which is why the type twice as wide beats `Field` in every cell but `u32` outside bn254, where the wider type is itself as wide as the modulus. ACIR opcodes of the definitions in use, on bn254:
+
+| | `u8` | `u16` | `u32` | `u64` | `u128` |
+|---|---|---|---|---|---|
+| `wrapping_add` | 7 | 7 | 7 | 7 | 15 |
+| `wrapping_sub` | 9 | 9 | 9 | 9 | 17 |
+| `wrapping_mul` | 7 | 7 | 7 | 16 | 46 |
+
+The two measures disagree in two of those cells: through `Field`, `wrapping_mul` on `u64` takes 14 opcodes and 180 rows, and `wrapping_sub` on `u128` takes 16 opcodes and 211 rows.
 
 `integer_wrapping_arithmetic_names_field_only_where_it_is_cheaper` in [`stdlib_elaboration`](../compiler/noirc_driver/tests/stdlib_elaboration.rs) pins which operations name `Field` in the monomorphized program under each field, and `goldilocks_stdlib_fallbacks_preserve_values` checks the integer definitions at the corners of every width.
 
