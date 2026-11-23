@@ -93,35 +93,30 @@ impl From<u64> for u128 {
 }
 
 impl From<u8> for Field {
-    fn from(value: u8) -> Field {
-        Field::unsafe_from(value)
-    }
+    #[builtin(field_cast)]
+    fn from(value: u8) -> Field {}
 }
 
 impl From<u16> for Field {
-    fn from(value: u16) -> Field {
-        Field::unsafe_from(value)
-    }
+    #[builtin(field_cast)]
+    fn from(value: u16) -> Field {}
 }
 
 impl From<u32> for Field {
-    fn from(value: u32) -> Field {
-        Field::unsafe_from(value)
-    }
+    #[builtin(field_cast)]
+    fn from(value: u32) -> Field {}
 }
 // These conversions require every source value to fit in the field.
 #[field(not(goldilocks))]
 impl From<u64> for Field {
-    fn from(value: u64) -> Field {
-        Field::unsafe_from(value)
-    }
+    #[builtin(field_cast)]
+    fn from(value: u64) -> Field {}
 }
 
 #[field(not(goldilocks))]
 impl From<u128> for Field {
-    fn from(value: u128) -> Field {
-        Field::unsafe_from(value)
-    }
+    #[builtin(field_cast)]
+    fn from(value: u128) -> Field {}
 }
 
 // Signed integers

@@ -83,8 +83,8 @@ fn compile_errors_with(source: &str, options: FrontendOptions) -> Vec<String> {
 }
 
 /// The stdlib's lossless conversions from an unsigned integer into `Field` exist exactly for the
-/// types whose values all lie below the modulus, under every field. They are written with the
-/// wrapping conversion, so this is what keeps one from reducing a value.
+/// types whose values all lie below the modulus, under every field. They are the same builtin as
+/// the wrapping conversion, so this is what keeps one from reducing a value.
 #[test]
 fn stdlib_conversions_into_field_follow_the_field_width() {
     for field in FieldId::ALL {
@@ -137,11 +137,8 @@ fn stdlib_conversions_between_field_and_integers_are_casts() {
 
     insta::assert_snapshot!(program, @r"
     fn main$f0(x$l0: u32, y$l1: i8) -> pub u8 {
-        let sum$l2 = (((x$l0 as Field) + ((y$l1 as u8) as Field)) + from$f1(x$l0));
+        let sum$l2 = (((x$l0 as Field) + ((y$l1 as u8) as Field)) + (x$l0 as Field));
         (sum$l2 as u8)
-    }
-    fn from$f1(value$l3: u32) -> Field {
-        (value$l3 as Field)
     }
     ");
 }
