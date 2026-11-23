@@ -48,6 +48,22 @@ Wrapping arithmetic in [`arith`](../noir_stdlib/src/ops/arith.nr) follows from t
 | `wrapping_sub` | 9 | 9 | 9 / 15 | 9 / 15 | 16 / 17 |
 | `wrapping_mul` | 7 | 7 | 7 / 49 | 14 / 16 | 46 / 68 |
 
+Run through Mavros, one call takes these R1CS rows, the definitions before this rule first:
+
+| bn254 | `u8` | `u16` | `u32` | `u64` | `u128` |
+|---|---|---|---|---|---|
+| `wrapping_add` | 151 → 23 | 155 → 35 | 163 → 51 | 179 → 83 | 211 → 202 |
+| `wrapping_sub` | 151 → 23 | 155 → 35 | 163 → 51 | 179 → 83 | 211 |
+| `wrapping_mul` | 152 → 24 | 156 → 36 | 164 → 52 | 180 | 425 |
+
+| Goldilocks | `u8` | `u16` | `u32` | `u64` | `u128` |
+|---|---|---|---|---|---|
+| `wrapping_add` | 161 → 65 | 173 → 93 | 197 | 432 | 820 |
+| `wrapping_sub` | 161 → 65 | 173 → 93 | 197 | 439 | 835 |
+| `wrapping_mul` | 162 → 66 | 174 → 94 | 198 | 356 | 1925 |
+
+A conversion out of `Field` is what costs Mavros the most (it decomposes the element), which is why the wider type wins under bn254 and why `u32` under a 64-bit field does not lose by going through `Field`. The two measures disagree in two bn254 cells, where the kept half follows ACIR: `wrapping_mul` on `u64` would take 84 rows in `u128` against 180, and `wrapping_sub` on `u128` 203 as a comparison against 211. Under Goldilocks `u64` addition and subtraction would take 254 and 357 rows in `u128` against 432 and 439.
+
 `integer_wrapping_arithmetic_names_field_only_where_it_is_cheaper` in [`stdlib_elaboration`](../compiler/noirc_driver/tests/stdlib_elaboration.rs) pins which operations name `Field` in the monomorphized program under each field, and `goldilocks_stdlib_fallbacks_preserve_values` checks the integer definitions at the corners of every width.
 
 `Hash` for `u64`, `u128` and `i64` in [`hash`](../noir_stdlib/src/hash/mod.nr) writes the value as one field element under bn254 (5 opcodes) and as 32-bit limbs elsewhere (14, 34 and 14 on bn254), since a `Hasher` takes field elements.
