@@ -14,6 +14,7 @@ workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]
+name = "noir_artifact_cli"
 path = "src/lib.rs"
 
 [[bin]]
