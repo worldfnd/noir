@@ -1,6 +1,5 @@
 [package]
-name = "fm"
-publish = false
+name = "provekit_fm"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

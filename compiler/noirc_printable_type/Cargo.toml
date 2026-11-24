@@ -1,6 +1,5 @@
 [package]
-name = "noirc_printable_type"
-publish = false
+name = "provekit_noirc_printable_type"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

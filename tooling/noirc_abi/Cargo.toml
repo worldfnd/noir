@@ -1,6 +1,5 @@
 [package]
-name = "noirc_abi"
-publish = false
+name = "provekit_noirc_abi"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

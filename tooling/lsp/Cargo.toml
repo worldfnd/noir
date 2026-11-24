@@ -1,6 +1,5 @@
 [package]
-name = "noir_lsp"
-publish = false
+name = "provekit_noir_lsp"
 description = "Language server for Noir"
 version.workspace = true
 authors.workspace = true

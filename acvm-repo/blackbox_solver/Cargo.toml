@@ -1,5 +1,5 @@
 [package]
-name = "acvm_blackbox_solver"
+name = "provekit_acvm_blackbox_solver"
 description = "A solver for the blackbox functions found in ACIR and Brillig"
 # x-release-please-start-version
 version = "1.0.0"

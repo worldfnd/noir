@@ -1,6 +1,5 @@
 [package]
-name = "nargo_doc"
-publish = false
+name = "provekit_nargo_doc"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

@@ -1,6 +1,5 @@
 [package]
-name = "nargo_expand"
-publish = false
+name = "provekit_nargo_expand"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

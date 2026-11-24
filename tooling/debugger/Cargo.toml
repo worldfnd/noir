@@ -1,6 +1,5 @@
 [package]
-name = "noir_debugger"
-publish = false
+name = "provekit_noir_debugger"
 description = "Debugger for Noir"
 version.workspace = true
 authors.workspace = true

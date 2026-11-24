@@ -1,6 +1,5 @@
 [package]
-name = "nargo"
-publish = false
+name = "provekit_nargo"
 description = "Noir's package manager"
 version.workspace = true
 authors.workspace = true

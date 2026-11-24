@@ -1,6 +1,5 @@
 [package]
-name = "noirc_frontend"
-publish = false
+name = "provekit_noirc_frontend"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

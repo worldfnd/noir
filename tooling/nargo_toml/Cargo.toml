@@ -1,6 +1,5 @@
 [package]
-name = "nargo_toml"
-publish = false
+name = "provekit_nargo_toml"
 description = "Utilities for working with Nargo.toml files"
 version.workspace = true
 authors.workspace = true

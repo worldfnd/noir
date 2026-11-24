@@ -26,7 +26,7 @@ noirc_errors.workspace = true
 noirc_evaluator.workspace = true
 noirc_frontend.workspace = true
 
-noir_ast_fuzzer = { path = ".." }
+noir_ast_fuzzer = { package = "provekit_noir_ast_fuzzer", path = ".." }
 
 [dev-dependencies]
 arbtest.workspace = true

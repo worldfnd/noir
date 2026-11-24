@@ -110,40 +110,40 @@ useless_conversion = "warn"
 [workspace.dependencies]
 
 # ACVM workspace dependencies
-acir_field = { version = "1.0.0", path = "acvm-repo/acir_field", default-features = false }
-acir = { version = "1.0.0", path = "acvm-repo/acir", default-features = false }
-acvm = { version = "1.0.0", path = "acvm-repo/acvm" }
-brillig = { version = "1.0.0", path = "acvm-repo/brillig", default-features = false }
-brillig_vm = { version = "1.0.0", path = "acvm-repo/brillig_vm", default-features = false }
-acvm_blackbox_solver = { version = "1.0.0", path = "acvm-repo/blackbox_solver", default-features = false }
-bn254_blackbox_solver = { version = "1.0.0", path = "acvm-repo/bn254_blackbox_solver", default-features = false }
-msgpack_tagged = { version = "1.0.0", path = "acvm-repo/msgpack_tagged", default-features = false }
+acir_field = { version = "=1.0.0", path = "acvm-repo/acir_field", default-features = false }
+acir = { package = "provekit_acir", version = "=1.0.0", path = "acvm-repo/acir", default-features = false }
+acvm = { package = "provekit_acvm", version = "=1.0.0", path = "acvm-repo/acvm" }
+brillig = { version = "=1.0.0", path = "acvm-repo/brillig", default-features = false }
+brillig_vm = { package = "provekit_brillig_vm", version = "=1.0.0", path = "acvm-repo/brillig_vm", default-features = false }
+acvm_blackbox_solver = { package = "provekit_acvm_blackbox_solver", version = "=1.0.0", path = "acvm-repo/blackbox_solver", default-features = false }
+bn254_blackbox_solver = { package = "provekit_bn254_blackbox_solver", version = "=1.0.0", path = "acvm-repo/bn254_blackbox_solver", default-features = false }
+msgpack_tagged = { version = "=1.0.0", path = "acvm-repo/msgpack_tagged", default-features = false }
 msgpack_tagged_derive = { version = "1.0.0", path = "acvm-repo/msgpack_tagged_derive" }
 
 # Noir compiler workspace dependencies
-fm = { path = "compiler/fm" }
-noirc_arena = { path = "compiler/noirc_arena" }
-noirc_driver = { path = "compiler/noirc_driver" }
-noirc_errors = { path = "compiler/noirc_errors" }
-noirc_evaluator = { path = "compiler/noirc_evaluator" }
-noirc_frontend = { path = "compiler/noirc_frontend" }
-noirc_printable_type = { path = "compiler/noirc_printable_type" }
-noirc_span = { path = "compiler/noirc_span" }
+fm = { version = "=1.0.0", package = "provekit_fm", path = "compiler/fm" }
+noirc_arena = { version = "=1.0.0", package = "provekit_noirc_arena", path = "compiler/noirc_arena" }
+noirc_driver = { version = "=1.0.0", package = "provekit_noirc_driver", path = "compiler/noirc_driver" }
+noirc_errors = { version = "=1.0.0", package = "provekit_noirc_errors", path = "compiler/noirc_errors" }
+noirc_evaluator = { version = "=1.0.0", package = "provekit_noirc_evaluator", path = "compiler/noirc_evaluator" }
+noirc_frontend = { version = "=1.0.0", package = "provekit_noirc_frontend", path = "compiler/noirc_frontend" }
+noirc_printable_type = { version = "=1.0.0", package = "provekit_noirc_printable_type", path = "compiler/noirc_printable_type" }
+noirc_span = { version = "=1.0.0", package = "provekit_noirc_span", path = "compiler/noirc_span" }
 
 # Noir tooling workspace dependencies
-noir_greybox_fuzzer = { path = "tooling/greybox_fuzzer" }
-nargo = { path = "tooling/nargo" }
-nargo_doc = { path = "tooling/nargo_doc" }
-nargo_expand = { path = "tooling/nargo_expand" }
-nargo_fmt = { path = "tooling/nargo_fmt" }
-nargo_toml = { path = "tooling/nargo_toml" }
-noir_lsp = { path = "tooling/lsp" }
-noir_debugger = { path = "tooling/debugger" }
-noirc_abi = { path = "tooling/noirc_abi" }
-noirc_artifacts = { path = "tooling/noirc_artifacts" }
-noirc_artifacts_info = { path = "tooling/noirc_artifacts_info" }
-noir_artifact_cli = { path = "tooling/artifact_cli" }
-noir_ast_fuzzer = { path = "tooling/ast_fuzzer" }
+noir_greybox_fuzzer = { version = "=1.0.0", package = "provekit_noir_greybox_fuzzer", path = "tooling/greybox_fuzzer" }
+nargo = { version = "=1.0.0", package = "provekit_nargo", path = "tooling/nargo" }
+nargo_doc = { version = "=1.0.0", package = "provekit_nargo_doc", path = "tooling/nargo_doc" }
+nargo_expand = { version = "=1.0.0", package = "provekit_nargo_expand", path = "tooling/nargo_expand" }
+nargo_fmt = { version = "=1.0.0", package = "provekit_nargo_fmt", path = "tooling/nargo_fmt" }
+nargo_toml = { version = "=1.0.0", package = "provekit_nargo_toml", path = "tooling/nargo_toml" }
+noir_lsp = { version = "=1.0.0", package = "provekit_noir_lsp", path = "tooling/lsp" }
+noir_debugger = { version = "=1.0.0", package = "provekit_noir_debugger", path = "tooling/debugger" }
+noirc_abi = { version = "=1.0.0", package = "provekit_noirc_abi", path = "tooling/noirc_abi" }
+noirc_artifacts = { version = "=1.0.0", package = "provekit_noirc_artifacts", path = "tooling/noirc_artifacts" }
+noirc_artifacts_info = { version = "=1.0.0", package = "provekit_noirc_artifacts_info", path = "tooling/noirc_artifacts_info" }
+noir_artifact_cli = { version = "=1.0.0", package = "provekit_noir_artifact_cli", path = "tooling/artifact_cli" }
+noir_ast_fuzzer = { version = "=1.0.0", package = "provekit_noir_ast_fuzzer", path = "tooling/ast_fuzzer" }
 
 # Arkworks
 ark-bn254 = { version = "^0.6.0", default-features = false, features = [
@@ -157,7 +157,7 @@ ark-ec = { version = "^0.6.0", default-features = false }
 ark-ff = { version = "^0.6.0", default-features = false, features = ["asm"] }
 
 # Misc utils crates
-iter-extended = { path = "utils/iter-extended" }
+iter-extended = { version = "=1.0.0", package = "provekit_iter-extended", path = "utils/iter-extended" }
 
 # LSP
 async-lsp = { version = "0.2.4", default-features = false }

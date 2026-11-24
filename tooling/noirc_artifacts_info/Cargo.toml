@@ -1,6 +1,5 @@
 [package]
-name = "noirc_artifacts_info"
-publish = false
+name = "provekit_noirc_artifacts_info"
 description = "The logic for `nargo info` and `nargo-inspector`"
 version.workspace = true
 authors.workspace = true

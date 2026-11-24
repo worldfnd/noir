@@ -1,6 +1,5 @@
 [package]
-name = "nargo_fmt"
-publish = false
+name = "provekit_nargo_fmt"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

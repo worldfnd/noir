@@ -1,6 +1,5 @@
 [package]
-name = "noir_ast_fuzzer"
-publish = false
+name = "provekit_noir_ast_fuzzer"
 description = "A fuzzer generating arbitrary monomorphized ASTs and comparing the execution between ACIR and Brillig"
 version.workspace = true
 authors.workspace = true

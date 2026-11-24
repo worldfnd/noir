@@ -1,6 +1,5 @@
 [package]
-name = "noirc_span"
-publish = false
+name = "provekit_noirc_span"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

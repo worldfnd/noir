@@ -1,5 +1,5 @@
 [package]
-name = "acvm"
+name = "provekit_acvm"
 description = "The virtual machine that processes ACIR given a backend/proof system."
 # x-release-please-start-version
 version = "1.0.0"

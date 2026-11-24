@@ -1,6 +1,5 @@
 [package]
-name = "iter-extended"
-publish = false
+name = "provekit_iter-extended"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

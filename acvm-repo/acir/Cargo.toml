@@ -1,5 +1,5 @@
 [package]
-name = "acir"
+name = "provekit_acir"
 description = "ACIR is the IR that the VM processes, it is analogous to LLVM IR"
 # x-release-please-start-version
 version = "1.0.0"
@@ -47,7 +47,7 @@ rmpv.workspace = true
 insta.workspace = true
 similar-asserts.workspace = true
 
-acir = { path = ".", features = ["arb", "test-fixtures"] } # Self to turn on `arb` and expose test fixtures.
+acir = { package = "provekit_acir", path = ".", features = ["arb", "test-fixtures"] } # Self to turn on `arb` and expose test fixtures.
 
 [features]
 default = []

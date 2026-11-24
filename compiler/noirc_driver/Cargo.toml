@@ -1,6 +1,5 @@
 [package]
-name = "noirc_driver"
-publish = false
+name = "provekit_noirc_driver"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

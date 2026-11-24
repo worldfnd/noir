@@ -1,5 +1,5 @@
 [package]
-name = "bn254_blackbox_solver"
+name = "provekit_bn254_blackbox_solver"
 description = "Solvers for black box functions which are specific for the bn254 curve"
 # x-release-please-start-version
 version = "1.0.0"

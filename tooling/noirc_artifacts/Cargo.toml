@@ -1,7 +1,6 @@
 [package]
-name = "noirc_artifacts"
+name = "provekit_noirc_artifacts"
 description = "Definitions of Nargo's build artifacts"
-publish = false
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
