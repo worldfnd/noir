@@ -5,7 +5,7 @@ type MyField = Field;
 type AliasOfAlias = MyField;
 
 fn main(x: u8) {
-    let x = x as Field;
+    let x = Field::from(x);
     let expected: [bool; 8] = x.to_le_bits();
 
     // Direct method on Field alias gives same result as dot syntax

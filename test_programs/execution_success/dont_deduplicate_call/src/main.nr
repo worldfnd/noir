@@ -1,5 +1,5 @@
 fn main(x: u8, active: bool) {
-    let x = x as Field;
+    let x = Field::from(x);
     let mut x1 = false;
     // Safety:)
     unsafe {

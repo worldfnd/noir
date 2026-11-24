@@ -1,3 +1,4 @@
+use std::convert::UnsafeFrom;
 // ---
 fn new_concrete_c_over_d() -> C<D> {
     let d_method_interface = get_d_method_interface();
@@ -56,9 +57,9 @@ fn get_d_method_interface() -> MethodInterface<D> {
 fn main(input: u8) -> pub u16 {
     let b: B<C<D>> = B::new(new_concrete_c_over_d);
     let c: C<D> = b.get_t_c(); // PrivateMutable<Note>
-    let d: D = D { d: input as Field }; // Note
+    let d: D = D { d: Field::from(input) }; // Note
     let output = c.call_method_of_t_d(d);
 
-    output as u16
+    u16::unsafe_from(output)
 }
 // ---

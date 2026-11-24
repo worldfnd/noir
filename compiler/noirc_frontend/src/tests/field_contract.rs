@@ -7,8 +7,7 @@ use num_bigint::BigUint;
 use crate::hir::def_collector::dc_crate::CompilationError;
 use crate::hir::type_check::TypeCheckError;
 use crate::test_utils::{
-    GetProgramOptions, get_monomorphized, get_monomorphized_for_field, get_program_with_options,
-    stdlib_src,
+    GetProgramOptions, get_monomorphized_for_field, get_program_with_options, stdlib_src,
 };
 use crate::tests::{
     assert_no_errors, check_errors, check_errors_with_options, get_program_errors_for_field,
@@ -53,7 +52,6 @@ fn integer_literals_above_the_modulus_stay_exact() {
     }
 }
 
-/// A signed value reaches `Field` only through an unsigned cast, since `i8 as Field` is a type error.
 #[test]
 fn comptime_casts_wrap_to_the_target_width() {
     let src = "fn main() {
@@ -62,126 +60,10 @@ fn comptime_casts_wrap_to_the_target_width() {
             assert((wide as u8) == 0);
             let negative: i8 = -1;
             assert((negative as u8) == 255);
-            assert(((negative as u8) as Field) == 255);
         }
     }";
-    assert_no_errors(src);
-}
-
-/// An unsigned type is cast to `Field` only if every one of its values is below the modulus;
-/// `Field` never reduces a cast. The escape hatch is an explicit narrowing cast.
-#[test]
-fn casts_to_field_are_refused_when_the_type_can_exceed_the_modulus() {
-    for field in FieldId::ALL {
-        let config = FieldConfig::new(field);
-        for bits in [8u32, 16, 32, 64, 128] {
-            let src = format!("fn main() {{ let x: u{bits} = 1; let _ = x as Field; }}");
-            let errors = get_program_errors_for_field(&src, field);
-            let refused = errors.iter().any(|error| {
-                matches!(
-                    error,
-                    CompilationError::TypeError(TypeCheckError::IntegerTypeExceedsField { .. })
-                )
-            });
-            if config.fits_unsigned(bits) {
-                assert!(
-                    errors.is_empty(),
-                    "{field}: u{bits} fits below the modulus, got {errors:?}"
-                );
-            } else {
-                assert!(refused, "{field}: u{bits} can exceed the modulus, got {errors:?}");
-            }
-        }
-    }
-}
-
-/// The type checker runs before the comptime interpreter, so a `comptime` block is refused too.
-#[test]
-fn comptime_casts_to_field_follow_the_same_rule() {
-    for field in FieldId::ALL {
-        let accepted = FieldConfig::new(field).fits_unsigned(64);
-        let src = format!(
-            "fn main() {{
-                comptime {{
-                    let x: u64 = {};
-                    let _ = x as Field;
-                }}
-            }}",
-            u64::MAX
-        );
-        let errors = get_program_errors_for_field(&src, field);
-        if accepted {
-            assert!(errors.is_empty(), "{field}: {errors:?}");
-        } else {
-            assert!(
-                errors.iter().any(|error| matches!(
-                    error,
-                    CompilationError::TypeError(TypeCheckError::IntegerTypeExceedsField { .. })
-                )),
-                "{field}: {errors:?}"
-            );
-        }
-    }
-}
-
-#[test]
-fn narrowing_before_a_field_cast_is_accepted_under_every_field() {
-    let src = format!(
-        "fn main() {{
-            let x: u128 = {};
-            assert(((x as u32) as Field) == {});
-            comptime {{
-                let x: u128 = {};
-                assert(((x as u32) as Field) == {});
-            }}
-        }}",
-        u128::MAX,
-        u32::MAX,
-        u128::MAX,
-        u32::MAX
-    );
-    assert_no_errors(&src);
-}
-
-/// The type checker sees the cast while the source is still a type variable, so the rule is
-/// applied again once inference has bound it, before the cast reaches the monomorphized AST.
-#[test]
-fn casts_to_field_through_an_inferred_type_follow_the_same_rule() {
-    let src = "fn apply<T>(f: fn(T) -> Field, x: T) -> Field { f(x) }
-
-    fn main(x: u32) {
-        let _ = apply(|v| v as Field, x as u64);
-    }";
-    for field in FieldId::ALL {
-        let result = get_monomorphized_for_field(src, field);
-        if FieldConfig::new(field).fits_unsigned(64) {
-            assert!(result.is_ok(), "{field}: {result:?}");
-        } else {
-            let error = result.expect_err("u64 can exceed the modulus");
-            let diagnostic = CustomDiagnostic::from(error);
-            assert!(
-                diagnostic.message.contains("can exceed the field modulus"),
-                "{field}: {}",
-                diagnostic.message
-            );
-        }
-    }
-}
-
-#[test]
-fn signed_casts_to_field_through_an_inferred_type_are_refused() {
-    let src = "fn apply<T>(f: fn(T) -> Field, x: T) -> Field { f(x) }
-
-    fn main(x: i8) {
-        let _ = apply(|v| v as Field, x);
-    }";
-    let error = get_monomorphized(src).expect_err("a signed source is never cast to Field");
-    let diagnostic = CustomDiagnostic::from(error);
-    assert!(
-        diagnostic.message.contains("Only unsigned integer types may be casted to Field"),
-        "{}",
-        diagnostic.message
-    );
+    let errors = get_program_errors_for_field(src, FieldId::linked());
+    assert!(errors.is_empty(), "{errors:?}");
 }
 
 #[test]

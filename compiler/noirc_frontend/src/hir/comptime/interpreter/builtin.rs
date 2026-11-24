@@ -24,7 +24,7 @@ use noirc_errors::Location;
 use rustc_hash::FxHashMap as HashMap;
 
 use crate::hir::comptime::Integer;
-use crate::hir::comptime::interpreter::ensure_integer_width_is_legal;
+use crate::hir::comptime::interpreter::{ensure_integer_width_is_legal, evaluate_cast_one_step};
 use crate::recursion::TypeRecursionContext;
 use crate::{
     Kind, QuotedType, Shared, Type, TypeBindings,
@@ -146,6 +146,7 @@ impl Interpreter<'_, '_> {
                     Ok(Value::Bool(true))
                 }
             }
+            "field_cast" => field_cast(interner.field(), arguments, return_type, location),
             "field_less_than" => field_less_than(arguments, location),
             "issue_error" => issue_diagnostic(self, arguments, location, false),
             "issue_warning" => issue_diagnostic(self, arguments, location, true),
@@ -432,6 +433,17 @@ fn checked_transmute(
     }
 
     Ok(value)
+}
+
+/// The cast between `Field` and an integer that `field_cast` stands for.
+fn field_cast(
+    field: FieldConfig,
+    arguments: Vec<(Value, Location)>,
+    return_type: Type,
+    location: Location,
+) -> IResult<Value> {
+    let (value, _) = check_one_argument(arguments, location)?;
+    evaluate_cast_one_step(field, &return_type, location, value)
 }
 
 fn vector_push_back(arguments: Vec<(Value, Location)>, location: Location) -> IResult<Value> {

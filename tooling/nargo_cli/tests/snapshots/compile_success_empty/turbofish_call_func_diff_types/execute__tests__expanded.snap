@@ -6,8 +6,8 @@ use poseidon::{poseidon2::Poseidon2Hasher, poseidon::PoseidonHasher};
 use std::hash::Hasher;
 
 fn main(x: u64, y: pub u64) {
-    let x: Field = x as Field;
-    let y: Field = y as Field;
+    let x: Field = <Field as From<u64>>::from(x);
+    let y: Field = <Field as From<u64>>::from(y);
     let mut hasher: PoseidonHasher = PoseidonHasher::default();
     hasher.write(x);
     hasher.write(y);

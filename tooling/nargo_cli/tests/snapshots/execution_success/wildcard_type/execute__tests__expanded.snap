@@ -2,6 +2,8 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
+use std::convert::UnsafeFrom;
+
 struct bar {
     enable: [bool; 4],
     data: [Field; 2],
@@ -10,9 +12,9 @@ struct bar {
 
 fn main(enable: [u8; 2]) -> pub [u8; 4] {
     let mut result: [u8; 4] = [0_u8; 4];
-    let a: [bar; 4] = foo(enable[1_u32] as Field);
+    let a: [bar; 4] = foo(<Field as From<u8>>::from(enable[1_u32]));
     for i in 0_u32..4_u32 {
-        result[i] = a[i].data[i % 2_u32] as u8;
+        result[i] = u8::unsafe_from(a[i].data[i % 2_u32]);
     }
     result
 }

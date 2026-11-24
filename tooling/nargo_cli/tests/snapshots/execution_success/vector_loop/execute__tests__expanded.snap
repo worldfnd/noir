@@ -9,7 +9,7 @@ struct Point {
 
 impl Point {
     fn serialize(self) -> [Field; 2] {
-        [self.x as Field, self.y as Field]
+        [<Field as From<u8>>::from(self.x), <Field as From<u8>>::from(self.y)]
     }
 }
 

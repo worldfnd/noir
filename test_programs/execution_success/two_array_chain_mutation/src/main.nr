@@ -9,8 +9,8 @@ fn fill_local<let N: u32>(enable: [bool; N]) -> ([Field; N], [Field; N]) {
     let mut data_b: [Field; N] = [0; N];
     let mut ptr: u32 = 0;
     for i in 0..N {
-        data_a[ptr] = i as Field;
-        data_b[ptr] = i as Field;
+        data_a[ptr] = Field::from(i);
+        data_b[ptr] = Field::from(i);
         ptr += enable[i] as u32;
     }
     (data_a, data_b)

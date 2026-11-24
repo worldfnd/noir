@@ -178,17 +178,17 @@ fn shared_default_method_associated_constant_does_not_leak_across_impls() {
     trait Score {
         let N: u32;
 
-        fn base(self) -> Field;
+        fn base(self) -> u32;
 
-        fn value(self) -> Field {
-            self.base() + (Self::N as Field)
+        fn value(self) -> u32 {
+            self.base() + Self::N
         }
     }
 
     impl Score for A {
         let N: u32 = 10;
 
-        fn base(self) -> Field {
+        fn base(self) -> u32 {
             1
         }
     }
@@ -196,7 +196,7 @@ fn shared_default_method_associated_constant_does_not_leak_across_impls() {
     impl Score for B {
         let N: u32 = 20;
 
-        fn base(self) -> Field {
+        fn base(self) -> u32 {
             2
         }
     }
@@ -220,17 +220,17 @@ fn shared_default_method_associated_constant_does_not_leak_through_generic_dispa
     trait Score {
         let N: u32;
 
-        fn base(self) -> Field;
+        fn base(self) -> u32;
 
-        fn value(self) -> Field {
-            self.base() + (Self::N as Field)
+        fn value(self) -> u32 {
+            self.base() + Self::N
         }
     }
 
     impl Score for A {
         let N: u32 = 10;
 
-        fn base(self) -> Field {
+        fn base(self) -> u32 {
             1
         }
     }
@@ -238,12 +238,12 @@ fn shared_default_method_associated_constant_does_not_leak_through_generic_dispa
     impl Score for B {
         let N: u32 = 20;
 
-        fn base(self) -> Field {
+        fn base(self) -> u32 {
             2
         }
     }
 
-    fn use_score<T>(x: T) -> Field where T: Score {
+    fn use_score<T>(x: T) -> u32 where T: Score {
         x.value()
     }
 
@@ -1448,18 +1448,18 @@ fn associated_type_with_trait_bound_in_generic_fn() {
         fn get(self) -> Self::Element;
     }
 
-    impl ToField for u32 {
+    impl ToField for Field {
         fn to_field(self) -> Field {
-            self as Field
+            self
         }
     }
 
     struct MyBox {
-        value: u32,
+        value: Field,
     }
 
     impl Container for MyBox {
-        type Element = u32;
+        type Element = Field;
         fn get(self) -> Self::Element {
             self.value
         }

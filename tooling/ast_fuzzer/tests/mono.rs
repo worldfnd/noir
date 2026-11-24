@@ -79,6 +79,9 @@ fn arb_ast_roundtrip() {
                 // function. The fuzzer has not yet been updated to mimic this so first-class functions
                 // are avoided for now.
                 avoid_lambdas: true,
+                // A cast between `Field` and an integer is printed as the standard library call
+                // user code writes, which compiles to a call rather than back to the cast.
+                avoid_field_casts: true,
                 // The formatting of `unsafe { ` becomes `{ unsafe {` with extra line breaks.
                 // Let's stick to just Brillig so there is no need for `unsafe` at all.
                 force_brillig: true,

@@ -1,3 +1,4 @@
+use std::convert::UnsafeFrom;
 unconstrained fn main(cond: bool, idx: u32, go: bool) -> pub u8 {
     let mut a: Field = 0;
     let mut b: Field = 0;
@@ -16,8 +17,8 @@ unconstrained fn main(cond: bool, idx: u32, go: bool) -> pub u8 {
     if go {
         a = 5;
         *r2 = 99;
-        a as u8
+        u8::unsafe_from(a)
     } else {
-        a as u8
+        u8::unsafe_from(a)
     }
 }

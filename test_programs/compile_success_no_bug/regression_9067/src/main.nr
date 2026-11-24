@@ -1,15 +1,16 @@
+use std::convert::UnsafeFrom;
 fn main(c: bool) -> pub u32 {
     let mut s = 0;
     if c {
         for i in 0..150 {
             for j in 0..150 {
                 if c {
-                    s += (i as Field);
+                    s += (Field::from(i));
                 } else {
-                    s += (j as Field);
+                    s += (Field::from(j));
                 }
             }
         }
     }
-    s as u32
+    u32::unsafe_from(s)
 }

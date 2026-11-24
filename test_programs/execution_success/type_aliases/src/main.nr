@@ -11,7 +11,7 @@ struct MyStruct {
 }
 
 fn main(x: [u8; 2]) {
-    let x = x.map(|x| x as Field);
+    let x = x.map(|x| Field::from(x));
     let a: Foo<Field> = [1, 2];
     assert(a[0] != x[0]);
 

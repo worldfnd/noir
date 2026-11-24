@@ -3,7 +3,7 @@ source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
 fn main(x: u8) {
-    let result: Field = compute(x as Field);
+    let result: Field = compute(<Field as From<u8>>::from(x));
     assert(result != 0_Field);
 }
 

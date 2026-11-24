@@ -4,5 +4,5 @@
 #[test(should_fail_with = "attempt to add with overflow")]
 fn main() {
     let var1: u8 = ((255 + 1) ^ (255 + 1) ^ (255 + 1));
-    assert_eq(var1 as Field, 256);
+    assert_eq(Field::from(var1), 256);
 }

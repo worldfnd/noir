@@ -1,3 +1,4 @@
+use std::convert::UnsafeFrom;
 // Regression that a global of the same name does not trigger a duplicate definition error
 pub global N: u32 = 1000;
 
@@ -41,9 +42,9 @@ struct MyStruct<let S: u32> {
 impl<let S: u32> MyStruct<S> {
     pub fn insert(mut self: Self, index: Field, elem: Field) -> Self {
         // Regression test for numeric generics on impls
-        assert(index as u32 < S);
+        assert(u32::unsafe_from(index) < S);
 
-        self.data[index as u32] = elem;
+        self.data[u32::unsafe_from(index)] = elem;
         self
     }
 }
@@ -96,7 +97,7 @@ impl PublicStorage {
         let mut fields: [Field; N] = [0; N];
         // Used a loop bound
         for i in 0..N {
-            fields[i] = i as Field + 1;
+            fields[i] = Field::from(i) + 1;
         }
         T::deserialize(fields)
     }

@@ -1,5 +1,6 @@
+use std::convert::UnsafeFrom;
 fn main(in0: u8) -> pub u8 {
-    let in0 = in0 as Field;
+    let in0 = Field::from(in0);
     let mut out0: Field = 0;
     let tmp1: Field = in0;
 
@@ -23,5 +24,5 @@ fn main(in0: u8) -> pub u8 {
 
     assert(out0 == 0, "completeness violation");
 
-    out0 as u8
+    u8::unsafe_from(out0)
 }

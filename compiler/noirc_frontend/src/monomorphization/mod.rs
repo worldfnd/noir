@@ -907,31 +907,6 @@ impl<'interner> Monomorphizer<'interner> {
         Ok(())
     }
 
-    /// The type checker applies the `Field` cast rules while the source may still be a type variable; every type is concrete here, so a source that inference bound later is checked again before the cast reaches the monomorphized program.
-    fn check_cast_to_field(
-        &self,
-        lhs: ExprId,
-        to: &HirType,
-        location: Location,
-    ) -> Result<(), MonomorphizationError> {
-        use crate::hir::type_check::TypeCheckError;
-        if !matches!(to.follow_bindings(), HirType::FieldElement) {
-            return Ok(());
-        }
-        let from = self.interner.id_type(lhs).follow_bindings();
-        let err = if from.is_signed() {
-            TypeCheckError::UnsupportedFieldCast { location }
-        } else if let HirType::Integer(Signedness::Unsigned, width) = &from
-            && let Some(bits) = width.constant_width()
-            && !self.interner.field().fits_unsigned(bits)
-        {
-            TypeCheckError::IntegerTypeExceedsField { typ: from, location }
-        } else {
-            return Ok(());
-        };
-        Err(MonomorphizationError::InvalidFieldCast { err, location })
-    }
-
     /// The type checker bounds a literal where it is written, which is too early when the width
     /// of its type still names a generic; the bound is applied again once the width is a number.
     fn check_integer_literal_fits(
@@ -1020,7 +995,8 @@ impl<'interner> Monomorphizer<'interner> {
 
                     // `true` here to use the current runtime since we're immediately calling this
                     // method in our current runtime.
-                    let func = self.resolve_trait_item_expr(expr, function_type, method, true)?;
+                    let func =
+                        self.resolve_trait_item_expr(expr, function_type, method, true, true)?;
                     self.create_prefix_operator_impl_call(func, rhs, ret, location)?
                 } else {
                     let operator = prefix.operator;
@@ -1052,7 +1028,8 @@ impl<'interner> Monomorphizer<'interner> {
                     let method = method.expect("ICE: Monomorphizer::expr: expected the infix operator method to be resolved by monomorphization");
                     // `true` here to use the current runtime since we're immediately calling this
                     // operator method in the current runtime.
-                    let func = self.resolve_trait_item_expr(expr, function_type, method, true)?;
+                    let func =
+                        self.resolve_trait_item_expr(expr, function_type, method, true, true)?;
                     let operator = infix.operator;
                     self.create_infix_operator_impl_call(func, lhs, operator, rhs, ret, location)?
                 } else {
@@ -1126,7 +1103,6 @@ impl<'interner> Monomorphizer<'interner> {
 
             HirExpression::Cast(cast) => {
                 let location = self.interner.expr_location(&expr);
-                self.check_cast_to_field(cast.lhs, &cast.r#type, location)?;
                 let typ = Self::convert_type(&cast.r#type, location)?;
                 let lhs = Box::new(self.expr(cast.lhs)?);
                 ast::Expression::Cast(ast::Cast { lhs, r#type: typ, location })
@@ -1621,7 +1597,13 @@ impl<'interner> Monomorphizer<'interner> {
         let typ = self.interner.id_type(expr_id);
 
         if let ImplKind::TraitItem(item) = ident.impl_kind {
-            return self.resolve_trait_item_expr(expr_id, typ, item.id(), use_current_runtime);
+            return self.resolve_trait_item_expr(
+                expr_id,
+                typ,
+                item.id(),
+                use_current_runtime,
+                evaluate_builtin,
+            );
         }
 
         // Ensure all instantiation bindings are bound.
@@ -2320,6 +2302,7 @@ impl<'interner> Monomorphizer<'interner> {
         function_type: HirType,
         trait_item_id: TraitItemId,
         use_current_runtime: bool,
+        evaluate_builtin: bool,
     ) -> Result<ast::Expression, MonomorphizationError> {
         // `resolve_trait_item_impl` extends the call expression's stored
         // instantiation bindings with the resolved impl's bindings (so the
@@ -2349,7 +2332,15 @@ impl<'interner> Monomorphizer<'interner> {
         let result = self.monomorphize_constrained_and_unconstrained(
             use_current_runtime,
             self.force_unconstrained,
-            |this| this.resolve_trait_method_expr(func_id, expr_id, function_type, trait_item_id),
+            |this| {
+                this.resolve_trait_method_expr(
+                    func_id,
+                    expr_id,
+                    function_type,
+                    trait_item_id,
+                    evaluate_builtin,
+                )
+            },
         );
 
         if let Some(saved) = saved_bindings {
@@ -2367,20 +2358,24 @@ impl<'interner> Monomorphizer<'interner> {
         expr_id: ExprId,
         function_type: HirType,
         trait_item_id: TraitItemId,
+        evaluate_builtin: bool,
     ) -> Result<ast::Expression, MonomorphizationError> {
         let location = self.interner.expr_location(&expr_id);
         let typ = Rc::new(Self::convert_type(&function_type, location)?);
 
-        let Definition::Function(func_id) =
-            self.lookup_function(func_id, expr_id, &function_type, &[], Some(trait_item_id), true)?
-        else {
-            unreachable!();
-        };
+        let definition = self.lookup_function(
+            func_id,
+            expr_id,
+            &function_type,
+            &[],
+            Some(trait_item_id),
+            evaluate_builtin,
+        )?;
 
         let name = self.interner.definition_name(trait_item_id.item_id).to_string();
 
         Ok(ast::Expression::Ident(ast::Ident {
-            definition: Definition::Function(func_id),
+            definition,
             mutable: false,
             location: None,
             name,
@@ -3207,8 +3202,8 @@ impl<'interner> Monomorphizer<'interner> {
             // (a > b) => a.cmp(b) == Ordering::Greater
             // (a >= b) => a.cmp(b) != Ordering::Less
             Less | LessEqual | Greater | GreaterEqual => {
-                // Comparing an Ordering directly to a field value in this way takes advantage
-                // of the fact the Ordering struct contains a single Field type, and our SSA
+                // Comparing an Ordering directly to an integer in this way takes advantage
+                // of the fact the Ordering struct contains a single `u8`, and our SSA
                 // pass will automatically unpack tuple values.
                 let ordering_value = if matches!(operator.kind, Less | GreaterEqual) {
                     BigInt::ZERO // Ordering::Less
@@ -3219,7 +3214,8 @@ impl<'interner> Monomorphizer<'interner> {
                 let operator =
                     if matches!(operator.kind, Less | Greater) { Equal } else { NotEqual };
 
-                let int_value = ast::Literal::Integer(ordering_value, ast::Type::Field, location);
+                let ordering_type = ast::Type::Integer(Signedness::Unsigned, 8);
+                let int_value = ast::Literal::Integer(ordering_value, ordering_type, location);
                 let rhs = Box::new(ast::Expression::Literal(int_value));
                 let lhs = Box::new(ast::Expression::ExtractTupleField(Box::new(result), 0));
 

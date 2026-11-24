@@ -7,11 +7,14 @@ use super::Signedness;
 /// consumer of the monomorphized output refuses on principle.
 pub const MAX_INTEGER_WIDTH: u32 = 16384;
 
-/// Whether an integer type of `bits` bits exists, for either signedness: every width from `2`
-/// through [`MAX_INTEGER_WIDTH`], odd or even. Width 1 is refused in every spelling rather than
-/// aliased to `bool`; `design/field-genericity.md` records why.
+/// The narrowest integer type: `u2` and `i2`.
+pub const MIN_INTEGER_WIDTH: u32 = 2;
+
+/// Whether an integer type of `bits` bits exists, for either signedness: every width from
+/// [`MIN_INTEGER_WIDTH`] through [`MAX_INTEGER_WIDTH`], odd or even. Width 1 is refused in every
+/// spelling rather than aliased to `bool`; `design/field-genericity.md` records why.
 pub fn is_legal_integer_width(bits: u32) -> bool {
-    (2..=MAX_INTEGER_WIDTH).contains(&bits)
+    (MIN_INTEGER_WIDTH..=MAX_INTEGER_WIDTH).contains(&bits)
 }
 
 /// The integer types the circuit backend lowers, in words, for diagnostics.

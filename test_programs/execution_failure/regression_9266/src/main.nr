@@ -1,6 +1,7 @@
+use std::convert::UnsafeFrom;
 global G_A: [Field] = [-282608142060723387702497189224219065418].as_vector();
 fn main() -> pub u8 {
     let (a, _) = G_A.pop_back();
     let (_, f) = a.pop_back();
-    f as u8
+    u8::unsafe_from(f)
 }

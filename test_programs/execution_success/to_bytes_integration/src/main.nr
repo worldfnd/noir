@@ -1,7 +1,7 @@
 fn main(x: u32, a: [u8; 32]) {
     let y: Field = 2040124;
     let be_byte_array: [u8; 31] = y.to_be_bytes();
-    let le_byte_array: [u8; 31] = (x as Field).to_le_bytes();
+    let le_byte_array: [u8; 31] = (Field::from(x)).to_le_bytes();
 
     assert(le_byte_array[0] == 60);
     assert(le_byte_array[0] == be_byte_array[30]);

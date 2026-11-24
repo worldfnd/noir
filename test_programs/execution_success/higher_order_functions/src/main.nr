@@ -1,3 +1,4 @@
+use std::convert::UnsafeFrom;
 fn main(w: u8) -> pub u8 {
     let f = if 3 * 7 > 200u32 { foo } else { bar };
     assert(f()[1] == 2);
@@ -31,7 +32,7 @@ fn main(w: u8) -> pub u8 {
     let ret = twice(add1, 3);
 
     test_array_functions();
-    (w as Field + ret) as u8
+    u8::unsafe_from(Field::from(w) + ret)
 }
 /// Test the array functions in std::array
 fn test_array_functions() {

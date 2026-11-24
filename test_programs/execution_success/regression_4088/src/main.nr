@@ -8,7 +8,7 @@ struct ValueNote {
 
 impl Serialize<1> for ValueNote {
     fn serialize(self) -> [Field; 1] {
-        [self.value as Field]
+        [Field::from(self.value)]
     }
 }
 

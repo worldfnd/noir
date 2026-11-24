@@ -6,7 +6,7 @@ struct myStruct {
 //
 // The features being tested is the identity function in Brillig
 fn main(x: u8) {
-    let x = x as Field;
+    let x = Field::from(x);
     // Safety: testing context
     unsafe {
         assert(x == identity(x));

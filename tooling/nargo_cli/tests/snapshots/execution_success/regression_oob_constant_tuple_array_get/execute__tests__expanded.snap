@@ -2,6 +2,8 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
+use std::convert::UnsafeFrom;
+
 global G_A: [(str<4>, str<4>, str<4>, Field, bool); 2] =
     [("FTIU", "XRAD", "BNIZ", 0x01, true), ("KTDA", "JDVL", "VGCJ", 0x02, true)];
 
@@ -12,5 +14,5 @@ unconstrained fn main(run: bool) -> pub u8 {
             result = 1_Field;
         }
     };
-    result as u8
+    u8::unsafe_from(result)
 }

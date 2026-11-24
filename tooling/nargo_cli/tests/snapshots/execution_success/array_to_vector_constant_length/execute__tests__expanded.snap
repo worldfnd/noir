@@ -9,7 +9,7 @@ unconstrained fn return_array(val: Field) -> [Field; 1] {
 fn main(val: u8) {
     // Safety: comment added by `nargo expand`
     unsafe {
-        let array: [Field; 1] = return_array(val as Field);
+        let array: [Field; 1] = return_array(<Field as From<u8>>::from(val));
         assert_constant(array.as_vector().len());
     }
 }

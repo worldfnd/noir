@@ -88,6 +88,40 @@ For this reason, implementing `From` on a type will automatically generate a mat
 
 ---
 
+### `std::convert::TryFrom`
+
+#include_code try-from-trait noir_stdlib/src/convert.nr rust
+
+The `TryFrom` trait converts a value that may not fit the type it is converted to, and returns `None` for one that does not. It is implemented between `Field` and every integer type:
+
+#include_code try-from-impls noir_stdlib/src/convert.nr rust
+
+```rust
+use std::convert::TryFrom;
+
+fn main(x: u64, f: Field) {
+    // `None` under a field that has fewer than 2^64 elements, if `x` is not one of them.
+    let element = Field::try_from(x).expect(f"{x} is not a field element");
+    // `None` if `f` is 256 or more.
+    let byte = u8::try_from(f);
+}
+```
+
+### `std::convert::UnsafeFrom`
+
+#include_code unsafe-from-trait noir_stdlib/src/convert.nr rust
+
+The `UnsafeFrom` trait converts a value that may not fit by wrapping it. It is implemented between `Field` and every integer type:
+
+- an integer into a `Field` is reduced modulo the field. A signed integer converts as its bit pattern, so `-1_i8` becomes `255`.
+- a `Field` into an integer keeps the low bits that the integer's width holds.
+
+#include_code unsafe-from-impls noir_stdlib/src/convert.nr rust
+
+The compiler provides these conversions itself, which is why the impls are marked `#[builtin(field_cast)]` and have no body.
+
+`as` does not convert between a `Field` and an integer, so these two traits and `From` are how one becomes the other. Neither `TryFrom` nor `UnsafeFrom` is in the prelude: import them from `std::convert`.
+
 ## `std::cmp`
 
 ### `std::cmp::Eq`

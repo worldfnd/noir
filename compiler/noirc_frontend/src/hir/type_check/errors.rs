@@ -36,6 +36,19 @@ pub enum Source {
     ArrayIndex,
 }
 
+/// What to write in place of a cast between `Field` and an integer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FieldCastSuggestion {
+    /// The literal the cast is written on, typed as its target.
+    TypedLiteral(String),
+    /// `Field::from`, which converts every value of the source.
+    FieldFrom,
+    /// A type for the value, which is a `Field` only by default, and the variable it is, if any.
+    DeclareType(Option<String>),
+    /// `TryFrom` or `UnsafeFrom`.
+    Convert,
+}
+
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum TypeCheckError {
     #[error("Division by zero: {lhs} / {rhs}")]
@@ -89,10 +102,6 @@ pub enum TypeCheckError {
     ArityMisMatch { expected: usize, found: usize, location: Location },
     #[error("Cannot cast type {from}, 'as' is only for primitive field or integer types")]
     InvalidCast { from: Type, location: Location, reason: String },
-    #[error("Casting value of type {from} to a smaller type ({to})")]
-    DownsizingCast { from: Type, to: Type, location: Location, reason: String },
-    #[error("Negative Field literal `{value}` cast to `{to}` evaluates to `{result}`")]
-    NegativeLiteralCastToInteger { value: BigInt, result: String, to: Type, location: Location },
     #[error("Cannot cast `{typ}` as `bool`")]
     CannotCastNumericToBool { typ: Type, location: Location },
     #[error("Expected a function, but found a(n) {found}")]
@@ -109,12 +118,8 @@ pub enum TypeCheckError {
     UnconstrainedMismatch { item: String, expected: bool, location: Location },
     #[error("Only integer and Field types may be casted to")]
     UnsupportedCast { location: Location },
-    #[error("Only unsigned integer types may be casted to Field")]
-    UnsupportedFieldCast { location: Location },
-    #[error(
-        "Values of type `{typ}` can exceed the field modulus, so `{typ}` cannot be cast to Field"
-    )]
-    IntegerTypeExceedsField { typ: Type, location: Location },
+    #[error("Cannot cast `{from}` as `{to}`")]
+    FieldCastDenied { from: Type, to: Type, suggestion: FieldCastSuggestion, location: Location },
     #[error("Index {index} is out of bounds for this tuple {lhs_type} of length {length}")]
     TupleIndexOutOfBounds { index: usize, lhs_type: Type, length: usize, location: Location },
     #[error("Index {index} is out of bounds for this array of length {array_length}")]
@@ -346,8 +351,6 @@ impl TypeCheckError {
             | TypeCheckError::TypeCanonicalizationMismatch { location, .. }
             | TypeCheckError::ArityMisMatch { location, .. }
             | TypeCheckError::InvalidCast { location, .. }
-            | TypeCheckError::DownsizingCast { location, .. }
-            | TypeCheckError::NegativeLiteralCastToInteger { location, .. }
             | TypeCheckError::CannotCastNumericToBool { location, .. }
             | TypeCheckError::ExpectedFunction { location, .. }
             | TypeCheckError::AccessUnknownMember { location, .. }
@@ -356,8 +359,7 @@ impl TypeCheckError {
             | TypeCheckError::GenericCountMismatch { location, .. }
             | TypeCheckError::UnconstrainedMismatch { location, .. }
             | TypeCheckError::UnsupportedCast { location }
-            | TypeCheckError::UnsupportedFieldCast { location }
-            | TypeCheckError::IntegerTypeExceedsField { location, .. }
+            | TypeCheckError::FieldCastDenied { location, .. }
             | TypeCheckError::TupleIndexOutOfBounds { location, .. }
             | TypeCheckError::ArrayIndexOutOfBounds { location, .. }
             | TypeCheckError::VariableMustBeMutable { location, .. }
@@ -587,29 +589,36 @@ impl<'a> From<&'a TypeCheckError> for Diagnostic {
             TypeCheckError::InvalidCast { location, reason, .. } => {
                 Diagnostic::simple_error(error.to_string(), reason.clone(), *location)
             }
-            TypeCheckError::DownsizingCast { location, reason, .. } => {
-                Diagnostic::simple_warning(error.to_string(), reason.clone(), *location)
-            }
-            TypeCheckError::NegativeLiteralCastToInteger { value, to, location, .. } => {
-                let secondary = format!(
-                    "If this isn't desired, try `{value}{to}` instead or bind to a variable first to silence this warning"
-                );
-                Diagnostic::simple_warning(error.to_string(), secondary, *location)
-            }
             TypeCheckError::CannotCastNumericToBool { typ: _, location } => {
                 let secondary = "Compare with zero instead: ` != 0`".to_string();
                 Diagnostic::simple_error(error.to_string(), secondary, *location)
             }
-            TypeCheckError::IntegerTypeExceedsField { typ: _, location } => {
-                let secondary =
-                    "Cast to an unsigned type narrower than the field first".to_string();
+            TypeCheckError::FieldCastDenied { from, to, suggestion, location } => {
+                let secondary = match suggestion {
+                    FieldCastSuggestion::TypedLiteral(literal) => {
+                        format!("Write the literal with its type instead: `{literal}`")
+                    }
+                    FieldCastSuggestion::FieldFrom => {
+                        format!("Use `Field::from`, which converts every `{from}` exactly")
+                    }
+                    FieldCastSuggestion::DeclareType(name) => {
+                        let value = match name {
+                            Some(name) => format!("`{name}`"),
+                            None => "This value".to_string(),
+                        };
+                        format!(
+                            "{value} is a `Field` only because nothing gives it another type: \
+                             declare it with one, such as `{to}`"
+                        )
+                    }
+                    FieldCastSuggestion::Convert => "Use `TryFrom` to get `None` when the value does not fit, or `UnsafeFrom` to wrap; both are in `std::convert`".to_string(),
+                };
                 Diagnostic::simple_error(error.to_string(), secondary, *location)
             }
 
             TypeCheckError::ExpectedFunction { location, .. }
             | TypeCheckError::AccessUnknownMember { location, .. }
             | TypeCheckError::UnsupportedCast { location }
-            | TypeCheckError::UnsupportedFieldCast { location }
             | TypeCheckError::TupleIndexOutOfBounds { location, .. }
             | TypeCheckError::ArrayIndexOutOfBounds { location, .. }
             | TypeCheckError::VariableMustBeMutable { location, .. }

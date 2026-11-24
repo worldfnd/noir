@@ -5,7 +5,7 @@ expression: expanded_code
 fn main(x: u32, a: [u8; 32]) {
     let y: Field = 2040124_Field;
     let be_byte_array: [u8; 31] = y.to_be_bytes();
-    let le_byte_array: [u8; 31] = (x as Field).to_le_bytes();
+    let le_byte_array: [u8; 31] = <Field as From<u32>>::from(x).to_le_bytes();
     assert(le_byte_array[0_u32] == 60_u8);
     assert(le_byte_array[0_u32] == be_byte_array[30_u32]);
     assert(le_byte_array[1_u32] == be_byte_array[29_u32]);

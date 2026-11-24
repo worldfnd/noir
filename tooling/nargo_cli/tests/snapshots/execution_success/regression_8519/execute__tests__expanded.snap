@@ -2,9 +2,11 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
+use std::convert::UnsafeFrom;
+
 fn main(a: u64) -> pub u128 {
-    let c: Field = -(a as Field);
-    let c: u128 = c as u128;
+    let c: Field = -<Field as From<u64>>::from(a);
+    let c: u128 = u128::unsafe_from(c);
     assert(c == 53438638232309528388129535304893203149_u128);
     c
 }

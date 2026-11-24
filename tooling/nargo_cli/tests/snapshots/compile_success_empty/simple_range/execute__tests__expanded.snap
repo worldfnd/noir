@@ -2,7 +2,9 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
+use std::convert::UnsafeFrom;
+
 fn main(x: u64) {
-    let x: Field = x as Field;
-    let _z: u32 = x as u32;
+    let x: Field = <Field as From<u64>>::from(x);
+    let _z: u32 = u32::unsafe_from(x);
 }

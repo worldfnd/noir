@@ -5,7 +5,7 @@ expression: expanded_code
 global len: u32 = 4900;
 
 fn main(x: u8) {
-    let ped_input: [Field; 4900] = [x as Field; 4900];
+    let ped_input: [Field; 4900] = [<Field as From<u8>>::from(x); 4900];
     let mut val: Field = poseidon::poseidon2::Poseidon2::hash(ped_input, len);
     assert(val != 0_Field);
 }

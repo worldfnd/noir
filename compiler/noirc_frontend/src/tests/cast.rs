@@ -1,30 +1,6 @@
 use crate::tests::{assert_no_errors, check_errors};
 
 #[test]
-fn cast_256_to_u8_size_checks() {
-    let src = r#"
-        fn main() {
-            assert(256 as u8 == 0);
-                   ^^^^^^^^^ Casting value of type Field to a smaller type (u8)
-                   ~~~~~~~~~ casting untyped value (256) to a type with a maximum size (255) that's smaller than it
-        }
-    "#;
-    check_errors(src);
-}
-
-#[test]
-fn cast_negative_literal_to_integer_warns() {
-    let src = r#"
-        fn main() {
-            let _ = -1 as i8;
-                    ^^^^^^^^ Negative Field literal `-1` cast to `i8` evaluates to `0`
-                    ~~~~~~~~ If this isn't desired, try `-1i8` instead or bind to a variable first to silence this warning
-        }
-    "#;
-    check_errors(src);
-}
-
-#[test]
 fn cast_suffixed_negative_literal_to_integer_does_not_warn() {
     let src = r#"
         fn main() {
@@ -32,28 +8,6 @@ fn cast_suffixed_negative_literal_to_integer_does_not_warn() {
         }
     "#;
     assert_no_errors(src);
-}
-
-#[test]
-fn cast_signed_i8_to_field_must_error() {
-    let src = r#"
-        fn main() {
-            assert(-1i8 as Field != 0);
-                   ^^^^^^^^^^^^^ Only unsigned integer types may be casted to Field
-        }
-    "#;
-    check_errors(src);
-}
-
-#[test]
-fn cast_signed_i32_to_field_must_error() {
-    let src = r#"
-        fn main(x: i32) {
-            assert(x as Field != 0);
-                   ^^^^^^^^^^ Only unsigned integer types may be casted to Field
-        }
-    "#;
-    check_errors(src);
 }
 
 #[test]
@@ -65,7 +19,7 @@ fn do_not_eagerly_error_on_cast_on_type_variable() {
 
     fn main() {
         let x: u8 = 1;
-        let _: Field = foo(x, |x| x as Field);
+        let _: u16 = foo(x, |x| x as u16);
     }
     "#;
     assert_no_errors(src);

@@ -83,6 +83,8 @@ pub struct Config {
     pub avoid_match: bool,
     /// Avoid using the vector type.
     pub avoid_vectors: bool,
+    /// Avoid casts between `Field` and an integer, which the frontend refuses.
+    pub avoid_field_casts: bool,
     /// Only use comptime friendly expressions.
     pub comptime_friendly: bool,
 }
@@ -152,6 +154,7 @@ impl Default for Config {
             avoid_constrain: false,
             avoid_match: false,
             avoid_vectors: false,
+            avoid_field_casts: false,
             comptime_friendly: false,
         }
     }

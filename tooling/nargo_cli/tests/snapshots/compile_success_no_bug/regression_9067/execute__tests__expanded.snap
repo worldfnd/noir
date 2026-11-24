@@ -2,18 +2,26 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
+use std::convert::UnsafeFrom;
+
 fn main(c: bool) -> pub u32 {
     let mut s: Field = 0_Field;
     if c {
         for i in 0_u32..150_u32 {
             for j in 0_u32..150_u32 {
                 if c {
-                    s = s + (i as Field);
+                    {
+                        let op_rhs_0: Field = <Field as From<u32>>::from(i);
+                        s = s + op_rhs_0;
+                    }
                 } else {
-                    s = s + (j as Field);
+                    {
+                        let op_rhs_1: Field = <Field as From<u32>>::from(j);
+                        s = s + op_rhs_1;
+                    }
                 }
             }
         }
     };
-    s as u32
+    u32::unsafe_from(s)
 }

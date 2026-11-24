@@ -358,7 +358,7 @@ pub mod stdlib_src {
             // Noir doesn't have enums yet so we emulate (Lt | Eq | Gt) with a struct
             // that has 3 public functions for constructing the struct.
             pub struct Ordering {
-                result: Field,
+                result: u8,
             }
 
             impl Ordering {
@@ -406,6 +406,32 @@ pub mod stdlib_src {
     pub const CHECKED_TRANSMUTE: &str = "
         #[builtin(checked_transmute)]
         pub fn checked_transmute<T, U>(value: T) -> U {}
+    ";
+
+    pub const UNSAFE_FROM: &str = "
+        pub trait UnsafeFrom<T> {
+            fn unsafe_from(input: T) -> Self;
+        }
+
+        impl<let N: u32> UnsafeFrom<u<N>> for Field {
+            #[builtin(field_cast)]
+            fn unsafe_from(input: u<N>) -> Field {}
+        }
+
+        impl<let N: u32> UnsafeFrom<i<N>> for Field {
+            #[builtin(field_cast)]
+            fn unsafe_from(input: i<N>) -> Field {}
+        }
+
+        impl<let N: u32> UnsafeFrom<Field> for u<N> {
+            #[builtin(field_cast)]
+            fn unsafe_from(input: Field) -> u<N> {}
+        }
+
+        impl<let N: u32> UnsafeFrom<Field> for i<N> {
+            #[builtin(field_cast)]
+            fn unsafe_from(input: Field) -> i<N> {}
+        }
     ";
 
     // Note that in the stdlib these are all comptime functions, which I thought meant

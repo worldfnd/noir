@@ -47,7 +47,7 @@ fn main(a: u32, mut c: [u32; 4], x: [u8; 5], result: pub [u8; 32]) {
         must_be_zero(1_u8);
         c[0_u32] = 1_u32;
         c[1_u32] = (c[2_u32] / a) + (11_u32 % a);
-        let f1: Field = a as Field;
+        let f1: Field = <Field as From<u32>>::from(a);
         assert((10_Field / f1) != 0_Field);
     };
     assert(c[0_u32] == 3_u32);

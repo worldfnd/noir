@@ -9,7 +9,7 @@ fn main(x: u32) {
 fn regression_dynamic_vector_index(x: u32, y: u32) {
     let mut vector: [Field] = [].as_vector();
     for i in 0_u32..5_u32 {
-        vector = vector.push_back(i as Field);
+        vector = vector.push_back(<Field as From<u32>>::from(i));
     }
     assert(vector.len() == 5_u32);
     dynamic_vector_index_set_if(vector, x, y);
@@ -221,11 +221,11 @@ fn dynamic_vector_merge_two_ifs(mut vector: [Field], x: u32) {
 fn dynamic_vector_merge_mutate_between_ifs(mut vector: [Field], x: u32, y: u32) {
     if x != y {
         vector[x] = 50_Field;
-        vector = vector.push_back(y as Field);
-        vector = vector.push_back(x as Field);
+        vector = vector.push_back(<Field as From<u32>>::from(y));
+        vector = vector.push_back(<Field as From<u32>>::from(x));
     } else {
         vector[x] = vector[x] - 2_Field;
-        vector = vector.push_back(x as Field);
+        vector = vector.push_back(<Field as From<u32>>::from(x));
     };
     vector = vector.push_back(30_Field);
     assert(vector.len() == 8_u32);
@@ -248,15 +248,15 @@ fn dynamic_vector_merge_mutate_between_ifs(mut vector: [Field], x: u32, y: u32) 
 fn dynamic_vector_merge_push_then_pop(mut vector: [Field], x: u32, y: u32) {
     if x != y {
         vector[x] = 5_Field;
-        vector = vector.push_back(y as Field);
-        vector = vector.push_back(x as Field);
+        vector = vector.push_back(<Field as From<u32>>::from(y));
+        vector = vector.push_back(<Field as From<u32>>::from(x));
         assert(vector.len() == 7_u32);
         let (popped_vector, elem): ([Field], Field) = vector.pop_back();
         assert(vector.len() == 7_u32);
-        assert(elem == (x as Field));
+        assert(elem == <Field as From<u32>>::from(x));
         vector = popped_vector;
     } else {
-        vector = vector.push_back(x as Field);
+        vector = vector.push_back(<Field as From<u32>>::from(x));
     };
     vector = vector.push_back(30_Field);
     assert(vector.len() == 7_u32);
@@ -266,5 +266,5 @@ fn dynamic_vector_merge_push_then_pop(mut vector: [Field], x: u32, y: u32) {
     let (vector, elem): ([Field], Field) = vector.pop_back();
     assert(elem == 30_Field);
     let (_, elem): ([Field], Field) = vector.pop_back();
-    assert(elem == (y as Field));
+    assert(elem == <Field as From<u32>>::from(y));
 }

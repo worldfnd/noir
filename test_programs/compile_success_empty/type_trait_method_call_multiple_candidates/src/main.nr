@@ -7,7 +7,7 @@ struct MyU128 {
 
 impl MyU128 {
     pub fn from_u64s_le(lo: u64, hi: u64) -> MyU128 {
-        MyU128 { lo: lo as Field, hi: hi as Field }
+        MyU128 { lo: Field::from(lo), hi: Field::from(hi) }
     }
 }
 
@@ -26,7 +26,7 @@ impl From<u32> for MyU128 {
 fn main() {
     let x: u64 = 0;
     let small_int = MyU128::from(x);
-    assert(small_int.lo == x as Field);
+    assert(small_int.lo == Field::from(x));
     let u32_3: u32 = 3;
     assert(MyU128::from(u32_3).lo == 3);
 }

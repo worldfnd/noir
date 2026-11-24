@@ -8,7 +8,6 @@ pub mod ecdsa_secp256r1;
 pub mod embedded_curve_ops;
 pub mod field;
 pub mod collections;
-pub mod compat;
 pub mod convert;
 pub mod option;
 pub mod string;

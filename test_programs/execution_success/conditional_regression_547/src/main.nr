@@ -1,3 +1,4 @@
+use std::convert::UnsafeFrom;
 fn main(x: u8) -> pub u8 {
     // Regression test for issue #547
     // Warning: it must be kept at the start of main
@@ -8,7 +9,7 @@ fn main(x: u8) -> pub u8 {
         }
     }
     // Regression for predicate simplification
-    (x as Field + safe_inverse(0)) as u8
+    u8::unsafe_from(Field::from(x) + safe_inverse(0))
 }
 
 fn safe_inverse(n: Field) -> Field {

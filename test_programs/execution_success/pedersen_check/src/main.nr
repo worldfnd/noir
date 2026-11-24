@@ -1,7 +1,7 @@
 fn main(x: u8, y: u8, salt: u8, out_x: [u8; 32], out_y: [u8; 32], out_hash: [u8; 32]) {
-    let x = x as Field;
-    let y = y as Field;
-    let salt = salt as Field;
+    let x = Field::from(x);
+    let y = Field::from(y);
+    let salt = Field::from(salt);
 
     let res = std::hash::pedersen_commitment([x, y]);
     assert(res.x == Field::from_le_bytes_checked(out_x));

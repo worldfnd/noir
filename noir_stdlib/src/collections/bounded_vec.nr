@@ -953,8 +953,8 @@ mod bounded_vec_tests {
         #[test]
         fn applies_function_that_changes_return_type() {
             let vec: BoundedVec<u32, 4> = BoundedVec::from_array([1, 2, 3, 4]);
-            let result = vec.map(|value| (value * 2) as Field);
-            let expected: BoundedVec<Field, 4> = BoundedVec::from_array([2, 4, 6, 8]);
+            let result = vec.map(|value| (value * 2) as u64);
+            let expected: BoundedVec<u64, 4> = BoundedVec::from_array([2, 4, 6, 8]);
 
             assert_eq(result, expected);
         }
@@ -1016,8 +1016,8 @@ mod bounded_vec_tests {
         #[test]
         fn applies_function_that_changes_return_type() {
             let vec: BoundedVec<u32, 4> = BoundedVec::from_array([1, 2, 3, 4]);
-            let result = vec.mapi(|i, value| (i + value * 2) as Field);
-            let expected: BoundedVec<Field, 4> = BoundedVec::from_array([2, 5, 8, 11]);
+            let result = vec.mapi(|i, value| (i + value * 2) as u64);
+            let expected: BoundedVec<u64, 4> = BoundedVec::from_array([2, 5, 8, 11]);
 
             assert_eq(result, expected);
         }
@@ -1081,8 +1081,8 @@ mod bounded_vec_tests {
         #[test]
         fn applies_function_that_changes_return_type() {
             let vec: BoundedVec<u32, 4> = BoundedVec::from_array([1, 2, 3, 4]);
-            let result = for_each_map(vec, |value| (value * 2) as Field);
-            let expected: BoundedVec<Field, 4> = BoundedVec::from_array([2, 4, 6, 8]);
+            let result = for_each_map(vec, |value| (value * 2) as u64);
+            let expected: BoundedVec<u64, 4> = BoundedVec::from_array([2, 4, 6, 8]);
 
             assert_eq(result, expected);
         }
@@ -1157,8 +1157,8 @@ mod bounded_vec_tests {
         #[test]
         fn applies_function_that_changes_return_type() {
             let vec: BoundedVec<u32, 4> = BoundedVec::from_array([1, 2, 3, 4]);
-            let result = for_eachi_mapi(vec, |i, value| (i + value * 2) as Field);
-            let expected: BoundedVec<Field, 4> = BoundedVec::from_array([2, 5, 8, 11]);
+            let result = for_eachi_mapi(vec, |i, value| (i + value * 2) as u64);
+            let expected: BoundedVec<u64, 4> = BoundedVec::from_array([2, 5, 8, 11]);
 
             assert_eq(result, expected);
         }

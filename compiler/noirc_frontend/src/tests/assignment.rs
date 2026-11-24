@@ -160,10 +160,10 @@ fn deeply_nested_block_expressions_in_lvalue() {
 fn nested_array_index_side_effect_ordering() {
     // Tests ordering with three levels of nesting
     let src = r#"
-        fn inc(c: &mut Field) -> u32 {
+        fn inc(c: &mut u32) -> u32 {
             let old = *c;
             *c = *c + 1;
-            old as u32
+            old
         }
 
         fn main() {
@@ -179,14 +179,14 @@ fn nested_array_index_side_effect_ordering() {
     "#;
     let expanded = assert_no_errors_and_to_string(src);
     insta::assert_snapshot!(expanded, @r"
-    fn inc(c: &mut Field) -> u32 {
-        let old: Field = *c;
-        *c = *c + 1_Field;
-        old as u32
+    fn inc(c: &mut u32) -> u32 {
+        let old: u32 = *c;
+        *c = *c + 1_u32;
+        old
     }
 
     fn main() {
-        let mut counter: Field = 0_Field;
+        let mut counter: u32 = 0_u32;
         let mut arr: [[[Field; 3]; 3]; 3] = [[[0_Field; 3]; 3]; 3];
         {
             let i_0: u32 = inc(&mut counter);
@@ -194,7 +194,7 @@ fn nested_array_index_side_effect_ordering() {
             let i_2: u32 = inc(&mut counter);
             arr[i_0][i_1][i_2] = 42_Field;
         };
-        assert(counter == 3_Field);
+        assert(counter == 3_u32);
         assert(arr[0_u32][1_u32][2_u32] == 42_Field);
     }
     ");
@@ -208,10 +208,10 @@ fn member_access_then_array_index_ordering() {
             arrays: [[Field; 2]; 2]
         }
 
-        fn inc(c: &mut Field) -> u32 {
+        fn inc(c: &mut u32) -> u32 {
             let old = *c;
             *c = *c + 1;
-            old as u32
+            old
         }
 
         fn main() {
@@ -231,21 +231,21 @@ fn member_access_then_array_index_ordering() {
         arrays: [[Field; 2]; 2],
     }
 
-    fn inc(c: &mut Field) -> u32 {
-        let old: Field = *c;
-        *c = *c + 1_Field;
-        old as u32
+    fn inc(c: &mut u32) -> u32 {
+        let old: u32 = *c;
+        *c = *c + 1_u32;
+        old
     }
 
     fn main() {
-        let mut counter: Field = 0_Field;
+        let mut counter: u32 = 0_u32;
         let mut foo: Foo = Foo { arrays: [[0_Field; 2]; 2]};
         {
             let i_0: u32 = inc(&mut counter);
             let i_1: u32 = inc(&mut counter);
             foo.arrays[i_0][i_1] = 55_Field;
         };
-        assert(counter == 2_Field);
+        assert(counter == 2_u32);
         assert(foo.arrays[0_u32][1_u32] == 55_Field);
     }
     ");

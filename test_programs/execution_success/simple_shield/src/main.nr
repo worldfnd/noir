@@ -12,7 +12,7 @@ fn main(
 ) -> pub [[u8; 32]; 2] {
     let priv_key = Field::from_le_bytes_checked(priv_key);
     let note_root = Field::from_le_bytes_checked(note_root);
-    let index = index as Field;
+    let index = Field::from(index);
     let note_hash_path = note_hash_path.map(|node| Field::from_le_bytes_checked(node));
     let to_pubkey_x = Field::from_le_bytes_checked(to_pubkey_x);
     let to_pubkey_y = Field::from_le_bytes_checked(to_pubkey_y);

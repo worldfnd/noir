@@ -1,8 +1,9 @@
+use std::convert::UnsafeFrom;
 // Tests a very simple program.
 //
 // The features being tested are array reads and writes
 fn main(x: [u8; 3]) {
-    let x = x.map(|v| v as Field);
+    let x = x.map(|v| Field::from(v));
     // Safety: testing context
     unsafe {
         read_array(x);
@@ -14,7 +15,7 @@ unconstrained fn read_array(x: [Field; 3]) {
     assert(x[0] == 1);
     let y = [1, 5, 27];
 
-    assert(y[x[0] as u32] == 5);
+    assert(y[u32::unsafe_from(x[0])] == 5);
 }
 
 unconstrained fn read_write_array(x: [Field; 3]) {

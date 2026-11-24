@@ -1,4 +1,4 @@
-use crate::default::Default;
+use crate::{convert::From, default::Default};
 use crate::hash::{Hasher, POSEIDON2_CONFIG_STATE_SIZE};
 
 // Sponge capacity in field elements: It must match the backend's Poseidon2 parameter.
@@ -16,7 +16,7 @@ impl Hasher for Poseidon2Hasher {
 
     fn finish_ref(&self) -> Field {
         let input_length = self._state.len();
-        let iv: Field = (input_length as Field) * 18446744073709551616; // iv = (self._state.len() << 64)
+        let iv: Field = Field::from(input_length) * 18446744073709551616; // iv = (self._state.len() << 64)
         let mut state = [0; POSEIDON2_CONFIG_STATE_SIZE];
         state[RATE] = iv;
 

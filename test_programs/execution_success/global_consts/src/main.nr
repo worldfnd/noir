@@ -7,7 +7,7 @@ global N: u32 = 5;
 global T_LEN: u32 = 2;
 
 // Globals can reference other globals
-global DERIVED: Field = M as Field + L;
+global DERIVED: Field = Field::from(M) + L;
 
 struct Dummy {
     x: [Field; N],
@@ -33,20 +33,20 @@ fn main(
     c: pub [u8; foo::MAGIC_NUMBER],
     d: [u8; foo::bar::N],
 ) {
-    let a = a.map(|v| v as Field);
-    let b = b.map(|v| v as Field);
-    let c = c.map(|v| v as Field);
-    let d = d.map(|v| v as Field);
+    let a = a.map(|v| Field::from(v));
+    let b = b.map(|v| Field::from(v));
+    let c = c.map(|v| Field::from(v));
+    let d = d.map(|v| Field::from(v));
 
     let test_struct = Dummy { x: d, y: c };
 
     for i in 0..foo::MAGIC_NUMBER {
-        assert(c[i] == foo::MAGIC_NUMBER as Field);
-        assert(test_struct.y[i] == foo::MAGIC_NUMBER as Field);
+        assert(c[i] == Field::from(foo::MAGIC_NUMBER));
+        assert(test_struct.y[i] == Field::from(foo::MAGIC_NUMBER));
         assert(test_struct.y[i] != NESTED[1][0].v);
     }
 
-    assert(N as Field != M as Field);
+    assert(Field::from(N) != Field::from(M));
 
     let expected: u32 = 42;
     assert(foo::TYPE_INFERRED == expected);
@@ -67,31 +67,31 @@ fn main(
 
     arrays_neq(a, b);
 
-    let t: [Field; T_LEN] = [N as Field, M as Field];
+    let t: [Field; T_LEN] = [Field::from(N), Field::from(M)];
     assert(t[1] == 32);
 
     assert(15 == my_submodule::my_helper());
 
-    let add_submodules_N = my_submodule::N as Field + foo::bar::N as Field;
+    let add_submodules_N = Field::from(my_submodule::N) + Field::from(foo::bar::N);
     assert(15 == add_submodules_N);
-    let add_from_bar_N = my_submodule::N as Field + foo::bar::from_bar(1);
+    let add_from_bar_N = Field::from(my_submodule::N) + foo::bar::from_bar(1);
     assert(15 == add_from_bar_N);
     // Example showing an array filled with (my_submodule::N + 2) 0's
     let sugared = [0; my_submodule::N + 2];
     assert(sugared[my_submodule::N + 1] == 0);
 
-    let arr: [Field; my_submodule::N] = [N as Field; 10];
+    let arr: [Field; my_submodule::N] = [Field::from(N); 10];
     assert((arr[0] == 5) & (arr[9] == 5));
 
     foo::from_foo(d);
     baz::from_baz(c);
-    assert(DERIVED == M as Field + L);
+    assert(DERIVED == Field::from(M) + L);
 
     assert(CALCULATED_GLOBAL == 42);
 }
 
 fn multiplyByM(x: Field) -> Field {
-    x * M as Field
+    x * Field::from(M)
 }
 
 fn arrays_neq(a: [Field; M], b: [Field; M]) {
@@ -103,7 +103,7 @@ mod my_submodule {
 
     pub fn my_helper() -> Field {
         let N: u32 = 15; // Like in Rust, local variables override globals
-        let x = N as Field;
+        let x = Field::from(N);
         x
     }
 }

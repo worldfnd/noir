@@ -5412,8 +5412,8 @@ mod consts {
 }
 
 fn main(x: u8, y: pub u8) {
-    let x: Field = x as Field;
-    let y: Field = y as Field;
+    let x: Field = <Field as From<u8>>::from(x);
+    let y: Field = <Field as From<u8>>::from(y);
     // Safety: comment added by `nargo expand`
     unsafe {
         assert(entry_point_only_const_global(x) == 2_Field);

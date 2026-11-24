@@ -14,8 +14,8 @@ impl Hasher {
 
 fn main(expected: pub u8, first: u8) {
     let mut hasher = Hasher::new();
-    hasher.add(first as Field);
-    assert(hasher.fields[0] == expected as Field);
+    hasher.add(Field::from(first));
+    assert(hasher.fields[0] == Field::from(expected));
 
     regression_4967();
 }

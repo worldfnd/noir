@@ -1,3 +1,4 @@
+use std::convert::UnsafeFrom;
 // Regression: a `break` in a `while` condition targets the enclosing loop, not the `while`.
 //
 // The inner `while`'s condition unconditionally breaks, which exits the outer `while` before the
@@ -30,5 +31,5 @@ unconstrained fn main(cond: bool) -> pub [u8; 2] {
         };
         i = i + 1;
     }
-    [x[0] as u8, z[0] as u8]
+    [u8::unsafe_from(x[0]), u8::unsafe_from(z[0])]
 }

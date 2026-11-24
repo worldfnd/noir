@@ -8,8 +8,9 @@ unconstrained fn main(
     points: [(u8, [u8; 32]); 5],
     scalars: [[u8; 32]; 5],
 ) -> pub ([u8; 32], [u8; 32]) {
-    let points =
-        points.map(|(x, y)| EmbeddedCurvePoint::new(x as Field, Field::from_le_bytes_checked(y)));
+    let points = points.map(|(x, y)| {
+        EmbeddedCurvePoint::new(Field::from(x), Field::from_le_bytes_checked(y))
+    });
     let scalars = scalars.map(|scalar| Field::from_le_bytes_checked(scalar));
     let result = double_then_add_msm(points, scalars);
     (result.x.to_le_bytes(), result.y.to_le_bytes())

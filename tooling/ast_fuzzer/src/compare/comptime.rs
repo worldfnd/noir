@@ -33,6 +33,65 @@ use crate::{
     Config, DisplayAstAsNoirComptime, arb_program_comptime, program_abi, program_wrap_expression,
 };
 
+/// The print part of the stdlib, for the elaborator to be able to use the print oracle.
+const STDLIB_PRINT: &str = r#"
+        #[oracle(print)]
+        unconstrained fn print_oracle<T>(with_newline: bool, input: T) {}
+
+        unconstrained fn print_unconstrained<T>(with_newline: bool, input: T) {
+            print_oracle(with_newline, input);
+        }
+
+        pub fn println<T>(input: T) {
+            unsafe {
+                print_unconstrained(true, input);
+            }
+        }
+
+        pub fn print<T>(input: T) {
+            unsafe {
+                print_unconstrained(false, input);
+            }
+        }
+        "#;
+
+/// The conversions between `Field` and the integer types, where a printed program names them.
+const STDLIB_CONVERT: &str = r#"
+        mod std {
+            pub mod convert {
+                pub trait UnsafeFrom<T> {
+                    fn unsafe_from(input: T) -> Self;
+                }
+
+                impl<let N: u32> UnsafeFrom<u<N>> for Field {
+                    #[builtin(field_cast)]
+                    fn unsafe_from(input: u<N>) -> Field {}
+                }
+
+                impl<let N: u32> UnsafeFrom<i<N>> for Field {
+                    #[builtin(field_cast)]
+                    fn unsafe_from(input: i<N>) -> Field {}
+                }
+
+                impl<let N: u32> UnsafeFrom<Field> for u<N> {
+                    #[builtin(field_cast)]
+                    fn unsafe_from(input: Field) -> u<N> {}
+                }
+
+                impl<let N: u32> UnsafeFrom<Field> for i<N> {
+                    #[builtin(field_cast)]
+                    fn unsafe_from(input: Field) -> i<N> {}
+                }
+            }
+        }
+        "#;
+
+/// The source the comptime interpreter runs for the `printed` program: `main` made `comptime`,
+/// with the parts of the stdlib the program uses declared beside it.
+fn direct_source(printed: &str) -> String {
+    format!("comptime {printed}{STDLIB_PRINT}{STDLIB_CONVERT}")
+}
+
 /// Prepare a code snippet.
 /// (copied from `nargo_cli/tests/common.rs`)
 fn prepare_snippet(source: String) -> (Context<'static, 'static>, CrateId) {
@@ -98,30 +157,8 @@ impl CompareComptime {
         let (res2, print2) =
             Self::exec_bytecode(&self.ssa.artifact.program, initial_witness.clone());
 
-        // Include the print part of stdlib for the elaborator to be able to use the print oracle
-        let import_print = r#"
-        #[oracle(print)]
-        unconstrained fn print_oracle<T>(with_newline: bool, input: T) {}
-
-        unconstrained fn print_unconstrained<T>(with_newline: bool, input: T) {
-            print_oracle(with_newline, input);
-        }
-
-        pub fn println<T>(input: T) {
-            unsafe {
-                print_unconstrained(true, input);
-            }
-        }
-
-        pub fn print<T>(input: T) {
-            unsafe {
-                print_unconstrained(false, input);
-            }
-        }
-        "#;
-
-        // Add comptime modifier for main
-        let source = format!("comptime {}{}", self.source, import_print);
+        // The interpreter runs the source as the standard library, which has no `std` to call.
+        let source = direct_source(&DisplayAstAsNoirComptime(&self.program).to_string());
         let output = Rc::new(RefCell::new(Vec::new()));
 
         // Take the printed output.
@@ -312,7 +349,28 @@ impl HasPrograms for CompareComptime {
 
 #[cfg(test)]
 mod tests {
-    use super::prepare_and_compile_snippet;
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    use noirc_frontend::elaborator::test_utils::interpret;
+
+    use super::{direct_source, prepare_and_compile_snippet};
+
+    /// A printed program converts between `Field` and an integer through `std::convert`, which
+    /// the interpreted source declares for itself.
+    #[test]
+    fn interprets_a_conversion_between_field_and_an_integer() {
+        let printed = "fn main() -> pub bool {
+            comptime {
+                let x: u32 = 7_u32;
+                let f: Field = <Field as std::convert::UnsafeFrom<u32>>::unsafe_from(x);
+                (<i8 as std::convert::UnsafeFrom<Field>>::unsafe_from(f) == 7_i8)
+            }
+        }";
+        let output = Rc::new(RefCell::new(Vec::new()));
+        let result = interpret(&direct_source(printed), output);
+        assert!(result.is_ok(), "{:?}", result.err());
+    }
 
     /// Comptime compilation can fail with stack overflow because of how the interpreter is evaluating instructions.
     /// We could apply `#[inline(always)]` on some of the `Interpreter::elaborate_` functions to make it go further,

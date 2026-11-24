@@ -38,5 +38,5 @@ fn main(value: u8) {
     let ps: PublicMutable<Field> = PublicMutable::new(27);
 
     // error here
-    assert(ps.read() == value as Field);
+    assert(ps.read() == Field::from(value));
 }

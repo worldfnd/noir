@@ -1,18 +1,24 @@
 //! Function-local context management for type variables and trait constraints.
 
 use noirc_errors::Location;
+use num_bigint::BigInt;
 
 use crate::{
     Kind, Type, TypeBindings,
     elaborator::lints::check_integer_literal_fits_its_type,
     hir::{
         comptime::{InterpreterError, Value},
-        type_check::{NoMatchingImplFoundError, TypeCheckError},
+        type_check::{FieldCastSuggestion, NoMatchingImplFoundError, TypeCheckError},
     },
-    hir_def::traits::TraitConstraint,
+    hir_def::{
+        expr::{HirExpression, HirLiteral},
+        traits::TraitConstraint,
+    },
     node_interner::{
-        DefinitionKind, ExprId, GlobalValue, ImplSearchErrorKind, TraitImplKind, TypeId,
+        DefinitionKind, ExprId, GlobalValue, ImplSearchErrorKind, TraitImplKind, TraitLookupMode,
+        TypeId,
     },
+    shared::MIN_INTEGER_WIDTH,
 };
 use crate::{TypeVariableId, node_interner::DefinitionId};
 
@@ -41,6 +47,22 @@ pub(super) struct FunctionContext {
     /// All `ExprId` in a function that correspond to integer literals.
     /// At the end, if they don't fit in their type's min/max range, we'll produce an error.
     integer_literal_expr_ids: Vec<ExprId>,
+
+    /// All casts to `Field` or to an integer in a function. Their source may be a type variable
+    /// where the cast is written, so the rules for a cast between `Field` and an integer are
+    /// applied at the end, once it is bound.
+    field_casts: Vec<FieldCast>,
+}
+
+/// A cast that may be between `Field` and an integer, kept until its source type is known.
+#[derive(Debug)]
+struct FieldCast {
+    lhs: ExprId,
+    from: Type,
+    to: Type,
+    location: Location,
+    /// True when nothing but defaulting gives the source its type.
+    defaulted: bool,
 }
 
 /// A type variable that is required to be bound after type-checking a function.
@@ -157,6 +179,19 @@ impl Elaborator<'_> {
         self.get_function_context_mut().integer_literal_expr_ids.push(literal_expr_id);
     }
 
+    /// Push a cast of the expression `lhs`, of type `from`, to `Field` or to an integer type.
+    /// At the end of the current function we'll check that the cast may be written.
+    pub(super) fn push_field_cast(
+        &mut self,
+        lhs: ExprId,
+        from: Type,
+        to: Type,
+        location: Location,
+    ) {
+        let cast = FieldCast { lhs, from, to, location, defaulted: false };
+        self.get_function_context_mut().field_casts.push(cast);
+    }
+
     pub(super) fn integer_literal_expr_ids_len(&mut self) -> usize {
         self.get_function_context_mut().integer_literal_expr_ids.len()
     }
@@ -180,12 +215,40 @@ impl Elaborator<'_> {
     /// all still-unsolved trait constraints in this context.
     #[tracing::instrument(level = "trace", skip_all)]
     pub(super) fn check_and_pop_function_context(&mut self) {
+        let unbound_casts = self.pop_function_context();
+        self.check_unbound_field_casts(unbound_casts);
+    }
+
+    /// Like [Self::check_and_pop_function_context], for a context nested in a function's own:
+    /// a cast there may name a variable of the function, which is bound only later, so such a
+    /// cast is checked when the enclosing context ends.
+    #[tracing::instrument(level = "trace", skip_all)]
+    pub(super) fn check_and_pop_nested_function_context(&mut self) {
+        let unbound_casts = self.pop_function_context();
+        // The bottom context belongs to no function, so nothing there binds a variable later.
+        if self.function_context.len() > 1 {
+            self.get_function_context_mut().field_casts.extend(unbound_casts);
+        } else {
+            self.check_unbound_field_casts(unbound_casts);
+        }
+    }
+
+    /// Checks and pops the current context, returning the casts whose source is still a type
+    /// variable.
+    fn pop_function_context(&mut self) -> Vec<FieldCast> {
         let context = self.function_context.pop().expect("Imbalanced function_context pushes");
         self.bind_type_variables_from_trait_constraints(&context.trait_constraints);
+        // Marked before defaulting, which is what binds a source nothing else gives a type.
+        let mut field_casts = context.field_casts;
+        for cast in &mut field_casts {
+            cast.defaulted = matches!(cast.from.follow_bindings(), Type::TypeVariable(_));
+        }
         self.check_defaultable_type_variables(context.defaultable_type_variables);
+        let unbound_casts = self.check_field_casts(field_casts);
         self.check_integer_literal_fit_their_type(context.integer_literal_expr_ids);
         self.check_trait_constraints(context.trait_constraints);
         self.check_required_type_variables(context.required_type_variables);
+        unbound_casts
     }
 
     /// Best-effort trait-constraint resolution that runs before integer-literal defaulting.
@@ -228,6 +291,125 @@ impl Elaborator<'_> {
                 self.push_err(error);
             }
         }
+    }
+
+    /// Applies the rules for a cast between `Field` and an integer to each cast whose source
+    /// type is known, and returns the rest.
+    fn check_field_casts(&mut self, casts: Vec<FieldCast>) -> Vec<FieldCast> {
+        let mut unbound = Vec::new();
+        for cast in casts {
+            let from = cast.from.follow_bindings();
+            if matches!(from, Type::TypeVariable(_)) {
+                unbound.push(cast);
+            } else if let Some(error) = self.field_cast_error(&cast, from) {
+                self.push_err(error);
+            }
+        }
+        unbound
+    }
+
+    /// Applies the same rules to casts whose source no context binds, which makes it the
+    /// default of its kind.
+    fn check_unbound_field_casts(&mut self, casts: Vec<FieldCast>) {
+        for cast in casts {
+            if let Type::TypeVariable(variable) = cast.from.follow_bindings()
+                && let Some(from) = variable.kind().default_type()
+                && let Some(error) = self.field_cast_error(&cast, from)
+            {
+                self.push_err(error);
+            }
+        }
+    }
+
+    /// The error of writing `cast` from a value of type `from`, if it crosses between `Field`
+    /// and an integer. A value crosses through `From`, `TryFrom` or `UnsafeFrom`, which say what
+    /// happens to one that does not fit. A literal that fits is the same number under every
+    /// field.
+    fn field_cast_error(&self, cast: &FieldCast, from: Type) -> Option<TypeCheckError> {
+        let to_field = matches!(cast.to, Type::FieldElement);
+        let crosses = match from {
+            Type::Integer(..) => to_field,
+            Type::FieldElement => !to_field && !self.is_literal_that_fits(cast),
+            _ => false,
+        };
+        crosses.then(|| {
+            let to = cast.to.clone();
+            let suggestion = self.field_cast_suggestion(cast, &from);
+            TypeCheckError::FieldCastDenied { from, to, suggestion, location: cast.location }
+        })
+    }
+
+    /// The value of the integer literal `cast` is written on, if it is one.
+    fn cast_literal(&self, cast: &FieldCast) -> Option<BigInt> {
+        match self.interner.expression(&cast.lhs) {
+            HirExpression::Literal(HirLiteral::Integer(value)) => Some(value),
+            _ => None,
+        }
+    }
+
+    /// Whether `cast` is written on a literal that its target type holds as written, at every
+    /// width the target may have where its width names a generic.
+    fn is_literal_that_fits(&self, cast: &FieldCast) -> bool {
+        let maximum = match &cast.to {
+            Type::Integer(sign, width) if width.constant_width().is_none() => {
+                Type::integer(*sign, MIN_INTEGER_WIDTH).integral_maximum_size()
+            }
+            to => to.integral_maximum_size(),
+        };
+        self.cast_literal(cast).is_some_and(|value| {
+            value >= BigInt::ZERO && maximum.is_some_and(|maximum| value <= maximum)
+        })
+    }
+
+    /// What to write in place of `cast`, which crosses between `Field` and an integer from a
+    /// value of type `from`.
+    fn field_cast_suggestion(&self, cast: &FieldCast, from: &Type) -> FieldCastSuggestion {
+        if matches!(cast.to, Type::FieldElement) {
+            if self.field_from_exists(from) {
+                FieldCastSuggestion::FieldFrom
+            } else {
+                FieldCastSuggestion::Convert
+            }
+        } else if let Some(literal) = self.typed_literal(cast) {
+            FieldCastSuggestion::TypedLiteral(literal)
+        } else if cast.defaulted && self.cast_literal(cast).is_none() {
+            FieldCastSuggestion::DeclareType(self.cast_variable_name(cast))
+        } else {
+            FieldCastSuggestion::Convert
+        }
+    }
+
+    /// Whether the standard library's `From` converts every value of `from` to `Field`.
+    fn field_from_exists(&self, from: &Type) -> bool {
+        let from_trait = self.interner.traits.iter().find(|(trait_id, the_trait)| {
+            trait_id.0.krate.is_stdlib() && the_trait.name.as_str() == "From"
+        });
+        from_trait.is_some_and(|(trait_id, _)| {
+            let field = Type::FieldElement;
+            let generics = [from.clone()];
+            let mode = TraitLookupMode::Default;
+            self.interner
+                .try_lookup_trait_implementation(&field, *trait_id, &generics, &[], mode)
+                .is_ok()
+        })
+    }
+
+    /// The name of the variable `cast` is written on, if it is one.
+    fn cast_variable_name(&self, cast: &FieldCast) -> Option<String> {
+        match self.interner.expression(&cast.lhs) {
+            HirExpression::Ident(ident, _) => {
+                Some(self.interner.definition_name(ident.id).to_owned())
+            }
+            _ => None,
+        }
+    }
+
+    /// The literal `cast` is written on, typed as its target: what to write in place of a
+    /// negative literal, which a cast would take through `Field`.
+    fn typed_literal(&self, cast: &FieldCast) -> Option<String> {
+        let value = self.cast_literal(cast)?;
+        let minimum = cast.to.integral_minimum_size()?;
+        (value < BigInt::ZERO && value >= minimum).then(|| format!("{value}{}", cast.to))
     }
 
     #[tracing::instrument(level = "trace", skip_all)]

@@ -2,11 +2,11 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
-use std::vector;
+use std::{convert::UnsafeFrom, vector};
 
 fn main(x: u8, y: pub u8) {
-    let x: Field = x as Field;
-    let y: Field = y as Field;
+    let x: Field = <Field as From<u8>>::from(x);
+    let y: Field = <Field as From<u8>>::from(y);
     let mut vector: [Field] = [0_Field; 2].as_vector();
     assert(vector[0_u32] == 0_Field);
     assert(vector[0_u32] != 1_Field);
@@ -63,7 +63,7 @@ fn main(x: u8, y: pub u8) {
     regression_4418(x);
     regression_vector_call_result(x, y);
     regression_4506();
-    regression_vector_to_brillig((x as u32) % 3_u32);
+    regression_vector_to_brillig(u32::unsafe_from(x) % 3_u32);
 }
 
 fn regression_2083() {
@@ -171,7 +171,7 @@ fn merge_vectors_mutate_in_loop(x: Field, y: Field) -> [Field] {
     let mut vector: [Field] = [0_Field; 2].as_vector();
     if x != y {
         for i in 0_u32..5_u32 {
-            vector = vector.push_back(i as Field);
+            vector = vector.push_back(<Field as From<u32>>::from(i));
         }
     } else {
         vector = vector.push_back(x);

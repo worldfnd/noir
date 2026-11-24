@@ -28,7 +28,8 @@ global ALLOCATE_HASHMAP: fn() -> UHashMap<K, V, BuildHasherDefault<Poseidon2Hash
     || -> UHashMap<K, V, BuildHasherDefault<Poseidon2Hasher>> UHashMap::default();
 
 unconstrained fn main(input: [InputEntry; HASHMAP_LEN]) {
-    let input = input.map(|entry| Entry { key: entry.key as K, value: entry.value as V });
+    let input =
+        input.map(|entry| Entry { key: Field::from(entry.key), value: Field::from(entry.value) });
     test_sequential(input[0].key, input[0].value);
     test_multiple_equal_insert(input[1].key, input[1].value);
     test_value_override(input[2].key, input[2].value, input[3].value);

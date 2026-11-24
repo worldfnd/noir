@@ -1,6 +1,6 @@
 fn main(x: u8, y: pub u8) {
-    let x = x as Field;
-    let y = y as Field;
+    let x = Field::from(x);
+    let y = Field::from(y);
     let string = "i: {i}, j: {j}";
     println(string);
 

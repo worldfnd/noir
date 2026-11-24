@@ -2,6 +2,8 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
+use std::convert::UnsafeFrom;
+
 struct EnumEmulation {
     a: Option<Field>,
     b: Option<Field>,
@@ -18,5 +20,5 @@ unconstrained fn main() -> pub u8 {
         assert(emulated_enum.a.unwrap() == 1_Field);
     }
     emulated_enum.a = Option::<Field>::some(2_Field);
-    emulated_enum.a.unwrap() as u8
+    u8::unsafe_from(emulated_enum.a.unwrap())
 }

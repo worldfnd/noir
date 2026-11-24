@@ -1,7 +1,8 @@
+use std::convert::UnsafeFrom;
 unconstrained fn main(a: bool) -> pub u8 {
     if ((!a) > (!a)) {
-        (-(-(a as Field))) as u8
+        u8::unsafe_from(-(-(a as Field)))
     } else {
-        (-(-(a as Field))) as u8
+        u8::unsafe_from(-(-(a as Field)))
     }
 }

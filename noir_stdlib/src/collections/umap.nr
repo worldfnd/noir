@@ -1,4 +1,4 @@
-use crate::cmp::Eq;
+use crate::{cmp::Eq, convert::UnsafeFrom};
 use crate::default::Default;
 use crate::hash::{BuildHasher, Hash};
 use crate::option::Option;
@@ -404,7 +404,7 @@ impl<K, V, B> UHashMap<K, V, B> {
     {
         let mut hasher = self._build_hasher.build_hasher();
         key.hash(&mut hasher);
-        hasher.finish_ref() as u32
+        u32::unsafe_from(hasher.finish_ref())
     }
 
     /// Probing scheme: linear probing.

@@ -2,6 +2,8 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
+use std::convert::UnsafeFrom;
+
 fn main() {
     let ten: Field = 10_Field;
     let none: Option<Field> = Option::<Field>::none();
@@ -32,7 +34,7 @@ fn main() {
     assert(some.and(none).is_none());
     assert(some.and(some).is_some());
     let add1_u64: fn(Field) -> Option<u64> =
-        |value: Field| -> Option<u64> Option::<u64>::some((value as u64) + 1_u64);
+        |value: Field| -> Option<u64> Option::<u64>::some(u64::unsafe_from(value) + 1_u64);
     assert(none.and_then(|_value: Field| -> Option<Field> none).is_none());
     assert(none.and_then(add1_u64).is_none());
     assert(some.and_then(|_value: Field| -> Option<Field> none).is_none());

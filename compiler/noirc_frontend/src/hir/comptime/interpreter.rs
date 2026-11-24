@@ -1128,9 +1128,7 @@ impl<'local, 'interner> Interpreter<'local, 'interner> {
                     let first_field = fields.iter().next();
                     match first_field {
                         Some((_, value)) => match &*value.borrow() {
-                            Value::Integer(Integer::Field(ordering)) => {
-                                Some(ordering.as_biguint().clone())
-                            }
+                            Value::Integer(Integer::Int { value, .. }) => value.to_biguint(),
                             _ => None,
                         },
                         None => None,

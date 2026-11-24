@@ -1,4 +1,6 @@
-use crate::tests::{assert_no_errors, check_errors};
+use crate::hir::def_collector::dc_crate::CompilationError;
+use crate::hir::def_collector::errors::DefCollectorErrorKind;
+use crate::tests::{assert_no_errors, check_errors, get_program_errors};
 
 #[test]
 fn use_super() {
@@ -219,4 +221,33 @@ fn main() {
 }
 "#;
     check_errors(src);
+}
+
+/// Import errors are reported in the order the imports are written, whatever their locations
+/// hash to.
+#[test]
+fn import_errors_are_reported_in_source_order() {
+    let names = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l"];
+    let functions: String = names.iter().map(|name| format!("pub fn {name}() {{}}\n")).collect();
+    let imports = names.join(", ");
+    let src = format!(
+        "mod first {{ {functions} }}
+        mod second {{ {functions} }}
+        use first::{{{imports}}};
+        use second::{{{imports}}};
+        fn main() {{}}"
+    );
+
+    let errors = get_program_errors(&src);
+    let duplicates: Vec<String> = errors
+        .iter()
+        .filter_map(|error| match error {
+            CompilationError::DefinitionError(DefCollectorErrorKind::Duplicate {
+                first_def,
+                ..
+            }) => Some(first_def.to_string()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(duplicates, names);
 }

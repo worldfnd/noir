@@ -5,7 +5,7 @@ struct Point {
 
 impl Point {
     fn serialize(self) -> [Field; 2] {
-        [self.x as Field, self.y as Field]
+        [Field::from(self.x), Field::from(self.y)]
     }
 }
 

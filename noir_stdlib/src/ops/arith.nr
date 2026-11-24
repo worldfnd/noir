@@ -1,5 +1,3 @@
-use crate::convert::AsPrimitive;
-
 // docs:start:add-trait
 pub trait Add {
     fn add(self, other: Self) -> Self;
@@ -141,46 +139,42 @@ pub trait WrappingAdd {
 }
 // docs:end:wrapping-add-trait
 
+// The operation is done in the type twice as wide and cut back. `u8` and `u16` do so under every
+// field, since every field holds a `u32`. So does `u64`: a field whose modulus a `u128` can reach
+// is one a `u64` reaches already. `u32` does so under bn254 only: elsewhere `u64` can reach the
+// modulus and `u32` cannot, so it goes through `Field`.
 impl WrappingAdd for u8 {
     fn wrapping_add(self: u8, y: u8) -> u8 {
-        wrapping_add_hlp(self, y)
+        ((self as u16) + (y as u16)) as u8
     }
 }
 
 impl WrappingAdd for u16 {
     fn wrapping_add(self: u16, y: u16) -> u16 {
-        wrapping_add_hlp(self, y)
+        ((self as u32) + (y as u32)) as u16
     }
 }
 
+#[field(bn254)]
 impl WrappingAdd for u32 {
     fn wrapping_add(self: u32, y: u32) -> u32 {
-        wrapping_add_hlp(self, y)
-    }
-}
-
-#[field(bn254)]
-impl WrappingAdd for u64 {
-    fn wrapping_add(self: u64, y: u64) -> u64 {
-        wrapping_add_hlp(self, y)
+        ((self as u64) + (y as u64)) as u32
     }
 }
 
 #[field(not(bn254))]
+impl WrappingAdd for u32 {
+    fn wrapping_add(self: u32, y: u32) -> u32 {
+        through_field::wrapping_add32(self, y)
+    }
+}
+
 impl WrappingAdd for u64 {
     fn wrapping_add(self: u64, y: u64) -> u64 {
-        wrapping_add_int(self, y)
+        ((self as u128) + (y as u128)) as u64
     }
 }
 
-#[field(bn254)]
-impl WrappingAdd for u128 {
-    fn wrapping_add(self: u128, y: u128) -> u128 {
-        wrapping_add_hlp(self, y)
-    }
-}
-
-#[field(not(bn254))]
 impl WrappingAdd for u128 {
     fn wrapping_add(self: u128, y: u128) -> u128 {
         wrapping_add_int(self, y)
@@ -214,6 +208,7 @@ impl WrappingAdd for i64 {
         x.wrapping_add(y as u64) as i64
     }
 }
+
 impl WrappingAdd for Field {
     fn wrapping_add(self: Field, y: Field) -> Field {
         self + y
@@ -228,43 +223,36 @@ pub trait WrappingSub {
 
 impl WrappingSub for u8 {
     fn wrapping_sub(self: u8, y: u8) -> u8 {
-        wrapping_sub_hlp(self, y, 0x100) as u8
+        ((self as u16) + (0x100 - (y as u16))) as u8
     }
 }
 
 impl WrappingSub for u16 {
     fn wrapping_sub(self: u16, y: u16) -> u16 {
-        wrapping_sub_hlp(self, y, 0x10000) as u16
+        ((self as u32) + (0x10000 - (y as u32))) as u16
     }
 }
 
+#[field(bn254)]
 impl WrappingSub for u32 {
     fn wrapping_sub(self: u32, y: u32) -> u32 {
-        wrapping_sub_hlp(self, y, 0x100000000) as u32
-    }
-}
-#[field(bn254)]
-impl WrappingSub for u64 {
-    fn wrapping_sub(self: u64, y: u64) -> u64 {
-        wrapping_sub_hlp(self, y, 0x10000000000000000) as u64
+        ((self as u64) + (0x100000000 - (y as u64))) as u32
     }
 }
 
 #[field(not(bn254))]
+impl WrappingSub for u32 {
+    fn wrapping_sub(self: u32, y: u32) -> u32 {
+        through_field::wrapping_sub32(self, y)
+    }
+}
+
 impl WrappingSub for u64 {
     fn wrapping_sub(self: u64, y: u64) -> u64 {
-        wrapping_sub_int(self, y)
+        ((self as u128) + (0x10000000000000000 - (y as u128))) as u64
     }
 }
 
-#[field(bn254)]
-impl WrappingSub for u128 {
-    fn wrapping_sub(self: u128, y: u128) -> u128 {
-        wrapping_sub_hlp(self, y, 0x100000000000000000000000000000000) as u128
-    }
-}
-
-#[field(not(bn254))]
 impl WrappingSub for u128 {
     fn wrapping_sub(self: u128, y: u128) -> u128 {
         wrapping_sub_int(self, y)
@@ -291,12 +279,14 @@ impl WrappingSub for i32 {
         x.wrapping_sub(y as u32) as i32
     }
 }
+
 impl WrappingSub for i64 {
     fn wrapping_sub(self: i64, y: i64) -> i64 {
         let x = self as u64;
         x.wrapping_sub(y as u64) as i64
     }
 }
+
 impl WrappingSub for Field {
     fn wrapping_sub(self: Field, y: Field) -> Field {
         self - y
@@ -311,29 +301,30 @@ pub trait WrappingMul {
 
 impl WrappingMul for u8 {
     fn wrapping_mul(self: u8, y: u8) -> u8 {
-        wrapping_mul_hlp(self, y)
+        ((self as u16) * (y as u16)) as u8
     }
 }
 
 impl WrappingMul for u16 {
     fn wrapping_mul(self: u16, y: u16) -> u16 {
-        wrapping_mul_hlp(self, y)
+        ((self as u32) * (y as u32)) as u16
     }
 }
 
+#[field(bn254)]
 impl WrappingMul for u32 {
     fn wrapping_mul(self: u32, y: u32) -> u32 {
-        wrapping_mul_hlp(self, y)
-    }
-}
-#[field(bn254)]
-impl WrappingMul for u64 {
-    fn wrapping_mul(self: u64, y: u64) -> u64 {
-        wrapping_mul_hlp(self, y)
+        ((self as u64) * (y as u64)) as u32
     }
 }
 
 #[field(not(bn254))]
+impl WrappingMul for u32 {
+    fn wrapping_mul(self: u32, y: u32) -> u32 {
+        through_field::wrapping_mul32(self, y)
+    }
+}
+
 impl WrappingMul for u64 {
     fn wrapping_mul(self: u64, y: u64) -> u64 {
         ((self as u128) * (y as u128)) as u64
@@ -371,7 +362,7 @@ impl WrappingMul for i64 {
 #[field(bn254)]
 impl WrappingMul for u128 {
     fn wrapping_mul(self: u128, y: u128) -> u128 {
-        wrapping_mul128_hlp(self, y)
+        bn254::wrapping_mul128(self, y)
     }
 }
 
@@ -381,38 +372,13 @@ impl WrappingMul for u128 {
         wrapping_mul128_int(self, y)
     }
 }
+
 impl WrappingMul for Field {
     fn wrapping_mul(self: Field, y: Field) -> Field {
         self * y
     }
 }
 
-fn wrapping_add_hlp<T>(x: T, y: T) -> T
-where
-    T: AsPrimitive<Field>,
-    Field: AsPrimitive<T>,
-{
-    AsPrimitive::as_(x.as_() + y.as_())
-}
-
-/// `bias` must be `2^W` for the `W`-bit type `T`: it prevents field underflow without
-/// changing the low `W` bits.
-fn wrapping_sub_hlp<T>(x: T, y: T, bias: Field) -> Field
-where
-    T: AsPrimitive<Field>,
-{
-    x.as_() + bias - y.as_()
-}
-
-fn wrapping_mul_hlp<T>(x: T, y: T) -> T
-where
-    T: AsPrimitive<Field>,
-    Field: AsPrimitive<T>,
-{
-    AsPrimitive::as_(x.as_() * y.as_())
-}
-
-#[field(not(bn254))]
 fn wrapping_add_int<let N: u32>(x: u<N>, y: u<N>) -> u<N> {
     let max: u<N> = !0;
     if x <= max - y {
@@ -423,7 +389,6 @@ fn wrapping_add_int<let N: u32>(x: u<N>, y: u<N>) -> u<N> {
     }
 }
 
-#[field(not(bn254))]
 fn wrapping_sub_int<let N: u32>(x: u<N>, y: u<N>) -> u<N> {
     let max: u<N> = !0;
     if x >= y {
@@ -435,24 +400,6 @@ fn wrapping_sub_int<let N: u32>(x: u<N>, y: u<N>) -> u<N> {
 }
 
 global two_pow_64: u128 = 0x10000000000000000;
-
-/// Splits a 128 bits number into two 64 bits limbs
-#[field(bn254)]
-unconstrained fn split64(x: u128) -> (u64, u64) {
-    let lo = x as u64;
-    let hi = (x / two_pow_64) as u64;
-    (lo, hi)
-}
-
-/// Split a 128 bits number into two 64 bits limbs
-/// It will fail if the number is more than 128 bits
-#[field(bn254)]
-fn split_into_64_bit_limbs(x: u128) -> (u64, u64) {
-    // Safety: the limbs are constrained below
-    let (x_lo, x_hi) = unsafe { split64(x) };
-    assert(x as Field == x_lo as Field + x_hi as Field * two_pow_64 as Field);
-    (x_lo, x_hi)
-}
 
 /// Multiplies modulo `2^128` using 64-bit limbs.
 #[field(not(bn254))]
@@ -469,19 +416,67 @@ fn wrapping_mul128_int(x: u128, y: u128) -> u128 {
     low % two_pow_64 + (high % two_pow_64) * two_pow_64
 }
 
+/// `u32` arithmetic through `Field`, for the fields other than bn254. Their modulus holds the sum
+/// and the product of two `u32`, which makes this cheaper than integer code that stays inside
+/// the type.
+#[field(not(bn254))]
+mod through_field {
+    use crate::convert::{From, UnsafeFrom};
+
+    pub(crate) fn wrapping_add32(x: u32, y: u32) -> u32 {
+        u32::unsafe_from(Field::from(x) + Field::from(y))
+    }
+
+    pub(crate) fn wrapping_sub32(x: u32, y: u32) -> u32 {
+        // `2^32` keeps the difference from wrapping around the field without changing its low
+        // 32 bits.
+        u32::unsafe_from(Field::from(x) + 0x100000000 - Field::from(y))
+    }
+
+    pub(crate) fn wrapping_mul32(x: u32, y: u32) -> u32 {
+        u32::unsafe_from(Field::from(x) * Field::from(y))
+    }
+}
+
+/// `u128` multiplication through `Field` arithmetic, which takes fewer constraints than the
+/// integer limb multiplication. Every `u64` and `u128` lies below the bn254 modulus.
 #[field(bn254)]
-fn wrapping_mul128_hlp(x: u128, y: u128) -> u128 {
-    let (x_lo, x_hi) = split_into_64_bit_limbs(x);
-    let (y_lo, y_hi) = split_into_64_bit_limbs(y);
-    // Multiplication using the limbs:(x_lo + 2**64*x_hi)*(y_lo + 2**64*y_hi)=x_lo*y_lo+...
-    // and skipping the terms over 2**128
-    // Working with u64 limbs ensures that we cannot overflow the field modulus.
-    let low = x_lo as Field * y_lo as Field;
-    let lo = low as u64 as Field;
-    let carry = (low - lo) / two_pow_64 as Field;
-    let high = x_lo as Field * y_hi as Field + x_hi as Field * y_lo as Field + carry;
-    let hi = high as u64 as Field;
-    (lo + two_pow_64 as Field * hi) as u128
+mod bn254 {
+    use crate::convert::{From, UnsafeFrom};
+    use crate::ops::arith::two_pow_64;
+
+    /// Splits a 128 bits number into two 64 bits limbs
+    pub(crate) unconstrained fn split64(x: u128) -> (u64, u64) {
+        let lo = x as u64;
+        let hi = (x / two_pow_64) as u64;
+        (lo, hi)
+    }
+
+    /// Split a 128 bits number into two 64 bits limbs
+    /// It will fail if the number is more than 128 bits
+    pub(crate) fn split_into_64_bit_limbs(x: u128) -> (u64, u64) {
+        // Safety: the limbs are constrained below
+        let (x_lo, x_hi) = unsafe { split64(x) };
+        assert(Field::from(x) == Field::from(x_lo) + Field::from(x_hi) * Field::from(two_pow_64));
+        (x_lo, x_hi)
+    }
+
+    pub(crate) fn wrapping_mul128(x: u128, y: u128) -> u128 {
+        let (x_lo, x_hi) = split_into_64_bit_limbs(x);
+        let (y_lo, y_hi) = split_into_64_bit_limbs(y);
+        let (x_lo, x_hi) = (Field::from(x_lo), Field::from(x_hi));
+        let (y_lo, y_hi) = (Field::from(y_lo), Field::from(y_hi));
+        let two_pow_64 = Field::from(two_pow_64);
+        // Multiplication using the limbs:(x_lo + 2**64*x_hi)*(y_lo + 2**64*y_hi)=x_lo*y_lo+...
+        // and skipping the terms over 2**128
+        // Working with u64 limbs ensures that we cannot overflow the field modulus.
+        let low = x_lo * y_lo;
+        let lo = Field::from(u64::unsafe_from(low));
+        let carry = (low - lo) / two_pow_64;
+        let high = x_lo * y_hi + x_hi * y_lo + carry;
+        let hi = Field::from(u64::unsafe_from(high));
+        u128::unsafe_from(lo + two_pow_64 * hi)
+    }
 }
 
 mod tests {
@@ -971,7 +966,7 @@ mod tests {
     #[field(bn254)]
     mod split_functions {
 
-        use crate::ops::arith::{split64, split_into_64_bit_limbs};
+        use crate::ops::arith::bn254::{split64, split_into_64_bit_limbs};
 
         // test split64 and split_into_64_bit_limbs functions
         #[test]

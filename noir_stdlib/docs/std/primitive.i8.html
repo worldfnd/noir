@@ -56,6 +56,8 @@
 <li><a href="#impl-Shl-for-i&lt;N&gt;">Shl</a></li>
 <li><a href="#impl-Shr-for-i&lt;N&gt;">Shr</a></li>
 <li><a href="#impl-Sub-for-i&lt;N&gt;">Sub</a></li>
+<li><a href="#impl-TryFrom&lt;Field&gt;-for-i&lt;N&gt;">TryFrom&lt;Field&gt;</a></li>
+<li><a href="#impl-UnsafeFrom&lt;Field&gt;-for-i&lt;N&gt;">UnsafeFrom&lt;Field&gt;</a></li>
 <li><a href="#impl-WrappingAdd-for-i8">WrappingAdd</a></li>
 <li><a href="#impl-WrappingMul-for-i8">WrappingMul</a></li>
 <li><a href="#impl-WrappingSub-for-i8">WrappingSub</a></li>
@@ -66,7 +68,6 @@
 <li><a href="append/index.html">append</a></div></li>
 <li><a href="cmp/index.html">cmp</a></div></li>
 <li><a href="collections/index.html">collections</a></div></li>
-<li><a href="compat/index.html">compat</a></div></li>
 <li><a href="convert/index.html">convert</a></div></li>
 <li><a href="default/index.html">default</a></div></li>
 <li><a href="ecdsa_secp256k1/index.html">ecdsa_secp256k1</a></div></li>
@@ -262,6 +263,14 @@
 </div><h3 id="impl-Sub-for-i&lt;N&gt;"><code class="code-header">impl <a href="../std/ops/trait.Sub.html" class="trait">Sub</a> for i&lt;N&gt;</code></h3>
 
 <div class="padded-methods"><code class="code-header">pub fn <span class="fn">sub</span>(self, other: Self) -> Self</code>
+
+</div><h3 id="impl-TryFrom&lt;Field&gt;-for-i&lt;N&gt;"><code class="code-header">impl <a href="../std/convert/trait.TryFrom.html" class="trait">TryFrom</a>&lt;<a href="../std/primitive.Field.html" class="primitive">Field</a>&gt; for i&lt;N&gt;</code></h3>
+
+<div class="padded-methods"><code class="code-header">pub fn <span class="fn">try_from</span>(input: <a href="../std/primitive.Field.html" class="primitive">Field</a>) -> <a href="../std/option/struct.Option.html" class="struct">Option</a>&lt;Self&gt;</code>
+
+</div><h3 id="impl-UnsafeFrom&lt;Field&gt;-for-i&lt;N&gt;"><code class="code-header">impl <a href="../std/convert/trait.UnsafeFrom.html" class="trait">UnsafeFrom</a>&lt;<a href="../std/primitive.Field.html" class="primitive">Field</a>&gt; for i&lt;N&gt;</code></h3>
+
+<div class="padded-methods"><code class="code-header">pub fn <span class="fn">unsafe_from</span>(input: <a href="../std/primitive.Field.html" class="primitive">Field</a>) -> Self</code>
 
 </div><h3 id="impl-WrappingAdd-for-i8"><code class="code-header">impl <a href="../std/ops/trait.WrappingAdd.html" class="trait">WrappingAdd</a> for <a href="../std/primitive.i8.html" class="primitive">i8</a></code></h3>
 

@@ -6,7 +6,7 @@ unconstrained fn return_array(val: Field) -> [Field; 1] {
 fn main(val: u8) {
     // Safety: testing context
     unsafe {
-        let array = return_array(val as Field);
+        let array = return_array(Field::from(val));
         assert_constant(array.as_vector().len());
     }
 }

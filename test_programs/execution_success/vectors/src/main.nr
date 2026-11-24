@@ -1,8 +1,9 @@
+use std::convert::UnsafeFrom;
 use std::vector;
 
 fn main(x: u8, y: pub u8) {
-    let x = x as Field;
-    let y = y as Field;
+    let x = Field::from(x);
+    let y = Field::from(y);
     let mut vector = [0; 2].as_vector();
     assert(vector[0] == 0);
     assert(vector[0] != 1);
@@ -63,7 +64,7 @@ fn main(x: u8, y: pub u8) {
     regression_4418(x);
     regression_vector_call_result(x, y);
     regression_4506();
-    regression_vector_to_brillig(x as u32 % 3);
+    regression_vector_to_brillig(u32::unsafe_from(x) % 3);
 }
 
 // Ensure that vectors of struct/tuple values work.
@@ -190,7 +191,7 @@ fn merge_vectors_mutate_in_loop(x: Field, y: Field) -> [Field] {
     let mut vector = [0; 2].as_vector();
     if x != y {
         for i in 0..5 {
-            vector = vector.push_back(i as Field);
+            vector = vector.push_back(Field::from(i));
         }
     } else {
         vector = vector.push_back(x);

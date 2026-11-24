@@ -1,7 +1,8 @@
+use std::convert::UnsafeFrom;
 unconstrained fn main(idx: u32) -> pub u8 {
     let v0 = &mut 0;
     let v1: [&mut Field; 2] = [&mut 0, &mut 0];
-    foo(v0, idx, v1) as u8
+    u8::unsafe_from(foo(v0, idx, v1))
 }
 
 unconstrained fn foo(v0: &mut Field, v1: u32, mut v2: [&mut Field; 2]) -> Field {

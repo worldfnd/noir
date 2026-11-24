@@ -26,7 +26,7 @@ fn calls_trait_method_if_it_is_in_scope_with_multiple_candidates_but_only_one_de
 
     impl Converter<u32> for Foo {
         fn convert(self) -> u32 {
-            self.inner as u32
+            42
         }
     }
 
@@ -525,7 +525,7 @@ fn warns_if_trait_is_not_in_scope_for_primitive_method_call_and_there_is_only_on
 
         impl Foo for Field {
             fn foo(self) -> i32 {
-                self as i32
+                0
             }
         }
     }

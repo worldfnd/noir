@@ -1,5 +1,5 @@
 fn main(x: u8, y: pub u8) {
-    basic_check(x as Field, y as Field);
+    basic_check(Field::from(x), Field::from(y));
 }
 
 #['inline(never)]

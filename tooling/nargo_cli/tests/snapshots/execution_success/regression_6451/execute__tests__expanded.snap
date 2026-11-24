@@ -3,7 +3,7 @@ source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
 fn main(x: u8) {
-    let x: Field = x as Field;
+    let x: Field = <Field as From<u8>>::from(x);
     // Safety: comment added by `nargo expand`
     let y: Field = unsafe { empty(x) };
     let mut value: Field = 0_Field;

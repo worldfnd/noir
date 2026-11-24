@@ -1,4 +1,5 @@
+use std::convert::UnsafeFrom;
 fn main() -> pub bool {
     let d = ((false as Field) / (false as Field));
-    (d as u128) == 0
+    (u128::unsafe_from(d)) == 0
 }

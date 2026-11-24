@@ -20,6 +20,7 @@ use crate::{
 /// Any opcode not included is forwarded to SSA as a built-in function.
 enum HandledOpcode {
     CheckedTransmute,
+    FieldCast,
     ModulusBeBits,
     ModulusBeBytes,
     ModulusLeBits,
@@ -63,26 +64,18 @@ impl Monomorphizer<'_> {
         let body = match opcode {
             HandledOpcode::CheckedTransmute => {
                 assert_eq!(parameter_types.len(), 1);
-                let parameter_id = self.next_local_id();
-                let parameter_type = Rc::new(Self::convert_type(&parameter_types[0], location)?);
-                parameters = vec![(
-                    parameter_id,
-                    false,
-                    "x".to_string(),
-                    parameter_type.clone(),
-                    Visibility::Private,
-                )];
+                let input;
+                (parameters, input) = self.builtin_parameter(&parameter_types[0], location)?;
 
                 self.check_transmute(&parameter_types[0], return_type.as_ref(), location)?;
 
-                ast::Expression::Ident(ast::Ident {
-                    location: Some(location),
-                    definition: Definition::Local(parameter_id),
-                    mutable: false,
-                    name: "x".to_string(),
-                    typ: parameter_type,
-                    id: self.next_ident_id(),
-                })
+                input
+            }
+            HandledOpcode::FieldCast => {
+                assert_eq!(parameter_types.len(), 1);
+                let input;
+                (parameters, input) = self.builtin_parameter(&parameter_types[0], location)?;
+                Self::field_cast(input, &parameters[0].3, &converted_return_type, location)?
             }
             HandledOpcode::ModulusBeBits => self.modulus_be_bits(location),
             HandledOpcode::ModulusBeBytes => self.modulus_be_bytes(location),
@@ -98,7 +91,7 @@ impl Monomorphizer<'_> {
             new_function_id,
             Function {
                 id: new_function_id,
-                name: opcode_string.to_string(),
+                name: self.interner.function_name(&id).to_string(),
                 parameters,
                 body,
                 return_type: converted_return_type,
@@ -119,6 +112,51 @@ impl Monomorphizer<'_> {
             new_function_id,
         );
         Ok(Some(new_function_id))
+    }
+
+    /// The parameter `x` of a one-parameter builtin evaluated to a function, and an expression
+    /// that reads it.
+    fn builtin_parameter(
+        &mut self,
+        typ: &Type,
+        location: Location,
+    ) -> Result<(ast::Parameters, ast::Expression), MonomorphizationError> {
+        let id = self.next_local_id();
+        let typ = Rc::new(Self::convert_type(typ, location)?);
+        let name = "x".to_string();
+        let input = ast::Expression::Ident(ast::Ident {
+            location: Some(location),
+            definition: Definition::Local(id),
+            mutable: false,
+            name: name.clone(),
+            typ: typ.clone(),
+            id: self.next_ident_id(),
+        });
+        Ok((vec![(id, false, name, typ, Visibility::Private)], input))
+    }
+
+    /// The cast between `Field` and an integer that a `field_cast` call stands for. A signed
+    /// integer enters the field as its bit pattern, through the unsigned type of its width.
+    fn field_cast(
+        input: ast::Expression,
+        from: &ast::Type,
+        to: &ast::Type,
+        location: Location,
+    ) -> Result<ast::Expression, MonomorphizationError> {
+        let cast =
+            |lhs, r#type| ast::Expression::Cast(ast::Cast { lhs: Box::new(lhs), r#type, location });
+        match (from, to) {
+            (ast::Type::Integer(Signedness::Signed, bits), ast::Type::Field) => {
+                let pattern = cast(input, ast::Type::Integer(Signedness::Unsigned, *bits));
+                Ok(cast(pattern, ast::Type::Field))
+            }
+            (ast::Type::Integer(..), ast::Type::Field)
+            | (ast::Type::Field, ast::Type::Integer(..)) => Ok(cast(input, to.clone())),
+            _ => {
+                let message = "ICE: `field_cast` converts between `Field` and an integer";
+                Err(MonomorphizationError::InternalError { location, message })
+            }
+        }
     }
 
     /// Check the given type conversion that the types are equal, or issue an error if not.
@@ -350,6 +388,13 @@ impl Monomorphizer<'_> {
                     self.check_transmute(&parameter_type, &result_type, location)?;
                     argument_values[0].clone()
                 }
+                Some(HandledOpcode::FieldCast) => {
+                    assert_eq!(arguments.len(), 1);
+                    let parameter_type = self.interner.id_type(arguments[0]).follow_bindings();
+                    let parameter_type = Self::convert_type(&parameter_type, location)?;
+                    let input = argument_values[0].clone();
+                    Self::field_cast(input, &parameter_type, result_type, location)?
+                }
                 Some(HandledOpcode::ModulusBeBits) => self.modulus_be_bits(location),
                 Some(HandledOpcode::ModulusBeBytes) => self.modulus_be_bytes(location),
                 Some(HandledOpcode::ModulusLeBits) => self.modulus_le_bits(location),
@@ -402,6 +447,7 @@ impl HandledOpcode {
     fn parse(opcode: &str) -> Option<Self> {
         match opcode {
             "checked_transmute" => Some(Self::CheckedTransmute),
+            "field_cast" => Some(Self::FieldCast),
             "modulus_be_bits" => Some(Self::ModulusBeBits),
             "modulus_be_bytes" => Some(Self::ModulusBeBytes),
             "modulus_le_bits" => Some(Self::ModulusLeBits),

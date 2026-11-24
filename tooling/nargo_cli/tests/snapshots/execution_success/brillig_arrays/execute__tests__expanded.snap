@@ -2,8 +2,10 @@
 source: tooling/nargo_cli/tests/execute.rs
 expression: expanded_code
 ---
+use std::convert::UnsafeFrom;
+
 fn main(x: [u8; 3]) {
-    let x: [Field; 3] = x.map(|v: u8| -> Field { v as Field });
+    let x: [Field; 3] = x.map(|v: u8| -> Field { <Field as From<u8>>::from(v) });
     // Safety: comment added by `nargo expand`
     unsafe {
         read_array(x);
@@ -14,7 +16,7 @@ fn main(x: [u8; 3]) {
 unconstrained fn read_array(x: [Field; 3]) {
     assert(x[0_u32] == 1_Field);
     let y: [Field; 3] = [1_Field, 5_Field, 27_Field];
-    assert(y[x[0_u32] as u32] == 5_Field);
+    assert(y[u32::unsafe_from(x[0_u32])] == 5_Field);
 }
 
 unconstrained fn read_write_array(x: [Field; 3]) {
