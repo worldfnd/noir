@@ -1,5 +1,6 @@
 [package]
 name = "provekit_noirc_arena"
+description = "Arena allocation utilities for the Noir compiler."
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

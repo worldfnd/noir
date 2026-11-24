@@ -1,5 +1,6 @@
 [package]
 name = "provekit_noirc_span"
+description = "Source span and location types for Noir."
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

@@ -1,5 +1,6 @@
 [package]
 name = "provekit_noirc_printable_type"
+description = "Printable type definitions for Noir."
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

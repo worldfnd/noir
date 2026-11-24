@@ -1,5 +1,6 @@
 [package]
 name = "provekit_nargo_doc"
+description = "Documentation generation utilities for Noir packages."
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

@@ -1,5 +1,6 @@
 [package]
 name = "provekit_noirc_abi"
+description = "Noir ABI types and serialization."
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

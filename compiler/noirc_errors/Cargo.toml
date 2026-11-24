@@ -1,5 +1,6 @@
 [package]
 name = "provekit_noirc_errors"
+description = "Error reporting types for the Noir compiler."
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

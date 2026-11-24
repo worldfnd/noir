@@ -1,5 +1,6 @@
 [package]
 name = "provekit_fm"
+description = "File manager and source mapping utilities for Noir."
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

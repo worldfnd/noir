@@ -1,5 +1,6 @@
 [package]
 name = "provekit_nargo_fmt"
+description = "Noir formatter."
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

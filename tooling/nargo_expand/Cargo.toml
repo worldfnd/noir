@@ -1,5 +1,6 @@
 [package]
 name = "provekit_nargo_expand"
+description = "Noir package expansion utilities."
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

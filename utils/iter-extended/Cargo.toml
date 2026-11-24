@@ -1,5 +1,6 @@
 [package]
 name = "provekit_iter-extended"
+description = "Iterator extension utilities used by Noir and ProveKit."
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
