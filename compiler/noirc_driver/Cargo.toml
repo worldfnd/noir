@@ -13,6 +13,7 @@ workspace = true
 
 [build-dependencies]
 build-data.workspace = true
+serde_json.workspace = true
 
 [dependencies]
 clap.workspace = true
@@ -29,7 +30,7 @@ rustc-hash.workspace = true
 # in debug builds too. Without it, debug builds read `noir_stdlib/src` from disk
 # at the build-time path, so a debug `nargo` run away from its build tree finds no
 # stdlib and panics in `prepare_crate` instead of compiling.
-rust-embed = { workspace = true, features = ["debug-embed"] }
+rust-embed = { workspace = true, features = ["debug-embed", "interpolate-folder-path"] }
 tracing.workspace = true
 
 [dev-dependencies]

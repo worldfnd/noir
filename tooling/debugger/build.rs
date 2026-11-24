@@ -5,16 +5,21 @@ use std::path::{Path, PathBuf};
 const GIT_COMMIT: &&str = &"GIT_COMMIT";
 
 fn main() -> Result<(), String> {
+    let out_dir = std::env::var("OUT_DIR").unwrap();
+    let destination = Path::new(&out_dir).join("debug.rs");
+    let mut test_file = File::create(destination).unwrap();
+
+    // The generated tests use fixtures from the Noir workspace.
+    if Path::new(".cargo_vcs_info.json").is_file() {
+        return Ok(());
+    }
+
     // Only use build_data if the environment variable isn't set.
     if std::env::var(GIT_COMMIT).is_err() {
         build_data::set_GIT_COMMIT()?;
         build_data::set_GIT_DIRTY()?;
         build_data::no_debug_rebuilds()?;
     }
-
-    let out_dir = std::env::var("OUT_DIR").unwrap();
-    let destination = Path::new(&out_dir).join("debug.rs");
-    let mut test_file = File::create(destination).unwrap();
 
     // Try to find the directory that Cargo sets when it is running; otherwise fallback to assuming the CWD
     // is the root of the repository and append the crate path

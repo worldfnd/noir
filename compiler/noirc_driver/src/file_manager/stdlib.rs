@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use rust_embed::RustEmbed;
 
 #[derive(RustEmbed)]
-#[folder = "../../noir_stdlib/src"]
+#[folder = "$NOIR_STDLIB_DIR/src"]
 #[cfg_attr(not(target_os = "windows"), prefix = "std/")]
 #[cfg_attr(target_os = "windows", prefix = r"std\")] // Note reversed slash direction
 struct StdLibAssets;
@@ -27,7 +27,7 @@ pub fn stdlib_paths_with_source() -> Vec<(String, String)> {
 
 /// Returns the contents of the Nargo.toml file for the standard library as a string.
 pub fn stdlib_nargo_toml_source() -> String {
-    include_str!("../../../../noir_stdlib/Nargo.toml").to_string()
+    include_str!(concat!(env!("NOIR_STDLIB_DIR"), "/Nargo.toml")).to_string()
 }
 
 /// Returns the absolute path to the `noir_stdlib/src` directory on disk, when the
@@ -39,5 +39,5 @@ pub fn stdlib_disk_path() -> Option<PathBuf> {
     if !cfg!(debug_assertions) {
         return None;
     }
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../noir_stdlib/src").canonicalize().ok()
+    PathBuf::from(env!("NOIR_STDLIB_DIR")).join("src").canonicalize().ok()
 }
