@@ -1,0 +1,22 @@
+---
+source: tooling/nargo_cli/tests/execute.rs
+expression: expanded_code
+---
+use std::convert::UnsafeFrom;
+
+unconstrained fn write(q: &mut &mut Field, v: Field) {
+    let p: &mut Field = *q;
+    *p = v;
+}
+
+unconstrained fn main(x: u8, y: u8) -> pub u8 {
+    let x: Field = <Field as From<u8>>::from(x);
+    let y: Field = <Field as From<u8>>::from(y);
+    let mut a: Field = x;
+    let mut p: &mut Field = &mut a;
+    let q: &mut &mut Field = &mut p;
+    let arr: [(&mut Field, &mut &mut Field); 1] = [(p, q)];
+    *p = y;
+    write(q, y * 2_Field);
+    u8::unsafe_from(*arr[0_u32].0)
+}

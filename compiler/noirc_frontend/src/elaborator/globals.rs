@@ -26,12 +26,15 @@ use crate::{
     ast::Pattern,
     hir::{def_collector::dc_crate::UnresolvedGlobal, resolution::errors::ResolverError},
     hir_def::{expr::HirExpression, stmt::HirStatement},
-    node_interner::{DependencyId, GlobalId, GlobalValue},
+    node_interner::{DependencyId, GlobalId},
     token::SecondaryAttributeKind,
     validity::ProgramBoundary,
 };
 
-use super::Elaborator;
+use super::{
+    Elaborator,
+    item_context::{ItemContext, ModuleContext},
+};
 
 impl Elaborator<'_> {
     /// Order the set of unresolved globals by their [`GlobalId`].
@@ -39,7 +42,7 @@ impl Elaborator<'_> {
     #[tracing::instrument(level = "trace", skip_all)]
     pub(super) fn set_unresolved_globals_ordering(&mut self, globals: Vec<UnresolvedGlobal>) {
         for global in globals {
-            self.unresolved_globals.insert(global.global_id, global);
+            self.unresolved_globals.register(global.global_id, global);
         }
     }
 
@@ -47,7 +50,7 @@ impl Elaborator<'_> {
     #[tracing::instrument(level = "trace", skip_all)]
     pub(super) fn elaborate_remaining_globals(&mut self) {
         // Start at the first global IDs to maintain the dependency order
-        while let Some((_, global)) = self.unresolved_globals.pop_first() {
+        while let Some(global) = self.unresolved_globals.take_first() {
             self.elaborate_global(global);
         }
     }
@@ -56,9 +59,7 @@ impl Elaborator<'_> {
     /// Preserves the BTreeMap-ordered drain so that inter-global dependency order is maintained.
     #[tracing::instrument(level = "trace", skip_all)]
     pub(super) fn resolve_unresolved_globals_skipping(&mut self, skip: &HashSet<GlobalId>) {
-        let to_resolve: Vec<GlobalId> =
-            self.unresolved_globals.keys().copied().filter(|id| !skip.contains(id)).collect();
-        for global_id in to_resolve {
+        for global_id in self.unresolved_globals.keys_except(skip) {
             self.elaborate_global_if_unresolved(&global_id);
         }
     }
@@ -68,13 +69,22 @@ impl Elaborator<'_> {
     /// See the [module-level documentation][self] for more details.
     #[tracing::instrument(level = "trace", skip_all)]
     fn elaborate_global(&mut self, global: UnresolvedGlobal) {
-        // Set up the elaboration context for this global. We need to ensure that name resolution
-        // happens in the module where the global was defined, not where it's being referenced.
-        let old_module = self.replace_local_module(global.module_id);
-        let old_item = self.current_item.take();
+        // A global can be elaborated on demand from the middle of another item, such as a
+        // function body that mentions it. It gets a context of its own so that name resolution
+        // happens in the module where the global was defined, and so that nothing of the item
+        // that mentioned it, such as its `Self` type or generics, is visible to the initializer.
+        let context = ItemContext::new(ModuleContext::of_item(
+            global.module_id,
+            DependencyId::Global(global.global_id),
+        ));
+        self.with_item_context(context, |this| this.elaborate_global_in_context(global));
+    }
 
+    /// Does the work of [`Self::elaborate_global`].
+    ///
+    /// Expects the global's own [`ItemContext`] to be installed.
+    fn elaborate_global_in_context(&mut self, global: UnresolvedGlobal) {
         let global_id = global.global_id;
-        self.current_item = Some(DependencyId::Global(global_id));
         let let_stmt = global.stmt_def;
 
         // In LSP mode, we need to register the global's name for IDE features like
@@ -110,7 +120,6 @@ impl Elaborator<'_> {
             self.push_err(ResolverError::MutableGlobal { location });
         }
 
-        self.reset_lvalue_index_counter();
         let (let_statement, _typ) = self.elaborate_let(let_stmt, Some(global_id));
 
         // References cannot be stored in globals because they would outlive their referents.
@@ -148,10 +157,6 @@ impl Elaborator<'_> {
         if let Some(name) = name {
             self.interner.register_global(global_id, name, location, global.visibility);
         }
-
-        // Restore the previous elaboration context.
-        self.local_module = old_module;
-        self.current_item = old_item;
     }
 
     /// Evaluates the global's initializer expression at compile time and stores the resulting value.
@@ -170,15 +175,14 @@ impl Elaborator<'_> {
 
         let definition_id = global.definition_id;
         let location = global.location;
+        let comptime = let_statement.comptime;
 
         let expr = self.interner.expression(&let_statement.expression);
         if !matches!(expr, HirExpression::Error) {
-            // Globals must be elaborated at the global scope: drain every non-global scope so the
-            // initializer is defined into the global scope, and lower the scope floor to one so the
-            // initializer's own block-local scopes (which may be pushed when evaluating it during an
-            // enclosing comptime call) remain visible.
-            let saved_scopes: Vec<_> = self.interner.comptime_scopes.drain(1..).collect();
-            let saved_floor = std::mem::replace(&mut self.interner.comptime_scope_floor, 1);
+            // A global can be evaluated in the middle of a comptime call that references it. Its
+            // initializer must not see that call's locals, so it is evaluated with scopes of its
+            // own.
+            let enclosing_scopes = std::mem::take(self.comptime_scopes_mut());
 
             let mut interpreter = self.setup_interpreter();
 
@@ -197,11 +201,10 @@ impl Elaborator<'_> {
                 });
 
                 // Store the resolved value so it can be used later
-                self.interner.get_global_mut(global_id).value = GlobalValue::Resolved(value);
+                self.interner.resolve_global(global_id, value, comptime, self.files);
             }
 
-            self.interner.comptime_scopes.extend(saved_scopes);
-            self.interner.comptime_scope_floor = saved_floor;
+            *self.comptime_scopes_mut() = enclosing_scopes;
         }
     }
 
@@ -213,7 +216,7 @@ impl Elaborator<'_> {
     /// already elaborated (or doesn't exist in the unresolved set).
     #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) fn elaborate_global_if_unresolved(&mut self, global_id: &GlobalId) -> bool {
-        if let Some(global) = self.unresolved_globals.remove(global_id) {
+        if let Some(global) = self.unresolved_globals.take(global_id) {
             self.elaborate_global(global);
             true
         } else {

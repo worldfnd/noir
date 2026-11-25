@@ -1025,6 +1025,86 @@ fn numeric_alias_turbofish_resolves_correctly() {
 }
 
 #[test]
+fn numeric_alias_value_ignores_use_site_bindings() {
+    // In value position a numeric alias evaluates to what it means in type position. Names in
+    // its body refer to the alias's own scope: no parameter, `let`, closure parameter or numeric
+    // generic at the use site can capture them.
+    let src = r#"
+    mod lib {
+        pub global N: u32 = 2;
+        pub type Size: u32 = N;
+    }
+
+    comptime fn numeric_generic<let N: u32>() -> u32 {
+        lib::Size
+    }
+
+    comptime fn parameter(N: u32) -> u32 {
+        lib::Size + N
+    }
+
+    fn main() {
+        comptime {
+            assert(numeric_generic::<9>() == 2);
+            assert(parameter(5) == 7);
+            let f = |N: u32| lib::Size + N;
+            assert(f(5) == 7);
+            let N: u32 = 7;
+            assert(lib::Size == 2);
+            assert(N == 7);
+        }
+    }
+    "#;
+    assert_no_errors(src);
+}
+
+#[test]
+fn numeric_alias_composed_generic_value_uses_own_generic() {
+    // `Double::<N>` inside `Quad`'s body refers to `Quad`'s generic `N`, never to the global `N`.
+    let src = r#"
+    global N: u32 = 2;
+    type Double<let N: u32>: u32 = N * 2;
+    type Quad<let N: u32>: u32 = Double::<N> + Double::<N>;
+
+    comptime fn quad<let M: u32>() -> u32 {
+        Quad::<M>
+    }
+
+    fn length<let L: u32>(_: [u8; L]) -> u32 {
+        L
+    }
+
+    fn main() {
+        comptime {
+            assert(Quad::<3> == 12);
+            assert(quad::<3>() == 12);
+            let a: [u8; Quad::<3>] = [0; 12];
+            assert(length(a) == Quad::<3>);
+            assert(N == 2);
+        }
+    }
+    "#;
+    assert_no_errors(src);
+}
+
+#[test]
+fn numeric_alias_composed_generic_value_without_same_named_item() {
+    let src = r#"
+    type Double<let N: u32>: u32 = N * 2;
+    type Quad<let N: u32>: u32 = Double::<N> + Double::<N>;
+
+    fn main() {
+        let x: u32 = Quad::<3>;
+        assert(x == 12);
+        comptime {
+            assert(Quad::<3> == 12);
+        }
+    }
+    "#;
+    assert_no_errors(src);
+}
+
+#[test]
 fn numeric_alias_in_range_expression() {
     // Numeric type alias should work in range expressions (value position)
     let src = r#"
@@ -1199,7 +1279,9 @@ fn no_false_cycle_from_stale_current_item_after_type_alias() {
         trait Dummy<T> {}
         trait Foo: Dummy<A> {}
 
-        fn main(_x: A) where A: Foo {}
+        pub fn foo<T>(_x: A, _y: T) where T: Foo {}
+
+        fn main() {}
     "#;
     assert_no_errors(src);
 }
@@ -1261,4 +1343,117 @@ fn unused_expression_result_correct_span() {
     }
     "#;
     check_errors(src);
+}
+
+#[test]
+fn struct_constructor_turbofish_on_reordering_alias_applies_to_alias_generics() {
+    let src = r#"
+    pub struct Capped<let MAX: u32, let SCALE: u32> { v: u32 }
+    type Scaled<let SCALE: u32, let MAX: u32> = Capped<MAX, SCALE>;
+
+    fn main() {
+        let _: Capped<8, 1000> = Scaled::<1000, 8> { v: 0 };
+        let _: Scaled<1000, 8> = Scaled::<1000, 8> { v: 0 };
+    }
+    "#;
+    assert_no_errors(src);
+}
+
+#[test]
+fn struct_constructor_turbofish_on_reordering_alias_does_not_apply_to_struct_generics() {
+    let src = r#"
+    pub struct Capped<let MAX: u32, let SCALE: u32> { v: u32 }
+    type Scaled<let SCALE: u32, let MAX: u32> = Capped<MAX, SCALE>;
+
+    fn main() {
+        let _: Capped<1000, 8> = Scaled::<1000, 8> { v: 0 };
+                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^ Expected type Capped<1000, 8>, found type Capped<8, 1000>
+    }
+    "#;
+    check_errors(src);
+}
+
+#[test]
+fn struct_constructor_turbofish_on_alias_with_fixed_generics_keeps_alias_body() {
+    let src = r#"
+    pub struct Capped<let MAX: u32, let SCALE: u32> { v: u32 }
+    type Byte<let A: u32, let B: u32> = Capped<255, 1>;
+
+    fn main() {
+        let _: Capped<255, 1> = Byte::<100000, 1> { v: 0 };
+    }
+    "#;
+    assert_no_errors(src);
+}
+
+#[test]
+fn struct_constructor_turbofish_on_alias_with_fewer_generics_than_struct() {
+    let src = r#"
+    pub struct Pair<A, B> { a: A, b: B }
+    type U32Pair<B> = Pair<u32, B>;
+
+    fn main() {
+        let _: Pair<u32, bool> = U32Pair::<bool> { a: 1, b: true };
+    }
+    "#;
+    assert_no_errors(src);
+}
+
+#[test]
+fn struct_constructor_turbofish_on_alias_in_generic_function() {
+    let src = r#"
+    pub struct Capped<let MAX: u32, let SCALE: u32> { v: u32 }
+    type Scaled<let SCALE: u32, let MAX: u32> = Capped<MAX, SCALE>;
+
+    fn generic<let S: u32>(v: u32) -> Capped<8, S> {
+        Scaled::<S, 8> { v }
+    }
+
+    fn main() {
+        let _ = generic::<1000>(0);
+    }
+    "#;
+    assert_no_errors(src);
+}
+
+#[test]
+fn struct_constructor_turbofish_on_alias_checks_alias_generic_count() {
+    let src = r#"
+    pub struct Pair<A, B> { a: A, b: B }
+    type U32Pair<B> = Pair<u32, B>;
+
+    fn main() {
+        let _ = U32Pair::<u32, bool> { a: 1, b: true };
+                       ^^^^^^^^^^^^^ alias U32Pair expects 1 generic but 2 were given
+    }
+    "#;
+    check_errors(src);
+}
+
+#[test]
+fn struct_pattern_turbofish_on_reordering_alias_applies_to_alias_generics() {
+    let src = r#"
+    pub struct Capped<let MAX: u32, let SCALE: u32> { v: u32 }
+    type Scaled<let SCALE: u32, let MAX: u32> = Capped<MAX, SCALE>;
+
+    fn main() {
+        let Scaled::<1000, 8> { v } = Capped::<8, 1000> { v: 0 };
+        let _ = v;
+    }
+    "#;
+    assert_no_errors(src);
+}
+
+#[test]
+fn struct_pattern_turbofish_on_alias_with_fewer_generics_than_struct() {
+    let src = r#"
+    pub struct Pair<A, B> { a: A, b: B }
+    type U32Pair<B> = Pair<u32, B>;
+
+    fn main() {
+        let U32Pair::<bool> { a, b } = Pair { a: 1_u32, b: true };
+        let _ = (a, b);
+    }
+    "#;
+    assert_no_errors(src);
 }

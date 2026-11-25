@@ -4,11 +4,9 @@
 use itertools::Itertools;
 
 use super::Elaborator;
+use super::traits::is_checkable_bound;
 use crate::TypeAlias;
-use crate::ast::{
-    Expression, ExpressionKind, GenericTypeArgs, Ident, Path, PathKind, TypePath,
-    UnresolvedTypeExpression,
-};
+use crate::ast::{Expression, ExpressionKind, GenericTypeArgs, Ident, Path, PathKind, TypePath};
 use crate::elaborator::TypedPath;
 use crate::elaborator::function_context::BindableTypeVariableKind;
 use crate::elaborator::path_resolution::{
@@ -27,8 +25,7 @@ use crate::hir_def::expr::{
 use crate::hir_def::traits::TraitConstraint;
 use crate::node_interner::pusher::{HasLocation, PushedExpr};
 use crate::node_interner::{
-    DefinitionId, DefinitionInfo, DefinitionKind, ExprId, FuncId, TraitId, TraitImplId,
-    TraitImplKind, TypeAliasId,
+    DefinitionId, DefinitionKind, ExprId, FuncId, TraitId, TraitImplId, TraitImplKind, TypeAliasId,
 };
 use crate::{Kind, Type, TypeBindings, TypeVariable, TypeVariableId};
 use iter_extended::{btree_map, vecmap};
@@ -142,8 +139,18 @@ impl Elaborator<'_> {
             // but that's not true)
             if value.is_ok() {
                 let from_macro_call = false;
-                let (id, typ) = self.inline_comptime_value(value, location, from_macro_call);
+                let (id, inlined_typ) =
+                    self.inline_comptime_value(value, location, from_macro_call);
                 self.debug_comptime(location, |interner, _| id.to_display_ast(interner).kind);
+
+                // The inlined value is re-elaborated from its printed form, which can carry less
+                // type information than the binding (an empty `@[]` has no element type, and a
+                // function item has its own `fn` type). Every read of the binding must have the
+                // binding's type, so the inlined expression is checked against it and given it.
+                self.unify_with_coercions(&inlined_typ, &typ, id, location, |elaborator| {
+                    elaborator.new_type_mismatch_error(&inlined_typ, &typ, location).into()
+                });
+                self.interner.push_expr_type(id, typ.clone());
                 (id, typ)
             } else {
                 (id, typ)
@@ -173,88 +180,53 @@ impl Elaborator<'_> {
         let (hir_ident, item) = match variable_resolution {
             Some(VariableResolution::Expression(id, typ)) => return (id, typ, false, location),
             Some(VariableResolution::TypeAlias(type_alias_id)) => {
-                // A type alias to a numeric generics is considered like a variable,
-                // but it is not a real variable so it does not resolve to a valid Identifier.
-                // In order to handle this, we retrieve the numeric generics expression that the type aliases to.
+                // A numeric type alias is used like a variable, but it is not a real variable,
+                // so it has no `DefinitionId` to refer to. It stands for the type it was resolved
+                // to when the alias was defined (see `define_type_alias`), which is also what the
+                // alias means in type positions such as `[Field; Alias]`.
+                //
+                // Do not re-elaborate the alias body here: that would resolve the names in it
+                // against the use site's locals, parameters, generics and module rather than
+                // the alias's own, so the same alias could evaluate to a different number in
+                // value position than in type position.
                 let type_alias = self.interner.get_type_alias(type_alias_id);
-                let alias_module_id = type_alias.borrow().module_id;
-                if let Some(type_alias_expr) = &type_alias.borrow().numeric_expr {
-                    // Extract the declared numeric type from the type alias's kind.
-                    let declared_type = match type_alias.borrow().typ.kind() {
-                        Kind::Numeric(declared_type) => declared_type,
-                        _ => Box::new(Type::Error),
+                let type_alias = type_alias.borrow();
+                if type_alias.numeric_expr.is_some() {
+                    let declared_type = match type_alias.typ.kind().into_owned() {
+                        Kind::Numeric(declared_type) => *declared_type,
+                        _ => Type::Error,
                     };
-                    let declared_type = *declared_type;
-                    let var_expr = UnresolvedTypeExpression::to_expression_kind(type_alias_expr);
 
-                    // The expression we create for this particular instantiation of the numeric type alias
-                    // must have the same location as the path that refers to it.
-                    let var_expr = Expression::new(var_expr, location);
-
-                    // Resolve turbofish generics for the type alias.
-                    // `resolved_turbofish` contains already-resolved types from
-                    // validate_path, so we use resolve_alias_turbofish_generics
-                    // directly which accepts resolved types.
-                    let alias_generics = &type_alias.borrow().generics;
-                    let alias_generic_types = vecmap(alias_generics, |generic| {
-                        self.interner.next_type_variable_with_kind(generic.kind())
+                    let alias_generic_types = vecmap(&type_alias.generics, |generic| {
+                        self.interner.next_type_variable_with_kind(generic.kind().into_owned())
                     });
                     let mut errors = Vec::new();
-                    let type_alias_ref = type_alias.borrow();
                     let resolved_generics = self.resolve_alias_turbofish_generics(
-                        &type_alias_ref,
+                        &type_alias,
                         alias_generic_types,
                         resolved_turbofish,
                         location,
                         &mut errors,
                     );
                     self.push_errors(errors);
+                    let value = type_alias.get_type(&resolved_generics);
+                    let name = type_alias.name.to_string();
+                    drop(type_alias);
 
-                    // Introduce alias generics into scope so the numeric expression
-                    // resolves them correctly (not to globals or other variables
-                    // that happen to share the same name). Bind each generic's type
-                    // variable to the turbofish-resolved type.
-                    self.push_scope();
-                    for (generic, resolved_type) in
-                        alias_generics.iter().zip_eq(resolved_generics.iter())
-                    {
-                        if let Kind::Numeric(numeric_type) = &generic.kind() {
-                            let id = self.interner.next_type_variable_id();
-                            let type_var = TypeVariable::unbound(id, generic.kind());
-                            type_var.bind(resolved_type.clone());
-                            let definition =
-                                DefinitionKind::NumericGeneric(type_var, numeric_type.clone());
-                            let ident = Ident::new(generic.name.to_string(), generic.location);
-                            let hir_ident = self.add_variable_decl(
-                                ident, false, // mutable
-                                true,  // allow_shadowing
-                                false, // warn_if_unused
-                                false, // warn_if_not_mutated
-                                definition,
-                            );
-                            self.interner.push_definition_type(hir_ident.id, *numeric_type.clone());
-                        }
-                    }
+                    // Expose the value as a numeric generic bound to it: that is how a value
+                    // standing for a type-level number is evaluated, both by the monomorphizer
+                    // and by the comptime interpreter.
+                    let type_var_id = self.interner.next_type_variable_id();
+                    let type_var = TypeVariable::bound(type_var_id, value);
+                    let definition =
+                        DefinitionKind::NumericGeneric(type_var, Box::new(declared_type.clone()));
+                    let definition_id =
+                        self.interner.push_definition(name, false, false, definition, location);
+                    self.interner.push_definition_type(definition_id, declared_type.clone());
 
-                    // The alias's numeric expression has already been kind-checked at
-                    // alias-definition time (see `convert_expression_type`), which is
-                    // where any "value does not fit" diagnostic is emitted. Drop any
-                    // literals queued for the function-context fit check during
-                    // re-elaboration so the same overflow is not reported twice.
-                    let literals_before = self.integer_literal_expr_ids_len();
-                    // Re-elaborate the alias body in the alias's defining module
-                    // so unqualified names resolve against the alias's scope,
-                    // not the caller's. Mirrors `define_type_alias` in mod.rs.
-                    let previous_module = self.replace_module(alias_module_id);
-                    let (id, typ) = self.elaborate_expression(var_expr);
-                    self.restore_module(previous_module);
-                    self.truncate_integer_literal_expr_ids(literals_before);
-                    self.pop_scope();
-
-                    // Unify the expression's type with the declared type from the type alias
-                    // to ensure proper type checking.
-                    self.unify_or_type_mismatch(&typ, &declared_type, type_alias_expr.location());
-
+                    let ident = HirIdent::non_trait_method(definition_id, location);
+                    let expr = HirExpression::Ident(ident, None);
+                    let id = self.interner.push_expr_full(expr, location, declared_type.clone());
                     return (id, declared_type, false, location);
                 }
                 (None, None)
@@ -263,7 +235,40 @@ impl Elaborator<'_> {
             None => (None, None),
         };
 
-        let definition_id = hir_ident.as_ref().map(|ident| ident.id);
+        let Some(hir_ident) = hir_ident else {
+            let id = self.intern_expr(HirExpression::Error, location);
+            let typ = Type::Error;
+            let id = self.intern_expr_type(id, typ.clone());
+            return (id, typ, false, location);
+        };
+
+        let is_comptime_local = !self.in_comptime_context()
+            && self.interner.definition(hir_ident.id).is_comptime_local();
+
+        let (id, typ) = self.elaborate_resolved_ident(
+            hir_ident,
+            item,
+            resolved_turbofish,
+            type_segment_turbofish,
+            location,
+        );
+        (id, typ, is_comptime_local, location)
+    }
+
+    /// Builds the expression for an identifier that a path resolved to through `item`, binding
+    /// the generics that the path decides: those of the impl, trait or enum the identifier was
+    /// found in. `item_turbofish` is the turbofish on the identifier itself and
+    /// `type_turbofish` the generic arguments of the type it was found in, when the path gives
+    /// them apart from `item` (`Foo::<u32>::Spam`, `<Foo<u32>>::Spam`).
+    fn elaborate_resolved_ident(
+        &mut self,
+        hir_ident: HirIdent,
+        item: Option<PathResolutionItem>,
+        item_turbofish: Option<Vec<Located<Type>>>,
+        type_turbofish: Option<Vec<Located<Type>>>,
+        location: Location,
+    ) -> (ExprId, Type) {
+        let definition_id = hir_ident.id;
 
         let item_type_binding = if let Some(item) = item {
             self.resolve_item_type_binding(item)
@@ -271,13 +276,9 @@ impl Elaborator<'_> {
             ItemTypeBinding::None
         };
 
-        let definition = definition_id.map(|id| self.interner.definition(id));
-        let is_comptime_local = !self.in_comptime_context()
-            && definition.is_some_and(DefinitionInfo::is_comptime_local);
-        let definition_kind = definition.as_ref().map(|definition| definition.kind.clone());
-
+        let definition_kind = self.interner.definition(definition_id).kind.clone();
         let mut bindings = TypeBindings::default();
-        let generics = if let Some(DefinitionKind::Function(func_id)) = &definition_kind {
+        let generics = if let DefinitionKind::Function(func_id) = &definition_kind {
             self.usage_tracker.mark_impl_function_as_used(func_id);
 
             match item_type_binding {
@@ -293,7 +294,7 @@ impl Elaborator<'_> {
                         let type_var = &self_resolved_generic.type_var;
                         bindings.insert(
                             type_var.id(),
-                            (type_var.clone(), type_var.kind(), self_generic),
+                            (type_var.clone(), type_var.kind().into_owned(), self_generic),
                         );
                     }
                 }
@@ -322,29 +323,40 @@ impl Elaborator<'_> {
 
             // Resolve any generics if the variable we have resolved is a function
             // and if the turbofish operator was used.
-            self.resolve_function_turbofish_generics(func_id, resolved_turbofish, location)
+            self.resolve_function_turbofish_generics(func_id, item_turbofish, location)
         } else {
             // A fieldless enum variant resolves to a global. A turbofish on the variant path
             // binds the enum's generics, which global path resolution does not carry on its
             // own. The turbofish may be on the type segment (`Foo::<u32>::Spam`) or the
             // variant segment (`Foo::Spam::<u32>`); both denote the same enum generics.
-            let is_enum_variant_global =
-                if let Some(DefinitionKind::Global(global_id)) = &definition_kind {
-                    self.interner.is_enum_variant_global(*global_id)
-                } else {
-                    false
-                };
+            let is_enum_variant_global = if let DefinitionKind::Global(global_id) = &definition_kind
+            {
+                self.interner.is_enum_variant_global(*global_id)
+            } else {
+                false
+            };
+
+            if let DefinitionKind::AssociatedConstant(impl_id, _) = &definition_kind
+                && let ItemTypeBinding::ConcreteSelfType(self_type) = &item_type_binding
+            {
+                self.bind_trait_impl_generics_from_self_type(
+                    *impl_id,
+                    self_type,
+                    &mut bindings,
+                    location,
+                );
+            }
 
             if is_enum_variant_global {
-                if let Some(turbofish) = resolved_turbofish.or(type_segment_turbofish) {
+                if let Some(turbofish) = item_turbofish.or(type_turbofish) {
                     self.bind_enum_variant_global_turbofish(
-                        definition_id.unwrap(),
+                        definition_id,
                         &turbofish,
                         location,
                         &mut bindings,
                     );
                 }
-            } else if let Some(unused_resolved_turbofish) = resolved_turbofish {
+            } else if let Some(unused_resolved_turbofish) = item_turbofish {
                 let message = format!(
                     "elaborate_variable_inner: unused resolved_turbofish: {unused_resolved_turbofish:?}"
                 );
@@ -354,22 +366,11 @@ impl Elaborator<'_> {
             None
         };
 
-        let (id, typ) = if let Some(hir_ident) = hir_ident {
-            let id = self
-                .intern_expr(HirExpression::Ident(hir_ident.clone(), generics.clone()), location);
-
-            let typ = self.type_check_variable_with_bindings(hir_ident, &id, generics, bindings);
-            let id = self.intern_expr_type(id, typ.clone());
-            (id, typ)
-        } else {
-            let expr = HirExpression::Error;
-            let id = self.intern_expr(expr, location);
-            let typ = Type::Error;
-            let id = self.intern_expr_type(id, typ.clone());
-            (id, typ)
-        };
-
-        (id, typ, is_comptime_local, location)
+        let id =
+            self.intern_expr(HirExpression::Ident(hir_ident.clone(), generics.clone()), location);
+        let typ = self.type_check_variable_with_bindings(hir_ident, &id, generics, bindings);
+        let id = self.intern_expr_type(id, typ.clone());
+        (id, typ)
     }
 
     /// Bind the type-segment turbofish of a fieldless enum variant path (e.g. `Foo::<u32>::Spam`)
@@ -406,7 +407,7 @@ impl Elaborator<'_> {
         for (located_type, type_var) in turbofish.into_iter().zip(&typevars) {
             let type_location = located_type.location();
             let typ = self.check_type_kind(located_type.contents, &type_var.kind(), type_location);
-            bindings.insert(type_var.id(), (type_var.clone(), type_var.kind(), typ));
+            bindings.insert(type_var.id(), (type_var.clone(), type_var.kind().into_owned(), typ));
         }
     }
 
@@ -630,13 +631,14 @@ impl Elaborator<'_> {
             // `Self` is contextual; which kind it is depends only on where we are (a trait impl, a
             // trait definition, somewhere `Self` is a plain type, or nowhere at all), so it is
             // classified here and the matching arm resolves the last segment.
-            if let Some(trait_impl_id) = self.current_trait_impl {
+            let impl_context = &self.item.impl_context;
+            if let Some(trait_impl_id) = impl_context.current_trait_impl() {
                 let self_type =
-                    self.self_type.clone().expect("a trait impl always has a self type");
+                    impl_context.self_type().expect("a trait impl always has a self type").clone();
                 PathPrefixKind::SelfInTraitImpl { self_type, trait_impl_id }
-            } else if let Some(trait_id) = self.current_trait {
+            } else if let Some(trait_id) = impl_context.current_trait() {
                 PathPrefixKind::SelfInTrait { trait_id }
-            } else if self.self_type.is_some() {
+            } else if impl_context.self_type().is_some() {
                 PathPrefixKind::SelfInImpl
             } else {
                 PathPrefixKind::SelfNotInScope
@@ -697,14 +699,7 @@ impl Elaborator<'_> {
             return None;
         }
         let head = path.segments[0].ident.as_str();
-        let bounds: Vec<_> = self
-            .trait_bounds
-            .iter()
-            .filter(|constraint| {
-                matches!(&constraint.typ, Type::NamedGeneric(generic) if generic.name.as_str() == head)
-            })
-            .cloned()
-            .collect();
+        let bounds: Vec<_> = self.item.generics.bounds_on_generic(head).cloned().collect();
         (!bounds.is_empty()).then_some(bounds)
     }
 
@@ -819,13 +814,34 @@ impl Elaborator<'_> {
         let impl_replacements: TypeBindings = impl_generics
             .iter()
             .map(|type_var| {
-                let kind = type_var.kind();
+                let kind = type_var.kind().into_owned();
                 let fresh = self.interner.next_type_variable_with_kind(kind.clone());
                 (type_var.id(), (type_var.clone(), kind, fresh))
             })
             .collect();
         let substituted = impl_self_type.substitute(&impl_replacements);
         self.unify_or_type_mismatch(self_type, &substituted, location);
+        bindings.extend(impl_replacements);
+    }
+
+    /// Bind a trait impl's generics by unifying a concrete `self_type` against the impl's self type,
+    /// for an associated constant reached through that type (`G::<7>::C`): the constant's value is
+    /// written in terms of the impl's generics.
+    fn bind_trait_impl_generics_from_self_type(
+        &mut self,
+        impl_id: TraitImplId,
+        self_type: &Type,
+        bindings: &mut TypeBindings,
+        location: Location,
+    ) {
+        let trait_impl = self.interner.get_trait_implementation(impl_id);
+        let (impl_self_type, impl_replacements) = {
+            let trait_impl = trait_impl.borrow();
+            trait_impl
+                .typ
+                .substitute_type_vars_with_fresh_type_vars(&trait_impl.generics, self.interner)
+        };
+        self.unify_or_type_mismatch(self_type, &impl_self_type, location);
         bindings.extend(impl_replacements);
     }
 
@@ -851,7 +867,10 @@ impl Elaborator<'_> {
         if trait_generics.len() <= impl_generics.len() {
             let impl_generics = &impl_generics[..trait_generics.len()];
             for (trait_generic, type_var) in trait_generics.into_iter().zip_eq(impl_generics) {
-                bindings.insert(type_var.id(), (type_var.clone(), type_var.kind(), trait_generic));
+                bindings.insert(
+                    type_var.id(),
+                    (type_var.clone(), type_var.kind().into_owned(), trait_generic),
+                );
             }
         } else {
             unreachable!(
@@ -876,7 +895,10 @@ impl Elaborator<'_> {
         let func_meta = self.function_meta(func_id);
         let direct_generics = vecmap(&func_meta.direct_generics, |g| g.type_var.clone());
         for (type_generic, type_var) in type_generics.into_iter().zip_eq(direct_generics) {
-            bindings.insert(type_var.id(), (type_var.clone(), type_var.kind(), type_generic));
+            bindings.insert(
+                type_var.id(),
+                (type_var.clone(), type_var.kind().into_owned(), type_generic),
+            );
         }
     }
 
@@ -905,7 +927,7 @@ impl Elaborator<'_> {
                     ItemTypeBinding::ConcreteSelfType(Type::DataType(data_type, generics))
                 }
             }
-            PathResolutionItem::SelfMethod(_) => match &self.self_type {
+            PathResolutionItem::SelfMethod(_) => match self.item.impl_context.self_type() {
                 Some(self_type) => ItemTypeBinding::ConcreteSelfType(self_type.clone()),
                 None => ItemTypeBinding::None,
             },
@@ -925,7 +947,7 @@ impl Elaborator<'_> {
             }
             PathResolutionItem::TraitFunction(trait_id, Some(generics), _func_id) => {
                 let trait_ = self.interner.get_trait(trait_id);
-                let kinds = vecmap(&trait_.generics, |generic| generic.kind());
+                let kinds = vecmap(&trait_.generics, |generic| generic.kind().into_owned());
                 let trait_generics =
                     vecmap(&kinds, |kind| self.interner.next_type_variable_with_kind(kind.clone()));
 
@@ -941,6 +963,9 @@ impl Elaborator<'_> {
             }
             PathResolutionItem::TypeTraitFunction(self_type, _trait_id, _func_id) => {
                 ItemTypeBinding::SelfGeneric(self_type)
+            }
+            PathResolutionItem::TraitConstant(_, self_type, _, _) => {
+                ItemTypeBinding::ConcreteSelfType(self_type)
             }
             PathResolutionItem::PrimitiveFunction(primitive_type, turbofish, _func_id) => {
                 // Build the concrete primitive self type (e.g. `str<3>`) and unify it against the
@@ -962,8 +987,7 @@ impl Elaborator<'_> {
             | PathResolutionItem::TraitAssociatedType(..)
             | PathResolutionItem::Global(..)
             | PathResolutionItem::EnumVariant(..)
-            | PathResolutionItem::ModuleFunction(..)
-            | PathResolutionItem::TraitConstant(..) => ItemTypeBinding::None,
+            | PathResolutionItem::ModuleFunction(..) => ItemTypeBinding::None,
         };
         self.push_errors(errors);
         result
@@ -1003,13 +1027,9 @@ impl Elaborator<'_> {
             return self.type_path_value_expr(resolution, &typ, turbofish.as_ref(), ident_location);
         }
 
-        let Some(method) = self.lookup_method(
-            &typ,
-            ident.as_str(),
-            ident_location,
-            typ_location,
-            check_self_param,
-        ) else {
+        let Some(method) =
+            self.lookup_method(&typ, ident, ident_location, typ_location, check_self_param)
+        else {
             let error = Expression::new(ExpressionKind::Error, ident_location);
             return self.elaborate_expression(error);
         };
@@ -1045,7 +1065,9 @@ impl Elaborator<'_> {
             unreachable!("a type's value member always resolves to an ident");
         };
 
-        let mut bindings = TypeBindings::default();
+        // The receiver type gives the generics of the enum a variant belongs to, as the type
+        // segment's turbofish does in `E::<bool>::A`.
+        let mut type_turbofish = None;
         if matches!(item, Some(PathResolutionItem::EnumVariant(_)))
             && let Type::DataType(_, generics) = typ
         {
@@ -1056,18 +1078,10 @@ impl Elaborator<'_> {
                     location: turbofish_location,
                 });
             }
-            let turbofish = vecmap(generics, |generic| Located::from(location, generic.clone()));
-            self.bind_enum_variant_global_turbofish(
-                hir_ident.id,
-                &turbofish,
-                location,
-                &mut bindings,
-            );
+            type_turbofish =
+                Some(vecmap(generics, |generic| Located::from(location, generic.clone())));
         }
-        let id = self.intern_expr(HirExpression::Ident(hir_ident.clone(), None), location);
-        let typ = self.type_check_variable_with_bindings(hir_ident, &id, None, bindings);
-        let id = self.intern_expr_type(id, typ.clone());
-        (id, typ)
+        self.elaborate_resolved_ident(hir_ident, item, None, type_turbofish, location)
     }
 
     /// Variant of [`Self::elaborate_type_path_impl_inner`] that accepts already resolved generics.
@@ -1085,13 +1099,9 @@ impl Elaborator<'_> {
 
         self.interner.push_type_ref_location(&typ, typ_location);
 
-        let Some(method) = self.lookup_method(
-            &typ,
-            ident.as_str(),
-            ident_location,
-            typ_location,
-            check_self_param,
-        ) else {
+        let Some(method) =
+            self.lookup_method(&typ, ident, ident_location, typ_location, check_self_param)
+        else {
             let error = Expression::new(ExpressionKind::Error, ident_location);
             return self.elaborate_expression(error);
         };
@@ -1178,7 +1188,7 @@ impl Elaborator<'_> {
     pub(crate) fn handle_definition_id(&mut self, definition_id: DefinitionId, location: Location) {
         match self.interner.definition(definition_id).kind {
             DefinitionKind::Function(func_id) => {
-                if let Some(current_item) = self.current_item {
+                if let Some(current_item) = self.item.module.current_item() {
                     self.interner.add_function_dependency(current_item, func_id);
                 }
 
@@ -1186,7 +1196,7 @@ impl Elaborator<'_> {
             }
             DefinitionKind::Global(global_id) => {
                 self.elaborate_global_if_unresolved(&global_id);
-                if let Some(current_item) = self.current_item {
+                if let Some(current_item) = self.item.module.current_item() {
                     self.interner.add_global_dependency(current_item, global_id);
                 }
 
@@ -1329,7 +1339,7 @@ impl Elaborator<'_> {
             self.instantiate(t, bindings, generics, &direct_generic_ids, location);
 
         if let ImplKind::TraitItem(mut method) = ident.impl_kind {
-            method.constraint.apply_bindings(&bindings);
+            method.constraint.apply_instantiation_bindings(&bindings);
             if method.assumed {
                 let trait_generics = method.constraint.trait_bound.trait_generics.clone();
                 let object_type = method.constraint.typ;
@@ -1374,12 +1384,17 @@ impl Elaborator<'_> {
         if let Some(function) = func_id {
             let function = self.function_meta(function);
             for mut constraint in function.all_trait_constraints().cloned().collect::<Vec<_>>() {
-                constraint.apply_bindings(&bindings);
+                let declared_bound = is_checkable_bound(&constraint).then(|| constraint.clone());
+                constraint.apply_instantiation_bindings(&bindings);
 
                 // This constraint shouldn't lead to choosing a trait impl method
-                self.push_trait_constraint(constraint, **expr_id, false);
+                self.push_where_clause_constraint(constraint, **expr_id, declared_bound);
             }
         }
+
+        // An associated type of a trait whose impl is already decided here (`<K as Tr>::Out`) is
+        // that impl's, so it is resolved now rather than when the type is first needed.
+        self.select_where_possible();
 
         // Record required type variables in a predictable order to avoid nondeterminism in error messages.
         let required_type_variables = btree_map(bindings.values(), |(type_variable, _, typ)| {

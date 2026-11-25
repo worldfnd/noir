@@ -3,7 +3,7 @@ use std::borrow::Cow;
 use itertools::Itertools;
 
 use crate::{
-    NamedGeneric, Type, TypeBindings,
+    Kind, NamedGeneric, Type, TypeBinding, TypeBindings,
     ast::{ItemVisibility, UnaryOp},
     hir::def_map::ModuleDefId,
     hir_def::{
@@ -17,7 +17,7 @@ use crate::{
     token::FmtStrFragment,
 };
 
-use crate::hir::printer::ItemPrinter;
+use crate::hir::printer::{ItemPrinter, escape_format_string_fragment, escape_string_literal};
 
 impl ItemPrinter<'_, '_> {
     fn show_hir_expression_id(&mut self, expr_id: ExprId) {
@@ -441,7 +441,7 @@ impl ItemPrinter<'_, '_> {
                 let instantiation_bindings =
                     self.interner.get_instantiation_bindings(hir_call_expression.func);
                 let mut constraint = trait_method.constraint.clone();
-                constraint.apply_bindings(instantiation_bindings);
+                constraint.apply_instantiation_bindings(instantiation_bindings);
                 let self_type = constraint.typ.follow_bindings();
                 let method_name = self.interner.function_name(&func_id);
                 self.interner.lookup_direct_method(&self_type, method_name, false).is_some()
@@ -552,7 +552,7 @@ impl ItemPrinter<'_, '_> {
         let instantiation_bindings =
             self.interner.get_instantiation_bindings(hir_call_expression.func);
         let mut constraint = trait_method.constraint.clone();
-        constraint.apply_bindings(instantiation_bindings);
+        constraint.apply_instantiation_bindings(instantiation_bindings);
 
         let trait_id = trait_method.constraint.trait_bound.trait_id;
         let module_data = &self.def_maps[&self.module_id.krate][self.module_id.local_id];
@@ -707,20 +707,16 @@ impl ItemPrinter<'_, '_> {
             }
             HirLiteral::Str(bytes) => {
                 let string = String::from_utf8_lossy(&bytes);
-                self.push_str(&format!("{string:?}"));
+                self.push('"');
+                self.push_str(&escape_string_literal(&string));
+                self.push('"');
             }
             HirLiteral::FmtStr(fmt_str_fragments, _expr_ids, _) => {
                 self.push_str("f\"");
                 for fragment in fmt_str_fragments {
                     match fragment {
                         FmtStrFragment::String(string) => {
-                            let string = string
-                                .replace('\\', "\\\\")
-                                .replace('\n', "\\n")
-                                .replace('\t', "\\t")
-                                .replace('{', "{{")
-                                .replace('}', "}}");
-                            self.push_str(&string);
+                            self.push_str(&escape_format_string_fragment(&string));
                         }
                         FmtStrFragment::Interpolation(string, _) => {
                             self.push('{');
@@ -839,6 +835,32 @@ impl ItemPrinter<'_, '_> {
         self.show_hir_ident(ident, None);
     }
 
+    /// Shows a type-level number as an expression of type `numeric_type`. Literals get
+    /// `numeric_type` as their suffix so they can't be inferred as a different type, and every
+    /// operation is parenthesized so the expression keeps its meaning as an operand.
+    fn show_numeric_type_as_value(&mut self, typ: &Type, numeric_type: &Type) {
+        let typ = typ.follow_bindings();
+        if let Type::Constant(constant) = typ.canonicalize() {
+            self.push_str(&constant.to_string());
+            self.push('_');
+            self.show_type(numeric_type);
+            return;
+        }
+        match typ {
+            Type::InfixExpr(lhs, op, rhs, _) => {
+                self.push('(');
+                self.show_numeric_type_as_value(&lhs, numeric_type);
+                self.push(' ');
+                self.push_str(&op.to_string());
+                self.push(' ');
+                self.show_numeric_type_as_value(&rhs, numeric_type);
+                self.push(')');
+            }
+            Type::CheckedCast { from: _, to } => self.show_numeric_type_as_value(&to, numeric_type),
+            other => self.show_type(&other),
+        }
+    }
+
     fn show_hir_ident(&mut self, ident: HirIdent, expr_id: Option<ExprId>) {
         let instantiation_bindings = if let Some(expr_id) = expr_id {
             self.interner.try_get_instantiation_bindings(expr_id)
@@ -865,7 +887,18 @@ impl ItemPrinter<'_, '_> {
                     return;
                 } else {
                     match &constraint.typ {
-                        Type::TypeVariable(type_var) if type_var.borrow().is_unbound() => {
+                        // The trait's own `Self` type variable can only stay unbound inside
+                        // that trait's body, where the item is reachable as `Self::item`.
+                        Type::NamedGeneric(NamedGeneric { type_var, .. })
+                            if type_var.binding().is_unbound()
+                                && self.trait_self_typevar == Some(type_var.id()) =>
+                        {
+                            self.push_str("Self::");
+                            let name = self.interner.definition_name(trait_item.definition);
+                            self.push_str(name);
+                            return;
+                        }
+                        Type::TypeVariable(type_var) if type_var.binding().is_unbound() => {
                             // Don't show this as `AsTraitPath`
                         }
                         _ => {
@@ -909,7 +942,7 @@ impl ItemPrinter<'_, '_> {
                     if let Some(instantiation_bindings) = instantiation_bindings {
                         let self_type = self_type.substitute(instantiation_bindings);
                         let unbound = if let Type::TypeVariable(type_var) = &self_type {
-                            type_var.borrow().is_unbound()
+                            type_var.binding().is_unbound()
                         } else {
                             false
                         };
@@ -959,9 +992,71 @@ impl ItemPrinter<'_, '_> {
                     use_import,
                 );
             }
-            DefinitionKind::Local(..)
-            | DefinitionKind::NumericGeneric(..)
-            | DefinitionKind::AssociatedConstant(..) => {
+            DefinitionKind::AssociatedConstant(trait_impl_id, ref name) => {
+                // The bare name only resolves inside the trait impl that defines the constant,
+                // so qualify it: `Self::N` within that impl, `<Type as Trait>::N` elsewhere.
+                let trait_impl = self.interner.get_trait_implementation(trait_impl_id);
+                let trait_impl = trait_impl.borrow();
+                if self.self_type.as_ref() == Some(&trait_impl.typ) {
+                    self.push_str("Self::");
+                } else {
+                    // The qualified form `<Type as Trait>::N` names the trait; when the trait
+                    // isn't visible from this module (e.g. the reference was spliced in by a
+                    // comptime `Expr::resolve` in another module's scope), print the constant's
+                    // compile-time value instead.
+                    let module_def_id = ModuleDefId::TraitId(trait_impl.trait_id);
+                    let trait_ = self.interner.get_trait(trait_impl.trait_id);
+                    let trait_is_visible = self
+                        .module_def_id_is_visible_or_reexported(module_def_id, trait_.visibility);
+                    if !trait_is_visible
+                        && let Some(named_type) = self
+                            .interner
+                            .get_associated_types_for_impl(trait_impl_id)
+                            .iter()
+                            .find(|named_type| named_type.name.as_str() == name)
+                        && let Type::Constant(constant) = named_type.typ.follow_bindings()
+                    {
+                        self.push_str(&constant.to_string());
+                        if let Kind::Numeric(numeric_type) = &*named_type.typ.kind() {
+                            self.push('_');
+                            self.show_type(numeric_type);
+                        }
+                        return;
+                    }
+                    self.push('<');
+                    self.show_type(&trait_impl.typ);
+                    self.push_str(" as ");
+                    let trait_ = self.interner.get_trait(trait_impl.trait_id);
+                    self.show_reference_to_module_def_id(
+                        ModuleDefId::TraitId(trait_impl.trait_id),
+                        trait_.visibility,
+                        true,
+                    );
+                    let trait_generics = self.interner.get_trait_generics_for_impl(trait_impl_id);
+                    let use_colons = false;
+                    self.show_generic_types(&trait_generics.ordered, use_colons);
+                    self.push_str(">::");
+                }
+                self.push_str(name);
+            }
+            DefinitionKind::NumericGeneric(ref type_var, ref numeric_type) => {
+                // When a numeric type alias is used as a value (`Alias`, `AliasN::<1>`), the
+                // definition's type variable is bound to the value the alias stands for, and
+                // the bare name doesn't resolve at the use site (or worse, resolves to
+                // something else with the same name). Print the value instead.
+                let binding = match type_var.binding() {
+                    TypeBinding::Bound(binding) => Some(binding.follow_bindings()),
+                    TypeBinding::Unbound(..) => None,
+                };
+                match binding {
+                    Some(Type::TypeVariable(..)) | None => {
+                        let name = self.interner.definition_name(ident.id);
+                        self.push_str(name);
+                    }
+                    Some(binding) => self.show_numeric_type_as_value(&binding, numeric_type),
+                }
+            }
+            DefinitionKind::Local(..) => {
                 let name = self.interner.definition_name(ident.id);
 
                 // The compiler uses '$' for some internal identifiers.

@@ -136,6 +136,8 @@ pub enum TypeCheckError {
     MutableCaptureWithoutRef { name: String, location: Location },
     #[error("Mutable references to array indices are unsupported")]
     MutableReferenceToArrayElement { location: Location },
+    #[error("Cannot take a mutable reference to a value behind a `&` reference")]
+    MutableReferenceBehindImmutableReference { location: Location },
     #[error("No method named '{method_name}' found for type '{object_type}'")]
     UnresolvedMethodCall { method_name: String, object_type: Type, location: Location },
     #[error("Cannot invoke function field '{method_name}' on type '{object_type}' as a method")]
@@ -160,10 +162,6 @@ pub enum TypeCheckError {
     FieldNot { location: Location },
     #[error("Fields cannot be compared, try casting to an integer first")]
     FieldComparison { location: Location },
-    #[error(
-        "The bit count in a bit-shift operation must fit in a u8, try casting the right hand side into a u8 first"
-    )]
-    InvalidShiftSize { location: Location },
     #[error("Cannot `bool {op} bool`")]
     InvalidBoolInfixOp { op: BinaryOpKind, location: Location },
     #[error("Error with additional context")]
@@ -183,6 +181,13 @@ pub enum TypeCheckError {
     TypeAnnotationsNeededForFieldAccess { location: Location },
     #[error("Multiple trait impls may apply to this object type")]
     MultipleMatchingImpls { object_type: Type, candidates: Vec<String>, location: Location },
+    #[error("Multiple applicable methods named `{method_name}` in scope")]
+    MultipleApplicableMethodsForObject {
+        method_name: String,
+        /// The self type of each candidate impl, and the location of the method's name in it.
+        candidates: Vec<(Type, Location)>,
+        location: Location,
+    },
     #[error("Use of deprecated function {name}")]
     CallDeprecated { name: String, note: Option<String>, deny: bool, location: Location },
     #[error("{0}")]
@@ -257,8 +262,6 @@ pub enum TypeCheckError {
     NoSuchNamedTypeArg { name: Ident, item: String },
     #[error("`{item}` is missing the associated type `{name}`")]
     MissingNamedTypeArg { name: Rc<String>, item: String, location: Location },
-    #[error("Internal compiler error: type unspecified for value")]
-    UnspecifiedType { location: Location },
     #[error("Binding `{typ}` here to the `_` inside would create a cyclic type")]
     CyclicType { typ: Type, location: Location },
     #[error("Type annotations required before indexing this array or vector")]
@@ -368,6 +371,7 @@ impl TypeCheckError {
             | TypeCheckError::CannotMutateImmutableVariable { location, .. }
             | TypeCheckError::MutableCaptureWithoutRef { location, .. }
             | TypeCheckError::MutableReferenceToArrayElement { location }
+            | TypeCheckError::MutableReferenceBehindImmutableReference { location }
             | TypeCheckError::UnresolvedMethodCall { location, .. }
             | TypeCheckError::CannotInvokeStructFieldFunctionType { location, .. }
             | TypeCheckError::IntegerSignedness { location, .. }
@@ -377,12 +381,12 @@ impl TypeCheckError {
             | TypeCheckError::FieldModulo { location }
             | TypeCheckError::FieldNot { location }
             | TypeCheckError::FieldComparison { location }
-            | TypeCheckError::InvalidShiftSize { location }
             | TypeCheckError::InvalidBoolInfixOp { location, .. }
             | TypeCheckError::NonHomogeneousArray { first_location: location, .. }
             | TypeCheckError::TypeAnnotationsNeededForMethodCall { location }
             | TypeCheckError::TypeAnnotationsNeededForFieldAccess { location }
             | TypeCheckError::MultipleMatchingImpls { location, .. }
+            | TypeCheckError::MultipleApplicableMethodsForObject { location, .. }
             | TypeCheckError::CallDeprecated { location, .. }
             | TypeCheckError::UnusedResultWarning { expr_location: location, .. }
             | TypeCheckError::UnusedResultError { expr_location: location, .. }
@@ -407,7 +411,6 @@ impl TypeCheckError {
             | TypeCheckError::StringIndexAssign { location }
             | TypeCheckError::MacroReturningNonExpr { location, .. }
             | TypeCheckError::MissingNamedTypeArg { location, .. }
-            | TypeCheckError::UnspecifiedType { location }
             | TypeCheckError::CyclicType { location, .. }
             | TypeCheckError::TypeAnnotationsNeededForIndex { location }
             | TypeCheckError::UnnecessaryUnsafeBlock { location }
@@ -644,7 +647,6 @@ impl<'a> From<&'a TypeCheckError> for Diagnostic {
             | TypeCheckError::UnconstrainedEnumReturnToConstrained { location }
             | TypeCheckError::NonConstantEvaluated { location, .. }
             | TypeCheckError::StringIndexAssign { location }
-            | TypeCheckError::InvalidShiftSize { location }
             | TypeCheckError::VerifyProofWithTypeInBrillig { location } => {
                 Diagnostic::simple_error(error.to_string(), String::new(), *location)
             }
@@ -677,6 +679,9 @@ impl<'a> From<&'a TypeCheckError> for Diagnostic {
             TypeCheckError::MutableReferenceToArrayElement { location } => {
                 Diagnostic::simple_error("Mutable references to array elements are currently unsupported".into(), "Try storing the element in a fresh variable first".into(), *location)
             },
+            TypeCheckError::MutableReferenceBehindImmutableReference { location } => {
+                Diagnostic::simple_error(error.to_string(), "A `&` reference grants read-only access to the value behind it".into(), *location)
+            },
             TypeCheckError::TypeAnnotationsNeededForMethodCall { location } => {
                 let mut error = Diagnostic::simple_error(
                     "Object type is unknown in method call".to_string(),
@@ -702,6 +707,23 @@ impl<'a> From<&'a TypeCheckError> for Diagnostic {
                 for (i, candidate) in candidates.iter().enumerate() {
                     error.add_note(format!("Candidate {}: `{candidate}`", i + 1));
                 }
+                error
+            },
+            TypeCheckError::MultipleApplicableMethodsForObject { method_name, candidates, location } => {
+                let mut error = Diagnostic::simple_error(
+                    error.to_string(),
+                    format!("Multiple `{method_name}` found"),
+                    *location,
+                );
+                for (i, (impl_type, candidate_location)) in candidates.iter().enumerate() {
+                    error.add_secondary(
+                        format!("Candidate #{} is defined in an impl for the type `{impl_type}`", i + 1),
+                        *candidate_location,
+                    );
+                }
+                error.add_note(
+                    "Add a type annotation for the object so that only one of these impls applies".to_string(),
+                );
                 error
             },
             TypeCheckError::ResolverError(error) => error.into(),
@@ -860,9 +882,6 @@ impl<'a> From<&'a TypeCheckError> for Diagnostic {
                 Diagnostic::simple_error(error.to_string(), String::new(), *location)
             }
             TypeCheckError::UnsafeFn { location } => {
-                Diagnostic::simple_error(error.to_string(), String::new(), *location)
-            }
-            TypeCheckError::UnspecifiedType { location } => {
                 Diagnostic::simple_error(error.to_string(), String::new(), *location)
             }
             TypeCheckError::CyclicType { typ: _, location } => {

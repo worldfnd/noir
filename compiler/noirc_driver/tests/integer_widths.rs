@@ -6,21 +6,24 @@ use std::path::Path;
 
 use acvm::FieldConfig;
 use fm::FileManager;
-use noirc_driver::{CompileOptions, check_crate, compile_no_check, prepare_crate};
+use noirc_driver::{
+    CompileOptions, check_crate, compile_no_check, ensure_integer_widths_are_lowerable,
+    prepare_crate,
+};
 use noirc_errors::CustomDiagnostic;
 use noirc_frontend::graph::CrateId;
-use noirc_frontend::hir::Context;
 use noirc_frontend::hir::def_map::parse_file;
+use noirc_frontend::hir::{Context, ParsedFiles};
 use noirc_frontend::monomorphization::ast::Type;
 use noirc_frontend::monomorphization::monomorphize;
 use noirc_frontend::shared::Signedness;
 
-fn context_for(source: &str) -> (Context<'static, 'static>, CrateId) {
+fn context_for(source: &str) -> (Context, CrateId) {
     let root = Path::new("");
     let file_name = Path::new("main.nr");
     let mut file_manager = FileManager::new(root);
     file_manager.add_file_with_source(file_name, source.to_owned()).unwrap();
-    let parsed_files = file_manager
+    let parsed_files: ParsedFiles = file_manager
         .as_file_map()
         .all_file_ids()
         .map(|&file_id| (file_id, parse_file(&file_manager, file_id)))
@@ -51,17 +54,12 @@ fn the_front_half_takes_every_width_and_the_circuit_path_stops_at_the_backend() 
              fn main(x: u8) -> pub u8 {{ increment((x % 2) as {typ}) as u8 }}"
         );
 
-        let (mut context, crate_id) = context_for(&source);
-        check_crate(&mut context, crate_id, &CompileOptions::default())
-            .expect("the front half admits every width");
+        let (context, crate_id) = context_for(&source);
+        let (context, result) = check_crate(context, crate_id, &CompileOptions::default());
+        result.expect("the front half admits every width");
         let main = context.get_main_function(&crate_id).expect("main is defined");
-        let program = monomorphize(
-            main,
-            &mut context.def_interner,
-            context.file_manager.as_file_map(),
-            false,
-        )
-        .expect("every width monomorphizes");
+        let program =
+            monomorphize(main, &context.def_interner, false).expect("every width monomorphizes");
         let increment =
             program.functions.iter().find(|function| function.name == "increment").unwrap();
         assert_eq!(increment.return_type, Type::Integer(signedness, bits), "{typ}");
@@ -70,10 +68,19 @@ fn the_front_half_takes_every_width_and_the_circuit_path_stops_at_the_backend() 
         // only when every value of its type lies below the linked field's modulus.
         let linked = FieldConfig::linked();
         let fits = linked.fits_unsigned(bits);
-        let (mut context, crate_id) = context_for(&source);
-        check_crate(&mut context, crate_id, &CompileOptions::default()).unwrap();
+        let (context, crate_id) = context_for(&source);
+        let (context, result) = check_crate(context, crate_id, &CompileOptions::default());
+        result.unwrap();
         let main = context.get_main_function(&crate_id).expect("main is defined");
-        let result = compile_no_check(&mut context, &CompileOptions::default(), main, None, false);
+        let result = compile_no_check(
+            &context,
+            &CompileOptions::default(),
+            Path::new(""),
+            false,
+            main,
+            None,
+            false,
+        );
         match result {
             Ok(_) => assert!(lowerable && fits, "{typ} reached the backend"),
             Err(error) => {
@@ -105,12 +112,20 @@ fn the_byte_codec_and_the_front_half_share_their_limits() {
 #[test]
 fn an_entry_point_takes_every_width_and_the_circuit_path_refuses_it() {
     let source = "fn main(x: u34) -> pub u34 { x + 1 }";
-    let (mut context, crate_id) = context_for(source);
-    check_crate(&mut context, crate_id, &CompileOptions::default())
-        .expect("the front half admits every width at an entry point");
+    let (context, crate_id) = context_for(source);
+    let (context, result) = check_crate(context, crate_id, &CompileOptions::default());
+    result.expect("the front half admits every width at an entry point");
     let main = context.get_main_function(&crate_id).expect("main is defined");
-    let error = compile_no_check(&mut context, &CompileOptions::default(), main, None, false)
-        .expect_err("the backend has no lowering for u34");
+    let error = compile_no_check(
+        &context,
+        &CompileOptions::default(),
+        Path::new(""),
+        false,
+        main,
+        None,
+        false,
+    )
+    .expect_err("the backend has no lowering for u34");
     let message = CustomDiagnostic::from(error).message;
     assert!(message.contains("uses `u34`"), "{message}");
 }
@@ -125,14 +140,66 @@ fn unlowerable_widths_are_refused_inside_types_and_bodies() {
         "fn helper(x: u34) -> u34 { x } fn main(x: u8) -> pub u8 { helper(x as u34) as u8 }",
     ];
     for source in sources {
-        let (mut context, crate_id) = context_for(source);
-        check_crate(&mut context, crate_id, &CompileOptions::default()).unwrap();
+        let (context, crate_id) = context_for(source);
+        let (context, result) = check_crate(context, crate_id, &CompileOptions::default());
+        result.unwrap();
         let main = context.get_main_function(&crate_id).expect("main is defined");
-        let error = compile_no_check(&mut context, &CompileOptions::default(), main, None, false)
-            .expect_err("the backend has no lowering for u34");
+        let error = compile_no_check(
+            &context,
+            &CompileOptions::default(),
+            Path::new(""),
+            false,
+            main,
+            None,
+            false,
+        )
+        .expect_err("the backend has no lowering for u34");
         let message = CustomDiagnostic::from(error).message;
         assert!(message.contains("`u34`"), "{source}: {message}");
     }
+}
+
+/// A `let` holds the type its binding declares, which no expression reports as its own type, so
+/// the check reads it from the `let`.
+#[test]
+fn an_unlowerable_width_declared_on_a_let_is_refused() {
+    use noirc_frontend::monomorphization::ast::{
+        Expression, FuncId, Function, InlineType, Let, Literal, LocalId, Program,
+    };
+    use noirc_frontend::shared::Visibility;
+
+    let body = Expression::Let(Let {
+        id: LocalId(0),
+        mutable: false,
+        name: "wide".to_string(),
+        expression: Box::new(Expression::Literal(Literal::Unit)),
+        typ: Type::Integer(Signedness::Unsigned, 34),
+    });
+    let main = Function {
+        id: FuncId(0),
+        name: "main".to_string(),
+        parameters: Vec::new(),
+        body,
+        return_type: Type::Unit,
+        return_visibility: Visibility::Private,
+        unconstrained: false,
+        inline_type: InlineType::default(),
+        is_entry_point: true,
+        allow_constant_return: false,
+    };
+    let program = Program::new(
+        vec![main],
+        None,
+        Default::default(),
+        Default::default(),
+        Default::default(),
+        Default::default(),
+    );
+
+    let error = ensure_integer_widths_are_lowerable(&program)
+        .expect_err("the backend has no lowering for u34");
+    let message = CustomDiagnostic::from(error).message;
+    assert!(message.contains("function `main` uses `u34`"), "{message}");
 }
 
 /// An alias of unit still means no return, including while building the entry ABI before
@@ -146,9 +213,10 @@ fn an_aliased_unit_return_has_no_abi_value() {
             "type Nothing = (); fn main() -> pub Nothing {}",
             "type Nothing = (); type Other = Nothing; fn main() -> pub Other {}",
         ] {
-            let (mut context, crate_id) = context_for(source);
+            let (context, crate_id) = context_for(source);
             let options = CompileOptions { field, ..Default::default() };
-            check_crate(&mut context, crate_id, &options).unwrap();
+            let (context, result) = check_crate(context, crate_id, &options);
+            result.unwrap();
             let (_, return_type) = noirc_driver::compute_function_abi(&context, &crate_id).unwrap();
             assert_eq!(return_type, None, "{field}: {source}");
         }
@@ -175,15 +243,16 @@ fn nested_entry_abis_have_identical_bytes_under_every_field() {
     expected.extend(vec![0xff; 2048]);
 
     for field in acvm::FieldId::ALL {
-        let (mut context, crate_id) = context_for(source);
+        let (context, crate_id) = context_for(source);
         let options = CompileOptions { field, ..Default::default() };
-        check_crate(&mut context, crate_id, &options).unwrap();
+        let (context, result) = check_crate(context, crate_id, &options);
+        result.unwrap();
         let main = context.get_main_function(&crate_id).unwrap();
-        monomorphize(main, &mut context.def_interner, context.file_manager.as_file_map(), false)
-            .unwrap();
+        monomorphize(main, &context.def_interner, false).unwrap();
         let (parameters, return_type) =
             noirc_driver::compute_function_abi(&context, &crate_id).unwrap();
         let abi = Abi {
+            abi_version: noirc_abi::ABI_VERSION,
             parameters,
             return_type: return_type
                 .map(|abi_type| AbiReturnType { abi_type, visibility: AbiVisibility::Public }),

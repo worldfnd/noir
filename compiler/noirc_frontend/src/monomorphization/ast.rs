@@ -9,7 +9,10 @@ use strum_macros::EnumIter;
 
 use crate::token::FmtStrFragment;
 use crate::{ast::BinaryOpKind, hir_def::expr::Constructor, shared::Signedness, token::Attributes};
-use crate::{shared::Visibility, token::FunctionAttributeKind};
+use crate::{
+    shared::{Builtin, Visibility},
+    token::FunctionAttributeKind,
+};
 use serde::{Deserialize, Serialize};
 
 use super::HirType;
@@ -52,10 +55,6 @@ pub enum Expression {
 }
 
 impl Expression {
-    pub fn is_array_or_vector_literal(&self) -> bool {
-        matches!(self, Expression::Literal(Literal::Array(_) | Literal::Vector(_)))
-    }
-
     /// The return type of an expression, if it has an obvious one.
     pub fn return_type(&self) -> Option<Cow<Type>> {
         fn borrowed(typ: &Type) -> Option<Cow<Type>> {
@@ -209,8 +208,8 @@ pub enum Definition {
     Local(LocalId),
     Global(GlobalId),
     Function(FuncId),
-    Builtin(String),
-    LowLevel(String),
+    Builtin(Builtin),
+    LowLevel(Builtin),
     /// A foreign/externally-defined unconstrained function.
     ///
     /// `pure` is `true` when the user marked the oracle declaration with
@@ -393,6 +392,11 @@ pub struct Let {
     pub mutable: bool,
     pub name: String,
     pub expression: Box<Expression>,
+    /// The declared type of the binding. For mutable bindings this determines
+    /// the element type of the allocated cell, which can differ from the
+    /// initializer value's type in reference mutability (e.g. a borrow of a
+    /// mutable variable is `&mut T`-typed while the binding declares `&T`).
+    pub typ: Type,
 }
 
 #[derive(Debug, Clone, Hash)]
@@ -613,14 +617,6 @@ impl Type {
         }
     }
 
-    /// Returns the element type of this array or vector
-    pub fn array_element_type(&self) -> Option<&Type> {
-        match self {
-            Type::Array(_, elem) | Type::Vector(elem) => Some(elem),
-            _ => None,
-        }
-    }
-
     /// Returns the number of field elements required to represent the type once encoded
     /// as a parameter to an entry point function.
     ///
@@ -694,14 +690,6 @@ impl Program {
     /// ID as `main`, although we should never expect a clash in these IDs.
     pub fn global_space_id() -> FuncId {
         FuncId(0)
-    }
-
-    /// Takes a function body by replacing it with `false` and
-    /// returning the previous value
-    pub fn take_function_body(&mut self, function: FuncId) -> Expression {
-        let function_definition = &mut self[function];
-        let replacement = Expression::Block(vec![]);
-        std::mem::replace(&mut function_definition.body, replacement)
     }
 
     pub fn return_visibility(&self) -> Visibility {

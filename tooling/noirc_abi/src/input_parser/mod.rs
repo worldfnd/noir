@@ -262,6 +262,7 @@ mod serialization_tests {
     #[test]
     fn serialization_round_trip() {
         let abi = Abi {
+            abi_version: crate::ABI_VERSION,
             parameters: vec![
                 AbiParameter {
                     name: "foo".into(),
@@ -536,6 +537,7 @@ mod tests {
 
     fn abi_with_single_param(typ: AbiType) -> Abi {
         Abi {
+            abi_version: crate::ABI_VERSION,
             parameters: vec![AbiParameter {
                 name: "x".into(),
                 typ,

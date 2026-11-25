@@ -58,13 +58,20 @@ updates:
     # Check the npm registry for updates every Monday
     schedule:
       interval: "weekly"
+    # Must be at least `npmMinimalAgeGate` in `.yarnrc.yml` (1 week). Yarn
+    # refuses versions younger than that gate, and when a grouped update hits
+    # it Dependabot silently drops that package from the group while still
+    # bumping the rest, e.g. bumping hardhat plugins without the `hardhat`
+    # version they require as a peer dependency.
+    cooldown:
+      default-days: 7
     ignore:
       # @types/node major version matches Node.js major version
       # Keep compatible with our minimum supported Node version (22.x)
       - dependency-name: "@types/node"
         versions: [ ">=23.0.0" ]
-      # Ignore updates for @aztec/bb.js as it's managed separately
-      - dependency-name: "@aztec/bb.js"
+      # Ignore updates for @aztec-foundation/bb.js as it's managed separately
+      - dependency-name: "@aztec-foundation/bb.js"
     groups:
       # group updates for linter
       linter:
@@ -102,8 +109,10 @@ updates:
           - "@types/chai"
           - "@types/mocha*"
           - "@types/sinon"
-      # Playwright bumps are coupled to browser/docker image versions and need
-      # coordinated handling, so they are bundled separately from the catch-all.
+      # Playwright's lockfile version drives the CI browser install and the
+      # `mcr.microsoft.com/playwright` container image (both read it through
+      # `scripts/playwright_version.sh`), so it gets its own PR rather than
+      # riding along in the catch-all.
       playwright:
         patterns:
           - "*playwright*"

@@ -42,7 +42,10 @@ use crate::{
     token::{MetaAttribute, MetaAttributeName, SecondaryAttribute, SecondaryAttributeKind},
 };
 
-use super::{ElaborateReason, Elaborator, MAX_MACRO_EXPANSION_DEPTH, ResolverMeta};
+use super::{
+    ElaborateReason, Elaborator, MAX_MACRO_EXPANSION_DEPTH, ResolverMeta,
+    item_context::{GenericsContext, ImplContext},
+};
 
 /// Context information for the module that an attribute is located and where it should generate items.
 /// These locations differ when attributes are used across module boundaries.
@@ -96,7 +99,7 @@ impl<'context> Elaborator<'context> {
     /// Elaborate an expression from the middle of a comptime scope within a function.
     /// When this happens we require additional information to know
     /// what variables should be in scope.
-    pub fn elaborate_item_from_comptime_in_function<'a, T>(
+    pub(crate) fn elaborate_item_from_comptime_in_function<'a, T>(
         &'a mut self,
         current_function: Option<FuncId>,
         reason: Option<ElaborateReason>,
@@ -104,61 +107,54 @@ impl<'context> Elaborator<'context> {
     ) -> T {
         self.elaborate_item_from_comptime(reason, f, |elaborator| {
             if let Some(function) = current_function {
-                let (
-                    source_crate,
-                    source_module,
-                    all_generics,
-                    self_type,
-                    trait_impl,
-                    trait_id,
-                    trait_bounds,
-                ) = elaborator.with_function_meta(function, |meta| {
-                    (
-                        meta.source_crate,
-                        meta.source_module,
-                        meta.all_generics.clone(),
-                        meta.self_type.clone(),
-                        meta.trait_impl,
-                        meta.trait_id,
-                        meta.all_trait_constraints().cloned().collect(),
-                    )
-                });
-                elaborator.current_item = Some(DependencyId::Function(function));
+                let (source_crate, source_module, all_generics, trait_bounds) = elaborator
+                    .with_function_meta(function, |meta| {
+                        (
+                            meta.source_crate,
+                            meta.source_module,
+                            meta.all_generics.clone(),
+                            meta.all_trait_constraints().cloned().collect(),
+                        )
+                    });
+                let interner = &elaborator.interner;
+                let impl_context =
+                    ImplContext::of_function(interner.function_meta(&function), interner);
+                elaborator.item.module.set_current_item(Some(DependencyId::Function(function)));
                 elaborator.crate_id = source_crate;
-                elaborator.local_module = Some(source_module);
-                elaborator.self_type = self_type;
-                elaborator.current_trait_impl = trait_impl;
-                elaborator.current_trait = trait_id;
-                elaborator.trait_bounds = trait_bounds;
+                elaborator.item.module.set_local_module(source_module);
+                elaborator.item.impl_context = impl_context;
+                elaborator.item.generics = GenericsContext::new(Vec::new(), trait_bounds);
                 elaborator.introduce_generics_into_scope(all_generics);
             }
         })
     }
 
-    /// Elaborate an expression from the middle of a comptime scope within a module.
+    /// Run `f` in a fresh [`Elaborator`] so that elaborating an item on behalf of comptime code
+    /// leaves the item this elaborator is working on untouched.
     ///
-    /// Similar to [`Self::elaborate_item_from_comptime_in_function`], but for module-level comptime code.
-    pub fn elaborate_item_from_comptime_in_module<'a, T>(
-        &'a mut self,
-        module: ModuleId,
-        reason: Option<ElaborateReason>,
-        f: impl FnOnce(&mut Elaborator<'a>) -> T,
-    ) -> T {
-        self.elaborate_item_from_comptime(reason, f, |elaborator| {
-            elaborator.current_item = None;
-            elaborator.crate_id = module.krate;
-            elaborator.local_module = Some(module.local_id);
-        })
-    }
-
+    /// The fresh elaborator takes over this elaborator's
+    /// [`ElaborationSession`](super::session::ElaborationSession) for the duration of `f` and hands
+    /// it back afterwards, so the interpreter call stack, recursion limits, the halt flag and
+    /// deferred items carry through it unchanged. Its scopes and item context start
+    /// empty, apart from the comptime variables currently in scope. Errors it collects are merged
+    /// into this elaborator's, wrapped in `reason` if one is given.
     fn elaborate_item_from_comptime<'a, T>(
         &'a mut self,
         reason: Option<ElaborateReason>,
         f: impl FnOnce(&mut Elaborator<'a>) -> T,
         setup: impl FnOnce(&mut Elaborator<'a>),
     ) -> T {
-        // Create a fresh elaborator to ensure no state is changed from
-        // this elaborator
+        // Variables from this elaborator's scope are not visible to the fresh elaborator, but
+        // their names are recorded so that referencing one reports a runtime variable used in
+        // comptime code rather than an undeclared variable.
+        let current_scope_tree = self.scopes.0.last();
+        let local_scopes = current_scope_tree.into_iter().flat_map(|tree| tree.0.iter());
+        let local_vars: Vec<String> =
+            local_scopes.flat_map(|scope| scope.0.keys()).cloned().collect();
+        let mut session = std::mem::take(&mut self.session);
+        let enclosing_runtime_variables = session.parent_runtime_variables.clone();
+        session.parent_runtime_variables.extend(local_vars);
+
         let mut elaborator = Elaborator::new(
             self.interner,
             self.def_maps,
@@ -171,28 +167,13 @@ impl<'context> Elaborator<'context> {
             self.required_unstable_features,
             self.unresolved_globals,
             self.crate_id,
-            self.interpreter_call_stack.clone(),
             self.options,
-            self.elaborate_reasons.clone(),
+            session,
         );
-
-        // Collect (and update) variable names from the parent scope for better error messages
-        // when a runtime variable is referenced in comptime code.
-        let current_scope_tree = self.scopes.0.last();
-        let local_scopes = current_scope_tree.into_iter().flat_map(|tree| tree.0.iter());
-        let local_vars = local_scopes.flat_map(|scope| scope.0.keys()).cloned();
-        let parent_runtime_variables =
-            self.parent_runtime_variables.iter().cloned().chain(local_vars).collect();
 
         elaborator.push_function_context();
         elaborator.scopes.start_function();
-
-        elaborator.local_module = self.local_module;
-        elaborator.parent_runtime_variables = parent_runtime_variables;
-        elaborator.unresolved_function_metas = std::mem::take(&mut self.unresolved_function_metas);
-        elaborator.unresolved_struct_fields = std::mem::take(&mut self.unresolved_struct_fields);
-        elaborator.unresolved_enum_variants = std::mem::take(&mut self.unresolved_enum_variants);
-        elaborator.pending_trait_work = std::mem::take(&mut self.pending_trait_work);
+        elaborator.item.module.set_local_module(self.item.module.local_module());
 
         setup(&mut elaborator);
 
@@ -201,29 +182,25 @@ impl<'context> Elaborator<'context> {
         let result = f(&mut elaborator);
         elaborator.check_and_pop_function_context();
 
-        self.unresolved_function_metas = std::mem::take(&mut elaborator.unresolved_function_metas);
-        self.unresolved_struct_fields = std::mem::take(&mut elaborator.unresolved_struct_fields);
-        self.unresolved_enum_variants = std::mem::take(&mut elaborator.unresolved_enum_variants);
-        self.pending_trait_work = std::mem::take(&mut elaborator.pending_trait_work);
-
         let mut errors = std::mem::take(&mut elaborator.errors);
         if let Some(reason) = reason {
             errors =
                 errors.map(|error| CompilationError::ComptimeError(reason.to_macro_error(error)));
         }
-
         self.errors.extend(errors);
-        self.comptime_evaluation_halted = elaborator.comptime_evaluation_halted;
+
+        self.session = std::mem::take(&mut elaborator.session);
+        self.session.parent_runtime_variables = enclosing_runtime_variables;
         result
     }
 
     /// Populate the elaborator's scope with the comptime variables visible to the current function.
     ///
     /// When elaborating code generated at comptime, we need to make the comptime variables in scope
-    /// available in the runtime scope. The visible scopes are the global scope together with those
-    /// at or above the comptime scope floor; scopes belonging to enclosing callers are skipped, just
-    /// as the interpreter skips them. We iterate from global to local scope so that more local
-    /// definitions naturally shadow outer ones.
+    /// available in the runtime scope. Scopes belonging to enclosing callers are skipped, just as
+    /// the interpreter skips them. We iterate from the outermost scope inwards so that more local
+    /// definitions naturally shadow outer ones. Globals are not added: generated code resolves them
+    /// by path like any other module item.
     ///
     /// Within a single scope, bindings are registered in ascending
     /// [`crate::node_interner::DefinitionId`] order. `DefinitionId`s are minted monotonically
@@ -233,20 +210,13 @@ impl<'context> Elaborator<'context> {
     /// directly would instead pick a binding by hash-bucket order.
     #[tracing::instrument(level = "trace", skip_all)]
     fn populate_scope_from_comptime_scopes(&mut self) {
-        let floor = self.interner.comptime_scope_floor;
-        let len = self.interner.comptime_scopes.len();
-
-        for index in std::iter::once(0).chain(floor..len) {
-            let mut definition_ids: Vec<_> =
-                self.interner.comptime_scopes[index].keys().copied().collect();
+        for comptime_scope in self.session.comptime_scopes.visible_scopes() {
+            let mut definition_ids: Vec<_> = comptime_scope.keys().copied().collect();
             definition_ids.sort();
-            for definition_id in &definition_ids {
-                let definition = self.interner.definition(*definition_id);
-                let name = definition.name.clone();
-                let location = definition.location;
 
-                let scope = self.scopes.get_mut_scope();
-                let ident = HirIdent::non_trait_method(*definition_id, location);
+            for definition_id in definition_ids {
+                let definition = self.interner.definition(definition_id);
+                let ident = HirIdent::non_trait_method(definition_id, definition.location);
                 let meta = ResolverMeta {
                     ident,
                     used: false,
@@ -254,7 +224,7 @@ impl<'context> Elaborator<'context> {
                     warn_if_unused: false,
                     warn_if_not_mutated: false,
                 };
-                scope.add_key_value(name.clone(), meta);
+                self.scopes.get_mut_scope().add_key_value(definition.name.clone(), meta);
             }
         }
     }
@@ -374,8 +344,12 @@ impl<'context> Elaborator<'context> {
         impl_target: Option<&AttributeImplTarget>,
         attributes_to_run: &mut CollectedAttributes,
     ) {
+        // Each set carries the `Self` of the impl it came from; restore the caller's afterwards so
+        // that items elaborated later do not resolve `Self` against the last impl visited here.
+        let previous_self_type = self.item.impl_context.take_self_type();
+
         for function_set in function_sets {
-            self.self_type = function_set.self_type.clone();
+            self.item.impl_context.set_self_type(function_set.self_type.clone());
 
             for (local_module, function_id, function) in &function_set.functions {
                 let context = AttributeContext::new(*local_module);
@@ -390,6 +364,8 @@ impl<'context> Elaborator<'context> {
                 );
             }
         }
+
+        self.item.impl_context.set_self_type(previous_self_type);
     }
 
     /// Collect all comptime attributes from an item's attribute list.
@@ -539,7 +515,7 @@ impl<'context> Elaborator<'context> {
                 // Items must be added in the correct module (for a module attribute, this will be
                 // the module itself; for a function, it will be the module where the function is
                 // defined, etc.)
-                this.local_module = Some(attribute_context.module);
+                this.item.module.set_local_module(attribute_context.module);
 
                 let items =
                     value.into_top_level_items(location, this).map_err(CompilationError::from)?;
@@ -614,7 +590,7 @@ impl<'context> Elaborator<'context> {
         let varargs_elem_type = varargs_type.as_ref().and_then(|t| t.vector_element_type());
 
         let mut new_arguments = Vec::with_capacity(arguments.len());
-        let mut varargs = im::Vector::new();
+        let mut varargs = imbl::Vector::new();
 
         for (i, arg) in arguments.into_iter().enumerate() {
             let arg_location = arg.location;
@@ -724,7 +700,7 @@ impl<'context> Elaborator<'context> {
         generated_items: &mut CollectedItems,
         location: Location,
     ) {
-        let local_module = self.local_module();
+        let local_module = self.item.module.local_module();
         // Items generated at compile time have no field-generic twins.
         let no_twins = dc_mod::Twins::default();
 
@@ -809,7 +785,6 @@ impl<'context> Elaborator<'context> {
                     impl_id: None,
                     resolved_object_type: None,
                     resolved_generics: Vec::new(),
-                    unresolved_associated_types: Vec::new(),
                     inherited_default_method_func_ids: Default::default(),
                 });
             }
@@ -891,7 +866,7 @@ impl<'context> Elaborator<'context> {
     /// The interpreter is initialized with the current crate and function context
     /// to ensure proper scoping and error reporting.
     pub(crate) fn setup_interpreter<'local>(&'local mut self) -> Interpreter<'local, 'context> {
-        let current_function = match self.current_item {
+        let current_function = match self.item.module.current_item() {
             Some(DependencyId::Function(function)) => Some(function),
             _ => None,
         };
@@ -905,11 +880,10 @@ impl<'context> Elaborator<'context> {
         module: ModuleId,
         f: impl FnOnce(&mut Interpreter) -> T,
     ) -> T {
-        let old_module = self.replace_module(module);
-        let mut interpreter = self.setup_interpreter();
-        let result = f(&mut interpreter);
-        self.restore_module(old_module);
-        result
+        self.in_module(module, |this| {
+            let mut interpreter = this.setup_interpreter();
+            f(&mut interpreter)
+        })
     }
 
     /// Debug helper to print comptime evaluation results.
@@ -963,15 +937,15 @@ impl<'context> Elaborator<'context> {
             // If we put the increment/decrement in `run_attribute`, the decrement would
             // happen before `elaborate_items` is called, so the depth counter would reset
             // before the recursive call and fail to detect the recursion.
-            if self.macro_expansion_depth >= MAX_MACRO_EXPANSION_DEPTH {
+            if self.session.macro_expansion_depth >= MAX_MACRO_EXPANSION_DEPTH {
                 self.push_err(InterpreterError::AttributeRecursionLimitExceeded {
                     location: attr.location,
                 });
                 // Halt further elaboration to prevent cascading errors
-                self.comptime_evaluation_halted = true;
+                self.halt_comptime_evaluation();
                 return;
             }
-            self.macro_expansion_depth += 1;
+            self.session.macro_expansion_depth += 1;
 
             let mut generated_items = CollectedItems::default();
             let impl_target = attr.impl_target;
@@ -996,7 +970,7 @@ impl<'context> Elaborator<'context> {
                 });
             }
 
-            self.macro_expansion_depth -= 1;
+            self.session.macro_expansion_depth -= 1;
         }
     }
 
@@ -1010,7 +984,7 @@ impl<'context> Elaborator<'context> {
     /// immediately rather than deferred, which the interpreter requires for execution.
     #[tracing::instrument(level = "trace", skip_all)]
     pub(super) fn elaborate_in_comptime_context<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
-        let old_comptime_value = std::mem::replace(&mut self.in_comptime_context, true);
+        let old_comptime_value = std::mem::replace(&mut self.item.in_comptime_context, true);
         // We have to push a new FunctionContext so that we can resolve any constraints
         // in this comptime block early before the function as a whole finishes elaborating.
         // Otherwise the interpreter below may find expressions for which the underlying trait
@@ -1020,14 +994,14 @@ impl<'context> Elaborator<'context> {
         let result = f(self);
 
         self.check_and_pop_nested_function_context();
-        self.in_comptime_context = old_comptime_value;
+        self.item.in_comptime_context = old_comptime_value;
         result
     }
 
     /// True if we're currently within a `comptime` block, function, or global
     pub(super) fn in_comptime_context(&self) -> bool {
-        self.in_comptime_context
-            || match self.current_item {
+        self.item.in_comptime_context
+            || match self.item.module.current_item() {
                 Some(DependencyId::Function(id)) => {
                     self.interner.function_modifiers(&id).is_comptime
                 }
@@ -1041,7 +1015,7 @@ impl<'context> Elaborator<'context> {
     where
         F: FnOnce(&mut Elaborator) -> T,
     {
-        self.elaborate_reasons.push_back(reason);
+        self.session.elaborate_reasons.push_back(reason);
         let previous_errors = std::mem::take(&mut self.errors);
 
         let value = f(self);
@@ -1050,7 +1024,7 @@ impl<'context> Elaborator<'context> {
         let new_errors = self.wrap_errors_in_macro_error(new_errors);
         self.errors = previous_errors;
         self.push_errors(new_errors);
-        self.elaborate_reasons.pop_back();
+        self.session.elaborate_reasons.pop_back();
 
         value
     }
@@ -1060,7 +1034,7 @@ impl<'context> Elaborator<'context> {
     }
 
     fn wrap_error_in_macro_error(&self, mut error: CompilationError) -> CompilationError {
-        for reason in self.elaborate_reasons.iter().rev() {
+        for reason in self.session.elaborate_reasons.iter().rev() {
             error = CompilationError::ComptimeError(reason.to_macro_error(error));
         }
         error

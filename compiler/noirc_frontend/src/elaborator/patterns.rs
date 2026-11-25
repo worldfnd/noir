@@ -82,7 +82,7 @@ impl Elaborator<'_> {
     /// patterns in a list. If a name is found multiple times, an error is captured.
     #[allow(clippy::too_many_arguments)]
     #[tracing::instrument(level = "trace", skip_all)]
-    pub fn elaborate_pattern_and_store_ids(
+    pub(crate) fn elaborate_pattern_and_store_ids(
         &mut self,
         pattern: Pattern,
         expected_type: &Type,
@@ -197,7 +197,7 @@ impl Elaborator<'_> {
             Pattern::Tuple(fields, location) => {
                 // Returns Some for valid tuple types (where arity checking makes sense),
                 // None when we've already issued an error or have an invalid type.
-                let field_types = match expected_type.follow_bindings() {
+                let field_types = match self.structurally_resolve_type(expected_type) {
                     Type::Tuple(fields) => Some(fields),
                     Type::Error => None,
                     expected_type => {
@@ -329,18 +329,6 @@ impl Elaborator<'_> {
                 return error_identifier(self);
             }
         };
-
-        let turbofish_location = last_segment.turbofish_location();
-
-        let mut errors = Vec::new();
-        let generics = self.resolve_struct_turbofish_generics(
-            &struct_type.borrow(),
-            generics,
-            last_segment.generics,
-            turbofish_location,
-            &mut errors,
-        );
-        self.push_errors(errors);
 
         let actual_type = Type::DataType(struct_type.clone(), generics);
         let struct_id = struct_type.borrow().id;
@@ -481,7 +469,7 @@ impl Elaborator<'_> {
     /// Add a [`ResolverMeta`] to the last scope for a given [`HirIdent`], which already has its definition interned,
     /// unless its name is `"_"`.
     #[tracing::instrument(level = "trace", skip_all)]
-    pub fn add_existing_variable_to_scope(
+    pub(crate) fn add_existing_variable_to_scope(
         &mut self,
         name: String,
         ident: HirIdent,
@@ -531,7 +519,7 @@ impl Elaborator<'_> {
             let ident = HirIdent::non_trait_method(id, location);
             let variable = Variable { ident, scope };
             Ok(variable)
-        } else if self.parent_runtime_variables.contains(name.as_str()) {
+        } else if self.session.parent_runtime_variables.contains(name.as_str()) {
             Err(ResolverError::RuntimeVarReferencedInComptime {
                 name: name.to_string(),
                 location: name.location(),
@@ -558,7 +546,9 @@ impl Elaborator<'_> {
     ) -> Option<Vec<Type>> {
         resolved_turbofish.map(|mut resolved_turbofish| {
             let direct_generic_kinds =
-                vecmap(&self.function_meta(*func_id).direct_generics, |generic| generic.kind());
+                vecmap(&self.function_meta(*func_id).direct_generics, |generic| {
+                    generic.kind().into_owned()
+                });
             let expected = direct_generic_kinds.len();
             let actual = resolved_turbofish.len();
 
@@ -589,7 +579,7 @@ impl Elaborator<'_> {
         location: Location,
         errors: &mut Vec<CompilationError>,
     ) -> Vec<Type> {
-        let kinds = vecmap(&struct_type.generics, |generic| generic.kind());
+        let kinds = vecmap(&struct_type.generics, |generic| generic.kind().into_owned());
         self.resolve_item_turbofish_generics(
             "struct",
             struct_type.name.as_str(),
@@ -637,7 +627,7 @@ impl Elaborator<'_> {
         location: Location,
         errors: &mut Vec<CompilationError>,
     ) -> Vec<Type> {
-        let kinds = vecmap(&type_alias.generics, |generic| generic.kind());
+        let kinds = vecmap(&type_alias.generics, |generic| generic.kind().into_owned());
         self.resolve_item_turbofish_generics(
             "alias",
             type_alias.name.as_str(),
@@ -787,7 +777,7 @@ impl Elaborator<'_> {
         let type_alias = self.interner.get_type_alias(type_alias_id);
         let type_alias = type_alias.borrow();
         let alias_generics = vecmap(&type_alias.generics, |generic| {
-            self.interner.next_type_variable_with_kind(generic.kind())
+            self.interner.next_type_variable_with_kind(generic.kind().into_owned())
         });
 
         if let Some(generics) = generics {

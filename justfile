@@ -33,7 +33,13 @@ install-js-tools: install-binstall
 
 # Installs Playwright (necessary for Javascript browser tests but slow to install)
 install-playwright browsers='chromium webkit':
-    npx -y playwright@1.58.2 install --with-deps {{ browsers }}
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Resolve into a variable first: inlined in the `npx` argument, a failed
+    # resolve would leave `playwright@`, which npm reads as `*` and installs
+    # whatever the registry has published latest.
+    version="$(./scripts/playwright_version.sh)"
+    npx -y "playwright@${version}" install --with-deps {{ browsers }}
 
 # Installs Foundry (necessary for examples)
 install-foundry:
@@ -69,6 +75,7 @@ build-bins: install-binstall
     {{ cargo }} build --package nargo_cli --release --target={{ target }} --no-default-features
     {{ cargo }} build --package noir_profiler --release --target={{ target }} --no-default-features
     {{ cargo }} build --package noir_inspector --release --target={{ target }} --no-default-features
+    {{ cargo }} build --package noir_artifact_cli --release --target={{ target }} --no-default-features
 
 # Package release artifacts
 [linux]
@@ -77,8 +84,8 @@ package: build-bins
     cp ./target/{{ target }}/release/nargo ./dist/nargo
     cp ./target/{{ target }}/release/noir-profiler ./dist/noir-profiler
     cp ./target/{{ target }}/release/noir-inspector ./dist/noir-inspector
-    # TODO(https://github.com/noir-lang/noir/issues/7445): Remove the separate nargo binary
-    tar -czf nargo-{{ target }}.tar.gz -C dist nargo
+    cp ./target/{{ target }}/release/noir-execute ./dist/noir-execute
+
     tar -czf noir-{{ target }}.tar.gz -C dist .
 
 # Macos uses a 7z instead of tar
@@ -88,9 +95,8 @@ package: build-bins
     cp ./target/{{ target }}/release/nargo ./dist/nargo
     cp ./target/{{ target }}/release/noir-profiler ./dist/noir-profiler
     cp ./target/{{ target }}/release/noir-inspector ./dist/noir-inspector
+    cp ./target/{{ target }}/release/noir-execute ./dist/noir-execute
 
-    # TODO(https://github.com/noir-lang/noir/issues/7445): Remove the separate nargo binary
-    7z a -ttar -so -an ./dist/nargo | 7z a -si ./nargo-{{ target }}.tar.gz
     7z a -ttar -so -an ./dist/* | 7z a -si ./noir-{{ target }}.tar.gz
 
 # Run tests
@@ -101,10 +107,18 @@ export NOIR_AST_FUZZER_BUDGET_SECS := env_var_or_default("NOIR_AST_FUZZER_BUDGET
 
 # Performs a nightly fuzzing run
 fuzz-nightly: install-rust-tools
-    @echo "env NOIR_AST_FUZZER_BUDGET_SECS='$NOIR_AST_FUZZER_BUDGET_SECS'"
+    #!/usr/bin/env bash
+    set -uo pipefail
+    echo "env NOIR_AST_FUZZER_BUDGET_SECS='${NOIR_AST_FUZZER_BUDGET_SECS:-}'"
+    echo "env NOIR_ALIAS_PROP_BUDGET_MS='${NOIR_ALIAS_PROP_BUDGET_MS:-}'"
+    status=0
     # On regular PRs we run deterministic fuzzing to avoid flaky tests on CI.
     # In the nightly tests we want to explore uncharted territory.
-    NOIR_AST_FUZZER_FORCE_NON_DETERMINISTIC=1 cargo nextest run -p noir_ast_fuzzer_fuzz --no-fail-fast
+    NOIR_AST_FUZZER_FORCE_NON_DETERMINISTIC=1 cargo nextest run -p noir_ast_fuzzer_fuzz --no-fail-fast || status=1
+    # The alias analysis soundness properties run for NOIR_ALIAS_PROP_BUDGET_MS each (2s if unset).
+    # Both suites always run, so a failure in one does not hide the other.
+    cargo nextest run -p noirc_evaluator --lib --no-fail-fast -E 'test(/::may_(alias|reference)_reports_/)' || status=1
+    exit $status
 
 # Reproduce an AST fuzzer failure from a SEED, e.g. `just fuzz-repro 0x6819c61400001000`
 fuzz-repro seed target="" out="":
@@ -184,6 +198,15 @@ stdlib-doc:
     cd noir_stdlib && nargo doc
     rm -rf noir_stdlib/docs
     mv noir_stdlib/target/docs noir_stdlib/docs
+
+# Compiles and runs the `noir` code examples in the standard library's doc comments.
+check-stdlib-doc-examples:
+    cargo build -p nargo_cli
+    ./scripts/check_stdlib_doc_examples.py --nargo {{ justfile_dir() }}/target/debug/nargo
+
+# Lists public standard library items that need a doc comment or an example.
+stdlib-doc-inventory *ARGS:
+    ./scripts/stdlib_doc_inventory.py {{ ARGS }}
 
 # Visualize the CFG after a certain SSA pass and open the Mermaid Live editor.
 

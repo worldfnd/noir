@@ -19,7 +19,7 @@
 <h1><a href="../../index.html">noir_stdlib</a></h1>
 <div><a href="../../all.html">All items</a></div>
 <h2 id="crate-name"><a href="../index.html">std</a></h2>
-<div id="crate-version">1.0.0-beta.26</div>
+<div id="crate-version">1.0.0</div>
 <h2><a href="#trait">Trait UnsafeFrom</a></h2>
 <h3>Required methods</h3>
 <ul class="sidebar-list">
@@ -57,11 +57,18 @@
 
 <div class="comments">
 <p>Create a new <code>Self</code> value from the given <code>T</code> value, wrapping a value that does not fit</p>
-</div>
+<p>Example:</p>
+<pre><code><span class="kw">use</span> std::convert::UnsafeFrom;
+
+<span class="kw">assert_eq</span>(u8::unsafe_from(<span class="number">300</span>), <span class="number">44</span>);
+<span class="kw">assert_eq</span>(Field::unsafe_from(<span class="number">7_u32</span>), <span class="number">7</span>);</code></pre></div>
 <h2>Required methods</h2>
 <div class="padded-methods"><code id="unsafe_from" class="code-header">pub fn <a href="#unsafe_from" class="fn">unsafe_from</a>(input: T) -> Self</code>
 
-</div><h2>Implementors</h2>
+<div class="padded-description"><div class="comments">
+<p>Converts <code>input</code> into <code>Self</code>, keeping the low bits of a value that does not fit.</p>
+</div>
+</div></div><h2>Implementors</h2>
 <h3 id="impl-UnsafeFrom&lt;i&lt;N&gt;&gt;-for-Field"><code class="code-header">impl <a href="../../std/convert/trait.UnsafeFrom.html" class="trait">UnsafeFrom</a>&lt;i&lt;N&gt;&gt; for <a href="../../std/primitive.Field.html" class="primitive">Field</a></code></h3>
 
 <h3 id="impl-UnsafeFrom&lt;u&lt;N&gt;&gt;-for-Field"><code class="code-header">impl <a href="../../std/convert/trait.UnsafeFrom.html" class="trait">UnsafeFrom</a>&lt;u&lt;N&gt;&gt; for <a href="../../std/primitive.Field.html" class="primitive">Field</a></code></h3>

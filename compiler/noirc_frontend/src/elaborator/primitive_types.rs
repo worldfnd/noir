@@ -159,7 +159,7 @@ impl PrimitiveType {
 
     /// Inverse of `to_type()`: converts a `Type` back to a `PrimitiveType` if possible.
     /// An integer type whose width still names a generic has no primitive name.
-    pub fn from_type(typ: &Type) -> Option<Self> {
+    pub(crate) fn from_type(typ: &Type) -> Option<Self> {
         match typ {
             Type::Bool => Some(Self::Bool),
             Type::FieldElement => Some(Self::Field),
@@ -185,7 +185,7 @@ impl PrimitiveType {
         }
     }
 
-    pub fn to_integer_or_field(self) -> Option<Type> {
+    pub(crate) fn to_integer_or_field(self) -> Option<Type> {
         match self {
             Self::Integer(signedness, bits) => Some(Type::integer(signedness, bits)),
             Self::Field => Some(Type::FieldElement),
@@ -502,5 +502,17 @@ mod tests {
         let width = crate::Type::type_variable(crate::TypeVariableId(0));
         let typ = crate::Type::Integer(Signedness::Unsigned, std::rc::Rc::new(width));
         assert_eq!(PrimitiveType::from_type(&typ), None);
+    }
+
+    /// Two named primitives sharing a name would make `lookup_by_name` unable to reach one of
+    /// them, which `every_named_primitive_resolves_to_itself_by_name` alone would not catch.
+    #[test]
+    fn names_are_unique() {
+        let mut seen = std::collections::HashMap::new();
+        for primitive in PrimitiveType::NAMED {
+            if let Some(other) = seen.insert(primitive.name(), primitive) {
+                panic!("{primitive:?} and {other:?} share the name {:?}", primitive.name());
+            }
+        }
     }
 }

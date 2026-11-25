@@ -1,0 +1,14 @@
+---
+source: tooling/nargo_cli/tests/execute.rs
+expression: expanded_code
+---
+fn main(a: [u8; 4], outer: [[u8; 4]; 2], i: u32, j: u32, k: u32) -> pub ([u8; 4], [u8; 4]) {
+    let mut a: [u8; 4] = a;
+    let mut outer: [[u8; 4]; 2] = outer;
+    a[i] = 7_u8;
+    outer[0_u32] = a;
+    a[j] = 9_u8;
+    let snapshot: [u8; 4] = outer[k];
+    assert(snapshot[j] == 0_u8, "snapshot was mutated");
+    (snapshot, a)
+}

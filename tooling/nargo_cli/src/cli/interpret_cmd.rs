@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 use std::io::{self, Write};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use fm::{FileId, FileManager};
 use iter_extended::vecmap;
@@ -84,13 +85,8 @@ pub(crate) fn run(args: InterpretCommand, workspace: Workspace) -> Result<(), Cl
             &args.compile_options.as_ssa_options(workspace.package_build_path(package));
 
         // Compile into monomorphized AST
-        let program_result = compile_into_program(
-            &file_manager,
-            &parsed_files,
-            &workspace,
-            package,
-            &args.compile_options,
-        );
+        let program_result =
+            compile_into_program(&file_manager, &parsed_files, package, &args.compile_options);
 
         // Report warnings and get the AST, or exit if the compilation failed.
         let (program, abi) = report_errors(
@@ -134,7 +130,7 @@ pub(crate) fn run(args: InterpretCommand, workspace: Workspace) -> Result<(), Cl
             ..Default::default()
         };
         let file_manager =
-            if args.compile_options.with_ssa_locations { Some(&file_manager) } else { None };
+            if args.compile_options.with_ssa_locations { Some(&*file_manager) } else { None };
         let mut last_ssa_printed: Option<String> = None;
         let mut previous_snapshot: Option<PassSnapshot> = None;
 
@@ -244,20 +240,19 @@ impl PassSnapshot {
 /// This isn't exposed through the `nargo` library operations at the moment, so this is a
 /// bit of copy pasting from the functions that normally produce an artifact.
 fn compile_into_program(
-    file_manager: &FileManager,
-    parsed_files: &ParsedFiles,
-    workspace: &Workspace,
+    file_manager: &Arc<FileManager>,
+    parsed_files: &Arc<ParsedFiles>,
     package: &Package,
     options: &CompileOptions,
 ) -> CompilationResult<(Program, Abi)> {
     let (mut context, crate_id) = nargo::prepare_package(file_manager, parsed_files, package);
     context.debug_instrumenter = DebugInstrumenter::default();
-    context.package_build_path = workspace.package_build_path(package);
     noirc_driver::link_to_debug_crate(&mut context, crate_id);
     noirc_driver::ensure_field_is_linked(options.field)
         .map_err(|error| vec![CustomDiagnostic::from(error)])?;
 
-    let (_, warnings) = noirc_driver::check_crate(&mut context, crate_id, options)?;
+    let (context, result) = noirc_driver::check_crate(context, crate_id, options);
+    let (_, warnings) = result?;
 
     let main_id = context.get_main_function(&crate_id).ok_or_else(|| {
         let err = CustomDiagnostic::from_message(
@@ -272,19 +267,13 @@ fn compile_into_program(
     let monomorphize_result = if options.instrument_debug {
         monomorphize_debug(
             main_id,
-            &mut context.def_interner,
-            context.file_manager.as_file_map(),
+            &context.def_interner,
             &context.debug_instrumenter,
             context.debug_crate_id,
             force_unconstrained,
         )
     } else {
-        monomorphize(
-            main_id,
-            &mut context.def_interner,
-            context.file_manager.as_file_map(),
-            force_unconstrained,
-        )
+        monomorphize(main_id, &context.def_interner, force_unconstrained)
     };
 
     let program = monomorphize_result.map_err(|error| vec![CustomDiagnostic::from(error)])?;
@@ -292,6 +281,10 @@ fn compile_into_program(
     if options.show_monomorphized {
         println!("{program}");
     }
+
+    // The SSA has a numeric type for the widths the circuit backend lowers and for no other.
+    noirc_driver::ensure_integer_widths_are_lowerable(&program)
+        .map_err(|error| vec![CustomDiagnostic::from(error)])?;
 
     let error_types = BTreeMap::default();
     let abi = gen_abi(&context, &main_id, program.return_visibility(), error_types);

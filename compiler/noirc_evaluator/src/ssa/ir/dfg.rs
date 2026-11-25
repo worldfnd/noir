@@ -28,7 +28,7 @@ use acvm::{
     FieldElement,
     acir::{
         AcirField,
-        brillig::lengths::{ElementTypesLength, SemanticLength, SemiFlattenedLength},
+        brillig::lengths::{ElementTypesLength, SemanticLength},
     },
 };
 use iter_extended::vecmap;
@@ -40,6 +40,7 @@ use serde_with::serde_as;
 use simplify::{SimplifyResult, simplify};
 
 pub(crate) mod simplify;
+pub(crate) mod vector_capacity;
 
 /// The `DataFlowGraph` contains most of the actual data in a function including
 /// its blocks, instructions, and values. This struct is largely responsible for
@@ -132,8 +133,9 @@ pub(crate) struct DataFlowGraph {
     /// When `false` (the default), a `simplify_*` routine that detects malformed input — SSA that
     /// could not arise from well-formed compilation — panics via [`bail_malformed!`][crate::ssa::ir::dfg::simplify::bail_malformed].
     /// When `true`, those routines instead emit a trace and decline to simplify, leaving the
-    /// instruction untouched. Only producers of deliberately malformed SSA (the `ssa_fuzzer`) set
-    /// this; the normal pipeline keeps it `false` so malformed SSA surfaces loudly.
+    /// instruction untouched. Only producers of deliberately malformed SSA set this (the SSA
+    /// parser's `allow_malformed` mode); the normal pipeline keeps it `false` so malformed SSA
+    /// surfaces loudly.
     #[serde(skip)]
     pub(crate) allow_malformed_simplify: bool,
 }
@@ -229,6 +231,11 @@ impl DataFlowGraph {
     /// Iterate over every Value in this DFG in no particular order, including unused Values
     pub(crate) fn values_iter(&self) -> impl DoubleEndedIterator<Item = (ValueId, &Value)> {
         self.values.iter()
+    }
+
+    /// Number of Values in this DFG, including unused Values
+    pub(crate) fn num_values(&self) -> usize {
+        self.values.len()
     }
 
     /// Returns the parameters of the given block
@@ -742,6 +749,33 @@ impl DataFlowGraph {
         self.get_numeric_constant_with_type(value).map(|(value, _typ)| value)
     }
 
+    /// Whether the given block's last non-terminator instruction is a `Constrain` that will
+    /// trap for every witness — both operands are compile-time numeric constants and they are
+    /// not equal. The `Unreachable` terminator that follows such an instruction needs no
+    /// additional trap: the block cannot be reached without also violating the preceding
+    /// constraint.
+    ///
+    /// `ConstrainNotEqual` is deliberately excluded even though its always-failing shape at
+    /// the SSA type level (both operands are equal constants) is analogous. Unlike `Constrain`,
+    /// it is predicated at ACIR gen (`assert_neq_var` multiplies by the current side-effects
+    /// predicate), so under a predicate of zero the emitted assertion is `0 == 0` and does not
+    /// fail. Recognising it here without also checking the enclosing predicate would let an
+    /// `Unreachable` after a predicated `constrain_not_equal` compile to an empty, satisfiable
+    /// circuit.
+    pub(crate) fn block_ends_with_always_failing_constraint(&self, block_id: BasicBlockId) -> bool {
+        let Some(&last_instr_id) = self[block_id].instructions().last() else {
+            return false;
+        };
+        let Instruction::Constrain(lhs, rhs, _) = &self[last_instr_id] else {
+            return false;
+        };
+        let (Some(a), Some(b)) = (self.get_numeric_constant(*lhs), self.get_numeric_constant(*rhs))
+        else {
+            return false;
+        };
+        a != b
+    }
+
     /// Similar to `get_numeric_constant` but returns the value as a signed or unsigned integer.
     /// Returns `None` if the given value is not an integer constant.
     pub(crate) fn get_integer_constant(&self, value: ValueId) -> Option<IntegerConstant> {
@@ -763,7 +797,10 @@ impl DataFlowGraph {
 
     /// Returns the item values in with this `ValueId` if it refers to an array constant, along with the type of the array item.
     /// Otherwise, this returns None.
-    pub(crate) fn get_array_constant(&self, value: ValueId) -> Option<(im::Vector<ValueId>, Type)> {
+    pub(crate) fn get_array_constant(
+        &self,
+        value: ValueId,
+    ) -> Option<(imbl::Vector<ValueId>, Type)> {
         match self.get_local_or_global_instruction(value)? {
             Instruction::MakeArray { elements, typ } => Some((elements.clone(), typ.clone())),
             _ => None,
@@ -775,77 +812,6 @@ impl DataFlowGraph {
     pub(crate) fn try_get_array_length(&self, value: ValueId) -> Option<SemanticLength> {
         match *self.type_of_value(value) {
             Type::Array(_, length) => Some(length),
-            _ => None,
-        }
-    }
-
-    /// Try to find out the capacity of a vector by tracing it back to a `MakeArray`.
-    pub(crate) fn try_get_vector_capacity(&self, value: ValueId) -> Option<SemanticLength> {
-        // For arrays we know the size statically
-        if let Some(length) = self.try_get_array_length(value) {
-            return Some(length);
-        }
-
-        match self.get_local_or_global_instruction(value)? {
-            Instruction::MakeArray { .. } => {
-                let (array, typ) = self.get_array_constant(value)?;
-                let elements_size = typ.element_size();
-
-                let length = if elements_size.0 == 0 {
-                    SemanticLength(assert_u32(array.len()))
-                } else {
-                    SemiFlattenedLength(assert_u32(array.len())) / elements_size
-                };
-                Some(length)
-            }
-            Instruction::ArraySet { array, .. } | Instruction::ArrayGet { array, .. } => {
-                self.try_get_vector_capacity(*array)
-            }
-            Instruction::Call { func, arguments } => {
-                // Handle vector intrinsics that return vectors with known capacities
-                if !matches!(*self.type_of_value(value), Type::Vector(_)) {
-                    return None;
-                }
-
-                if let Value::Intrinsic(intrinsic) = &self[*func] {
-                    use crate::ssa::ir::instruction::Intrinsic;
-                    // Try to get the semantic length, if it's a known constant.
-                    // It should be okay to use the semantic length; for example the ValueMerger would get fewer items.
-                    let length = self
-                        .get_numeric_constant(arguments[0])
-                        .map(|length| length.to_u128() as u32)
-                        .map(SemanticLength);
-                    // Otherwise fall back to the physical capacity.
-                    let length = length.or_else(|| self.try_get_vector_capacity(arguments[1]));
-                    // Then adjust it. Note that this handling of PushBack assumes that even if
-                    // the dynamic semantic length was less than the capacity, we will grow the vector.
-                    if let Some(base) = length {
-                        match intrinsic {
-                            Intrinsic::VectorPopFront
-                            | Intrinsic::VectorPopBack
-                            | Intrinsic::VectorRemove => {
-                                Some(SemanticLength(base.0.saturating_sub(1)))
-                            }
-                            Intrinsic::VectorPushBack
-                            | Intrinsic::VectorPushFront
-                            | Intrinsic::VectorInsert => {
-                                Some(SemanticLength(base.0.saturating_add(1)))
-                            }
-                            _ => None,
-                        }
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            }
-            Instruction::IfElse { then_value, else_value, .. } => {
-                // The capacity is the longer of the two after merging.
-                let then_capacity = self.try_get_vector_capacity(*then_value)?;
-                let else_capacity = self.try_get_vector_capacity(*else_value)?;
-                Some(SemanticLength(std::cmp::max(then_capacity.0, else_capacity.0)))
-            }
             _ => None,
         }
     }
@@ -894,7 +860,12 @@ impl DataFlowGraph {
     /// The source block afterward will be left in a valid but emptied state. The
     /// destination block will also have its terminator overwritten with that of the
     /// source block.
+    ///
+    /// The two blocks must be distinct: moving a block into itself empties and refills it, which
+    /// leaves it unchanged rather than merging anything.
     pub(crate) fn inline_block(&mut self, source: BasicBlockId, destination: BasicBlockId) {
+        debug_assert_ne!(source, destination, "cannot inline a block into itself");
+
         let source = &mut self.blocks[source];
         let mut instructions = source.take_instructions();
         let terminator = source.take_terminator();
@@ -1260,5 +1231,136 @@ mod tests {
         // call terminates.
         let bits = main.dfg.get_value_max_num_bits(returned);
         assert!(bits <= FieldElement::max_num_bits());
+    }
+
+    /// The vector capacity of the value `main` returns.
+    fn capacity_of_returned_vector(src: &str) -> (Option<u32>, Option<u32>) {
+        let ssa = Ssa::from_str(src).unwrap();
+        let main = ssa.main();
+        let returned = main.returns().expect("expected a Return terminator")[0];
+        (
+            main.dfg.try_get_vector_capacity(returned).map(|c| c.0),
+            main.dfg.try_get_vector_backing_capacity(returned).map(|c| c.0),
+        )
+    }
+
+    #[test]
+    fn vector_capacity_of_as_vector_is_the_array_length() {
+        let src = "
+        acir(inline) fn main f0 {
+          b0(v0: [Field; 3]):
+            v1, v2 = call as_vector(v0) -> (u32, [Field])
+            v4, v5 = call vector_push_back(v1, v2, Field 1) -> (u32, [Field])
+            return v5
+        }
+        ";
+        assert_eq!(capacity_of_returned_vector(src), (Some(4), Some(4)));
+    }
+
+    #[test]
+    fn vector_capacity_flows_through_black_box_hint() {
+        let src = "
+        acir(inline) fn main f0 {
+          b0(v0: u32):
+            v1 = make_array [Field 1, Field 2] : [Field]
+            v2, v3 = call black_box(v0, v1) -> (u32, [Field])
+            return v3
+        }
+        ";
+        assert_eq!(capacity_of_returned_vector(src), (Some(2), Some(2)));
+    }
+
+    #[test]
+    fn vector_capacity_uses_constant_length_only_when_asked() {
+        // The backing array of `v1` holds 3 elements, but the semantic length passed to the
+        // `push_back` is 1.
+        let src = "
+        acir(inline) fn main f0 {
+          b0():
+            v1 = make_array [Field 1, Field 2, Field 3] : [Field]
+            v2, v3 = call vector_push_back(u32 1, v1, Field 4) -> (u32, [Field])
+            return v3
+        }
+        ";
+        assert_eq!(capacity_of_returned_vector(src), (Some(2), Some(4)));
+    }
+
+    // Each `if` merges the two previous vectors (a Fibonacci-shaped dependency), so the number of
+    // distinct paths from the last vector back to the leaves is exponential in `depth`. This
+    // guards that the capacity of a merge is computed without walking those paths.
+    #[test]
+    fn vector_capacity_terminates_on_deep_if_else_chain() {
+        let depth = 64;
+
+        let mut src = String::from(
+            "acir(inline) fn main f0 {\n  b0(v0: u1, v1: u1):\n    \
+             v2 = make_array [Field 1] : [Field]\n    \
+             v3 = make_array [Field 1, Field 2] : [Field]\n",
+        );
+        for i in 4..=depth {
+            src.push_str(&format!("    v{i} = if v0 then v{} else (if v1) v{}\n", i - 1, i - 2));
+        }
+        src.push_str(&format!("    return v{depth}\n}}\n"));
+
+        assert_eq!(capacity_of_returned_vector(&src), (Some(2), Some(2)));
+    }
+
+    #[test]
+    fn vector_capacity_traces_through_array_set_chain() {
+        let src = "
+        acir(inline) fn main f0 {
+          b0(v0: Field):
+            v1 = make_array [Field 1, Field 2, Field 3] : [Field]
+            v2 = array_set v1, index u32 0, value v0
+            v3 = array_set v2, index u32 2, value v0
+            return v3
+        }
+        ";
+        assert_eq!(capacity_of_returned_vector(src), (Some(3), Some(3)));
+    }
+
+    #[test]
+    fn vector_capacity_of_zero_sized_elements_follows_the_length() {
+        // A `make_array` of zero-sized elements holds no values, so its capacity is the number
+        // of values (zero) and growing it is only visible through the constant length.
+        let src = "
+        acir(inline) fn main f0 {
+          b0():
+            v0 = make_array [] : [()]
+            v3, v4 = call vector_push_back(u32 2, v0) -> (u32, [()])
+            return v4
+        }
+        ";
+        assert_eq!(capacity_of_returned_vector(src), (Some(3), Some(1)));
+    }
+
+    #[test]
+    fn vector_capacity_of_loaded_vector_is_unknown() {
+        let src = "
+        acir(inline) fn main f0 {
+          b0():
+            v0 = make_array [Field 1] : [Field]
+            v1 = allocate -> &mut [Field]
+            store v0 at v1
+            v2 = load v1 -> [Field]
+            v5, v6 = call vector_push_back(u32 1, v2, Field 2) -> (u32, [Field])
+            return v6
+        }
+        ";
+        // The constant length still sizes the result when it is used.
+        assert_eq!(capacity_of_returned_vector(src), (Some(2), None));
+    }
+
+    #[test]
+    fn vector_capacity_that_would_overflow_is_unknown() {
+        let src = "
+        acir(inline) fn main f0 {
+          b0(v0: [Field; 4294967295]):
+            v1, v2 = call as_vector(v0) -> (u32, [Field])
+            v4, v5 = call vector_push_back(v1, v2, Field 1) -> (u32, [Field])
+            return v5
+        }
+        ";
+        assert_eq!(capacity_of_returned_vector(src), (None, None));
     }
 }

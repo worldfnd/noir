@@ -19,7 +19,7 @@
 <h1><a href="../../index.html">noir_stdlib</a></h1>
 <div><a href="../../all.html">All items</a></div>
 <h2 id="crate-name"><a href="../index.html">std</a></h2>
-<div id="crate-version">1.0.0-beta.26</div>
+<div id="crate-version">1.0.0</div>
 <h2><a href="#trait">Trait TryFrom</a></h2>
 <h3>Required methods</h3>
 <ul class="sidebar-list">
@@ -57,11 +57,18 @@
 
 <div class="comments">
 <p>Create a new <code>Self</code> value from the given <code>T</code> value, or <code>None</code> if the value does not fit</p>
-</div>
+<p>Example:</p>
+<pre><code><span class="kw">use</span> std::convert::TryFrom;
+
+<span class="kw">assert_eq</span>(u8::try_from(<span class="number">44</span>), Option::some(<span class="number">44</span>));
+<span class="kw">assert</span>(u8::try_from(<span class="number">300</span>).is_none());</code></pre></div>
 <h2>Required methods</h2>
 <div class="padded-methods"><code id="try_from" class="code-header">pub fn <a href="#try_from" class="fn">try_from</a>(input: T) -> <a href="../../std/option/struct.Option.html" class="struct">Option</a>&lt;Self&gt;</code>
 
-</div><h2>Implementors</h2>
+<div class="padded-description"><div class="comments">
+<p>Converts <code>input</code> into <code>Self</code>, or returns <code>None</code> if it does not fit.</p>
+</div>
+</div></div><h2>Implementors</h2>
 <h3 id="impl-TryFrom&lt;i&lt;N&gt;&gt;-for-Field"><code class="code-header">impl <a href="../../std/convert/trait.TryFrom.html" class="trait">TryFrom</a>&lt;i&lt;N&gt;&gt; for <a href="../../std/primitive.Field.html" class="primitive">Field</a></code></h3>
 
 <h3 id="impl-TryFrom&lt;u&lt;N&gt;&gt;-for-Field"><code class="code-header">impl <a href="../../std/convert/trait.TryFrom.html" class="trait">TryFrom</a>&lt;u&lt;N&gt;&gt; for <a href="../../std/primitive.Field.html" class="primitive">Field</a></code></h3>

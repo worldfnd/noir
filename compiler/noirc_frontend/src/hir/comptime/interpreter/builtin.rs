@@ -8,16 +8,16 @@ use std::{
 
 use acvm::{Bn254FieldElement, EmbeddedCurve, FieldConfig, FieldId, FieldValue};
 use builtin_helpers::{
-    block_expression_to_value, byte_array_type, check_argument_count,
-    check_function_not_yet_resolved, check_one_argument, check_return_type_shape,
-    check_three_arguments, check_two_arguments, get_bool, get_expr, get_field, get_format_string,
-    get_function_def, get_location, get_module, get_quoted, get_trait_constraint, get_trait_def,
-    get_trait_impl, get_type, get_type_id, get_typed_expr, get_u32, get_unresolved_type,
-    get_vector, has_builtin_attribute, has_named_attribute, hash_to_field, hir_pattern_to_tokens,
-    new_binary_op, new_unary_op, parse, quote_ident, type_shape, visibility_to_quoted,
+    block_expression_to_value, byte_array_type, check_argument_count, check_arguments,
+    check_function_not_yet_resolved, check_return_type_shape, get_bool, get_expr, get_field,
+    get_format_string, get_function_def, get_location, get_module, get_quoted,
+    get_trait_constraint, get_trait_def, get_trait_impl, get_type, get_type_id, get_typed_expr,
+    get_u32, get_vector, has_builtin_attribute, has_named_attribute, hash_to_field,
+    hir_pattern_to_tokens, new_binary_op, new_unary_op, parse, quote_ident, type_shape,
+    visibility_to_quoted,
 };
 use fm::FileMap;
-use im::Vector;
+use imbl::Vector;
 use iter_extended::{try_vecmap, vecmap};
 use itertools::Itertools;
 use noirc_errors::Location;
@@ -27,18 +27,18 @@ use crate::hir::comptime::Integer;
 use crate::hir::comptime::interpreter::{ensure_integer_width_is_legal, evaluate_cast_one_step};
 use crate::recursion::TypeRecursionContext;
 use crate::{
-    Kind, QuotedType, Shared, Type, TypeBindings,
+    Kind, QuotedType, Type, TypeBindings,
     ast::{
         ArrayLiteral, ConstrainKind, Expression, ExpressionKind, ForRange, LValue, Literal,
-        Pattern, Statement, StatementKind, UnresolvedTypeData, UnsafeExpression,
+        Pattern, Statement, StatementKind, UnsafeExpression,
     },
     elaborator::{
-        ElaborateReason, Elaborator, PrimitiveType,
+        ElaborateReason, Elaborator,
         types::{WildcardAllowed, WildcardDisallowedContext},
     },
     hir::{
         comptime::{
-            InterpreterError, Value,
+            InterpreterError, Value, ValueCell,
             display::tokens_to_string,
             errors::IResult,
             interpreter::{
@@ -57,6 +57,7 @@ use crate::{
     },
     node_interner::{NodeInterner, TraitImplKind},
     parser::{Parser, StatementOrExpressionOrLValue},
+    shared::Builtin,
     token::{LocatedToken, SecondaryAttribute, SecondaryAttributeKind, Token},
 };
 
@@ -70,7 +71,7 @@ pub(crate) mod builtin_helpers;
 impl Interpreter<'_, '_> {
     pub(super) fn call_builtin(
         &mut self,
-        name: &str,
+        builtin: Builtin,
         arguments: Vec<(Value, Location)>,
         return_type: Type,
         location: Location,
@@ -78,64 +79,74 @@ impl Interpreter<'_, '_> {
         let call_stack = &self.elaborator.interpreter_call_stack().clone();
         let expected_return_shape = type_shape(&return_type);
         let interner = &mut self.elaborator.interner;
-        let result = match name {
-            "apply_range_constraint" => apply_range_constraint(arguments, location, call_stack),
-            "array_as_str_unchecked" => array_as_str_unchecked(arguments, location),
-            "array_len" => array_len(arguments, location),
-            "assert_constant" => Ok(Value::Unit),
-            "as_vector" => as_vector(arguments, location),
-            "as_witness" => as_witness(arguments, location),
-            "black_box" => black_box(arguments, location),
-            "checked_transmute" => checked_transmute(arguments, return_type, location),
-            "ctstring_append" => ctstring_append(arguments, location),
-            "ctstring_eq" => eq_item(arguments, location, get_ctstring),
-            "ctstring_hash" => hash_item(arguments, location, interner.field().id(), get_ctstring),
-            "derive_pedersen_generators" => {
+        let result = match builtin {
+            Builtin::ApplyRangeConstraint => {
+                apply_range_constraint(arguments, location, call_stack)
+            }
+            Builtin::ArrayAsStrUnchecked => array_as_str_unchecked(arguments, location),
+            Builtin::ArrayLen => array_len(arguments, location),
+            Builtin::AssertConstant => Ok(Value::Unit),
+            Builtin::AsVector => as_vector(arguments, location),
+            Builtin::AsWitness => as_witness(arguments, location),
+            Builtin::BlackBoxHint => black_box(arguments, location),
+            Builtin::CheckedTransmute => checked_transmute(arguments, return_type, location),
+            Builtin::CtstringAppend => ctstring_append(arguments, location),
+            Builtin::CtstringEq => eq_item(arguments, location, get_ctstring),
+            Builtin::CtstringHash => {
+                hash_item(arguments, location, interner.field().id(), get_ctstring)
+            }
+            Builtin::DerivePedersenGenerators => {
                 derive_generators(interner.field(), arguments, return_type, location)
             }
-            "expr_as_array" => expr_as_array(interner, arguments, return_type, location),
-            "expr_as_assert" => expr_as_assert(interner, arguments, return_type, location),
-            "expr_as_assert_eq" => expr_as_assert_eq(interner, arguments, return_type, location),
-            "expr_as_assign" => expr_as_assign(interner, arguments, return_type, location),
-            "expr_as_binary_op" => expr_as_binary_op(interner, arguments, return_type, location),
-            "expr_as_block" => expr_as_block(interner, arguments, return_type, location),
-            "expr_as_bool" => expr_as_bool(interner, arguments, return_type, location),
-            "expr_as_cast" => expr_as_cast(interner, arguments, return_type, location),
-            "expr_as_comptime" => expr_as_comptime(interner, arguments, return_type, location),
-            "expr_as_constructor" => {
+            Builtin::ExprAsArray => expr_as_array(interner, arguments, return_type, location),
+            Builtin::ExprAsAssert => expr_as_assert(interner, arguments, return_type, location),
+            Builtin::ExprAsAssertEq => {
+                expr_as_assert_eq(interner, arguments, return_type, location)
+            }
+            Builtin::ExprAsAssign => expr_as_assign(interner, arguments, return_type, location),
+            Builtin::ExprAsBinaryOp => {
+                expr_as_binary_op(interner, arguments, return_type, location)
+            }
+            Builtin::ExprAsBlock => expr_as_block(interner, arguments, return_type, location),
+            Builtin::ExprAsBool => expr_as_bool(interner, arguments, return_type, location),
+            Builtin::ExprAsCast => expr_as_cast(interner, arguments, return_type, location),
+            Builtin::ExprAsComptime => expr_as_comptime(interner, arguments, return_type, location),
+            Builtin::ExprAsConstructor => {
                 expr_as_constructor(interner, arguments, return_type, location)
             }
-            "expr_as_for" => expr_as_for(interner, arguments, return_type, location),
-            "expr_as_for_range" => expr_as_for_range(interner, arguments, return_type, location),
-            "expr_as_function_call" => {
+            Builtin::ExprAsFor => expr_as_for(interner, arguments, return_type, location),
+            Builtin::ExprAsForRange => {
+                expr_as_for_range(interner, arguments, return_type, location)
+            }
+            Builtin::ExprAsFunctionCall => {
                 expr_as_function_call(interner, arguments, return_type, location)
             }
-            "expr_as_if" => expr_as_if(interner, arguments, return_type, location),
-            "expr_as_index" => expr_as_index(interner, arguments, return_type, location),
-            "expr_as_integer" => expr_as_integer(interner, arguments, return_type, location),
-            "expr_as_lambda" => expr_as_lambda(interner, arguments, return_type, location),
-            "expr_as_let" => expr_as_let(interner, arguments, return_type, location),
-            "expr_as_member_access" => {
+            Builtin::ExprAsIf => expr_as_if(interner, arguments, return_type, location),
+            Builtin::ExprAsIndex => expr_as_index(interner, arguments, return_type, location),
+            Builtin::ExprAsInteger => expr_as_integer(interner, arguments, return_type, location),
+            Builtin::ExprAsLambda => expr_as_lambda(interner, arguments, return_type, location),
+            Builtin::ExprAsLet => expr_as_let(interner, arguments, return_type, location),
+            Builtin::ExprAsMemberAccess => {
                 expr_as_member_access(interner, arguments, return_type, location)
             }
-            "expr_as_method_call" => {
+            Builtin::ExprAsMethodCall => {
                 expr_as_method_call(interner, arguments, return_type, location)
             }
-            "expr_as_repeated_element_array" => {
+            Builtin::ExprAsRepeatedElementArray => {
                 expr_as_repeated_element_array(interner, arguments, return_type, location)
             }
-            "expr_as_repeated_element_vector" => {
+            Builtin::ExprAsRepeatedElementVector => {
                 expr_as_repeated_element_vector(interner, arguments, return_type, location)
             }
-            "expr_as_vector" => expr_as_vector(interner, arguments, return_type, location),
-            "expr_as_tuple" => expr_as_tuple(interner, arguments, return_type, location),
-            "expr_as_unary_op" => expr_as_unary_op(interner, arguments, return_type, location),
-            "expr_as_unsafe" => expr_as_unsafe(interner, arguments, return_type, location),
-            "expr_has_semicolon" => expr_has_semicolon(interner, arguments, location),
-            "expr_is_break" => expr_is_break(interner, arguments, location),
-            "expr_is_continue" => expr_is_continue(interner, arguments, location),
-            "expr_resolve" => expr_resolve(self, arguments, location),
-            "is_unconstrained" => {
+            Builtin::ExprAsVector => expr_as_vector(interner, arguments, return_type, location),
+            Builtin::ExprAsTuple => expr_as_tuple(interner, arguments, return_type, location),
+            Builtin::ExprAsUnaryOp => expr_as_unary_op(interner, arguments, return_type, location),
+            Builtin::ExprAsUnsafe => expr_as_unsafe(interner, arguments, return_type, location),
+            Builtin::ExprHasSemicolon => expr_has_semicolon(interner, arguments, location),
+            Builtin::ExprIsBreak => expr_is_break(interner, arguments, location),
+            Builtin::ExprIsContinue => expr_is_continue(interner, arguments, location),
+            Builtin::ExprResolve => expr_resolve(self, arguments, location),
+            Builtin::IsUnconstrained => {
                 // When in coverage mode, have the comptime interpreter treat `is_unconstrained` the same
                 // way it's treated in ACIR and Brillig. Usually unconstrained code is faster and that's why
                 // in non-coverage mode we want to go through the fastest path, but in coverage mode it's fine
@@ -146,177 +157,196 @@ impl Interpreter<'_, '_> {
                     Ok(Value::Bool(true))
                 }
             }
-            "field_cast" => field_cast(interner.field(), arguments, return_type, location),
-            "field_less_than" => field_less_than(arguments, location),
-            "issue_error" => issue_diagnostic(self, arguments, location, false),
-            "issue_warning" => issue_diagnostic(self, arguments, location, true),
-            "location_eq" => eq_item(arguments, location, get_location),
-            "location_hash" => hash_item(arguments, location, interner.field().id(), get_location),
-            "fmtstr_as_ctstring" => {
+            Builtin::FieldCast => field_cast(interner.field(), arguments, return_type, location),
+            Builtin::FieldLessThan => field_less_than(arguments, location),
+            Builtin::IssueError => issue_diagnostic(self, arguments, location, false),
+            Builtin::IssueWarning => issue_diagnostic(self, arguments, location, true),
+            Builtin::LocationEq => eq_item(arguments, location, get_location),
+            Builtin::LocationHash => {
+                hash_item(arguments, location, interner.field().id(), get_location)
+            }
+            Builtin::FmtstrAsCtstring => {
                 fmtstr_as_ctstring(interner, self.elaborator.files, arguments, location)
             }
-            "fmtstr_quoted_contents" => {
+            Builtin::FmtstrQuotedContents => {
                 fmtstr_quoted_contents(interner, self.elaborator.files, arguments, location)
             }
-            "fresh_type_variable" => fresh_type_variable(interner),
-            "function_def_as_typed_expr" => function_def_as_typed_expr(self, arguments, location),
-            "function_def_body" => function_def_body(self, arguments, location),
-            "function_def_disable" => function_def_disable(self, arguments, location),
-            "function_def_eq" => eq_item(arguments, location, get_function_def),
-            "function_def_has_builtin_attribute" => {
+            Builtin::FreshTypeVariable => fresh_type_variable(interner),
+            Builtin::FunctionDefAsTypedExpr => {
+                function_def_as_typed_expr(self, arguments, location)
+            }
+            Builtin::FunctionDefBody => function_def_body(self, arguments, location),
+            Builtin::FunctionDefDisable => function_def_disable(self, arguments, location),
+            Builtin::FunctionDefEq => eq_item(arguments, location, get_function_def),
+            Builtin::FunctionDefHasBuiltinAttribute => {
                 function_def_has_attribute(interner, arguments, location, true)
             }
-            "function_def_has_named_attribute" => {
+            Builtin::FunctionDefHasNamedAttribute => {
                 function_def_has_attribute(interner, arguments, location, false)
             }
-            "function_def_named_attribute_args" => {
+            Builtin::FunctionDefNamedAttributeArgs => {
                 function_def_named_attribute_args(interner, arguments, location)
             }
-            "function_def_hash" => {
+            Builtin::FunctionDefHash => {
                 hash_item(arguments, location, interner.field().id(), get_function_def)
             }
-            "function_def_is_unconstrained" => {
+            Builtin::FunctionDefIsUnconstrained => {
                 function_def_is_unconstrained(self, arguments, location)
             }
-            "function_def_location" => function_def_location(self.elaborator, arguments, location),
-            "function_def_module" => function_def_module(interner, arguments, location),
-            "function_def_name" => function_def_name(interner, arguments, location),
-            "function_def_parameters" => function_def_parameters(self, arguments, location),
-            "function_def_return_type" => function_def_return_type(self, arguments, location),
-            "function_def_visibility" => function_def_visibility(interner, arguments, location),
-            "module_child_modules" => module_child_modules(self, arguments, location),
-            "module_eq" => eq_item(arguments, location, get_module),
-            "module_functions" => module_functions(self, arguments, location),
-            "module_has_builtin_attribute" => module_has_attribute(self, arguments, location, true),
-            "module_has_named_attribute" => module_has_attribute(self, arguments, location, false),
-            "module_named_attribute_args" => module_named_attribute_args(self, arguments, location),
-            "module_hash" => hash_item(arguments, location, interner.field().id(), get_module),
-            "module_is_contract" => module_is_contract(self, arguments, location),
-            "module_location" => module_location(interner, arguments, location),
-            "module_name" => module_name(interner, arguments, location),
-            "module_parent" => module_parent(self, arguments, return_type, location),
-            "module_structs" => module_structs(self, arguments, location),
-            "modulus_be_bits" => modulus_be_bits(interner.field(), &arguments, location),
-            "modulus_be_bytes" => modulus_be_bytes(interner.field(), &arguments, location),
-            "modulus_le_bits" => modulus_le_bits(interner.field(), &arguments, location),
-            "modulus_le_bytes" => modulus_le_bytes(interner.field(), &arguments, location),
-            "modulus_num_bits" => modulus_num_bits(interner.field(), &arguments, location),
-            "quoted_as_expr" => quoted_as_expr(self.elaborator, arguments, return_type, location),
-            "quoted_as_module" => quoted_as_module(self, arguments, return_type, location),
-            "quoted_as_trait_constraint" => quoted_as_trait_constraint(self, arguments, location),
-            "quoted_as_type" => quoted_as_type(self, arguments, location),
-            "quoted_eq" => {
+            Builtin::FunctionDefLocation => {
+                function_def_location(self.elaborator, arguments, location)
+            }
+            Builtin::FunctionDefModule => function_def_module(interner, arguments, location),
+            Builtin::FunctionDefName => function_def_name(interner, arguments, location),
+            Builtin::FunctionDefParameters => function_def_parameters(self, arguments, location),
+            Builtin::FunctionDefReturnType => function_def_return_type(self, arguments, location),
+            Builtin::FunctionDefVisibility => {
+                function_def_visibility(interner, arguments, location)
+            }
+            Builtin::ModuleChildModules => module_child_modules(self, arguments, location),
+            Builtin::ModuleEq => eq_item(arguments, location, get_module),
+            Builtin::ModuleFunctions => module_functions(self, arguments, location),
+            Builtin::ModuleHasBuiltinAttribute => {
+                module_has_attribute(self, arguments, location, true)
+            }
+            Builtin::ModuleHasNamedAttribute => {
+                module_has_attribute(self, arguments, location, false)
+            }
+            Builtin::ModuleNamedAttributeArgs => {
+                module_named_attribute_args(self, arguments, location)
+            }
+            Builtin::ModuleHash => {
+                hash_item(arguments, location, interner.field().id(), get_module)
+            }
+            Builtin::ModuleIsContract => module_is_contract(self, arguments, location),
+            Builtin::ModuleLocation => module_location(interner, arguments, location),
+            Builtin::ModuleName => module_name(interner, arguments, location),
+            Builtin::ModuleParent => module_parent(self, arguments, return_type, location),
+            Builtin::ModuleStructs => module_structs(self, arguments, location),
+            Builtin::ModulusBeBits => modulus_be_bits(interner.field(), &arguments, location),
+            Builtin::ModulusBeBytes => modulus_be_bytes(interner.field(), &arguments, location),
+            Builtin::ModulusLeBits => modulus_le_bits(interner.field(), &arguments, location),
+            Builtin::ModulusLeBytes => modulus_le_bytes(interner.field(), &arguments, location),
+            Builtin::ModulusNumBits => modulus_num_bits(interner.field(), &arguments, location),
+            Builtin::QuotedAsExpr => {
+                quoted_as_expr(self.elaborator, arguments, return_type, location)
+            }
+            Builtin::QuotedAsModule => quoted_as_module(self, arguments, return_type, location),
+            Builtin::QuotedAsTraitConstraint => {
+                quoted_as_trait_constraint(self, arguments, location)
+            }
+            Builtin::QuotedAsType => quoted_as_type(self, arguments, location),
+            Builtin::QuotedEq => {
                 quoted_eq(self.elaborator.interner, self.elaborator.files, arguments, location)
             }
-            "quoted_hash" => {
+            Builtin::QuotedHash => {
                 quoted_hash(self.elaborator.interner, self.elaborator.files, arguments, location)
             }
-            "quoted_location" => {
+            Builtin::QuotedLocation => {
                 quoted_location(arguments, return_type, location, interner.field().id())
             }
-            "quoted_tokens" => quoted_tokens(arguments, location),
-            "vector_insert" => vector_insert(arguments, location, call_stack),
-            "vector_pop_back" => vector_pop_back(arguments, location, call_stack),
-            "vector_pop_front" => vector_pop_front(arguments, location, call_stack),
-            "vector_push_back" => vector_push_back(arguments, location),
-            "vector_push_front" => vector_push_front(arguments, location),
-            "vector_remove" => vector_remove(arguments, location, call_stack),
-            "static_assert" => {
+            Builtin::QuotedTokens => quoted_tokens(arguments, location),
+            Builtin::VectorInsert => vector_insert(arguments, location, call_stack),
+            Builtin::VectorPopBack => vector_pop_back(arguments, location, call_stack),
+            Builtin::VectorPopFront => vector_pop_front(arguments, location, call_stack),
+            Builtin::VectorPushBack => vector_push_back(arguments, location),
+            Builtin::VectorPushFront => vector_push_front(arguments, location),
+            Builtin::VectorRemove => vector_remove(arguments, location, call_stack),
+            Builtin::StaticAssert => {
                 static_assert(interner, self.elaborator.files, arguments, location, call_stack)
             }
-            "str_as_bytes" => str_as_bytes(arguments, location),
-            "str_as_ctstring" => str_as_ctstring(arguments, location),
-            "to_be_radix" => to_be_radix(arguments, return_type, location, call_stack),
-            "to_le_radix" => to_le_radix(arguments, return_type, location, call_stack),
-            "to_be_bits" => to_be_bits(arguments, return_type, location, call_stack),
-            "to_le_bits" => to_le_bits(arguments, return_type, location, call_stack),
-            "trait_constraint_eq" => eq_item(arguments, location, get_trait_constraint),
-            "trait_constraint_hash" => {
+            Builtin::StrAsBytes => str_as_bytes(arguments, location),
+            Builtin::StrAsCtstring => str_as_ctstring(arguments, location),
+            Builtin::ToBeRadix => to_be_radix(arguments, return_type, location, call_stack),
+            Builtin::ToLeRadix => to_le_radix(arguments, return_type, location, call_stack),
+            Builtin::ToBeBits => to_be_bits(arguments, return_type, location, call_stack),
+            Builtin::ToLeBits => to_le_bits(arguments, return_type, location, call_stack),
+            Builtin::TraitConstraintEq => eq_item(arguments, location, get_trait_constraint),
+            Builtin::TraitConstraintHash => {
                 hash_item(arguments, location, interner.field().id(), get_trait_constraint)
             }
-            "trait_def_as_trait_constraint" => {
+            Builtin::TraitDefAsTraitConstraint => {
                 trait_def_as_trait_constraint(interner, arguments, location)
             }
-            "trait_def_eq" => eq_item(arguments, location, get_trait_def),
-            "trait_def_hash" => {
+            Builtin::TraitDefEq => eq_item(arguments, location, get_trait_def),
+            Builtin::TraitDefHash => {
                 hash_item(arguments, location, interner.field().id(), get_trait_def)
             }
-            "trait_def_location" => trait_def_location(interner, arguments, location),
-            "trait_impl_methods" => trait_impl_methods(interner, arguments, location),
-            "trait_impl_trait_generic_args" => {
+            Builtin::TraitDefLocation => trait_def_location(interner, arguments, location),
+            Builtin::TraitImplMethods => trait_impl_methods(interner, arguments, location),
+            Builtin::TraitImplTraitGenericArgs => {
                 trait_impl_trait_generic_args(interner, arguments, location)
             }
-            "type_as_array" => {
+            Builtin::TypeAsArray => {
                 type_as_array(arguments, return_type, location, interner.field().id())
             }
-            "type_as_constant" => {
+            Builtin::TypeAsConstant => {
                 type_as_constant(arguments, return_type, location, interner.field().id())
             }
-            "type_as_integer" => {
+            Builtin::TypeAsInteger => {
                 type_as_integer(arguments, return_type, location, interner.field().id())
             }
-            "type_as_mutable_reference" => {
+            Builtin::TypeAsMutableReference => {
                 type_as_mutable_reference(arguments, return_type, location, interner.field().id())
             }
-            "type_as_vector" => {
+            Builtin::TypeAsVector => {
                 type_as_vector(arguments, return_type, location, interner.field().id())
             }
-            "type_as_str" => type_as_str(arguments, return_type, location, interner.field().id()),
-            "type_as_data_type" => {
+            Builtin::TypeAsStr => {
+                type_as_str(arguments, return_type, location, interner.field().id())
+            }
+            Builtin::TypeAsDataType => {
                 type_as_data_type(arguments, return_type, location, interner.field().id())
             }
-            "type_as_tuple" => {
+            Builtin::TypeAsTuple => {
                 type_as_tuple(arguments, return_type, location, interner.field().id())
             }
-            "type_def_add_abi" => type_def_add_abi(self, arguments, location),
-            "type_def_as_type" => type_def_as_type(interner, arguments, location),
-            "type_def_as_type_with_generics" => {
+            Builtin::TypeDefAddAbi => type_def_add_abi(self, arguments, location),
+            Builtin::TypeDefAsType => type_def_as_type(interner, arguments, location),
+            Builtin::TypeDefAsTypeWithGenerics => {
                 type_def_as_type_with_generics(interner, arguments, return_type, location)
             }
-            "type_def_eq" => eq_item(arguments, location, get_type_id),
-            "type_def_fields" => type_def_fields(self, arguments, location, call_stack),
-            "type_def_fields_as_written" => type_def_fields_as_written(self, arguments, location),
-            "type_def_generics" => type_def_generics(interner, arguments, return_type, location),
-            "type_def_has_builtin_attribute" => {
+            Builtin::TypeDefEq => eq_item(arguments, location, get_type_id),
+            Builtin::TypeDefFields => type_def_fields(self, arguments, location, call_stack),
+            Builtin::TypeDefFieldsAsWritten => {
+                type_def_fields_as_written(self, arguments, location)
+            }
+            Builtin::TypeDefGenerics => {
+                type_def_generics(interner, arguments, return_type, location)
+            }
+            Builtin::TypeDefHasBuiltinAttribute => {
                 type_def_has_attribute(interner, arguments, location, true)
             }
-            "type_def_has_named_attribute" => {
+            Builtin::TypeDefHasNamedAttribute => {
                 type_def_has_attribute(interner, arguments, location, false)
             }
-            "type_def_named_attribute_args" => {
+            Builtin::TypeDefNamedAttributeArgs => {
                 type_def_named_attribute_args(interner, arguments, location)
             }
-            "type_def_hash" => hash_item(arguments, location, interner.field().id(), get_type_id),
-            "type_def_location" => type_def_location(interner, arguments, location),
-            "type_def_module" => type_def_module(self, arguments, location),
-            "type_def_name" => type_def_name(interner, arguments, location),
-            "type_eq" => eq_item(arguments, location, get_type),
-            "type_get_trait_impl" => {
+            Builtin::TypeDefHash => {
+                hash_item(arguments, location, interner.field().id(), get_type_id)
+            }
+            Builtin::TypeDefLocation => type_def_location(interner, arguments, location),
+            Builtin::TypeDefModule => type_def_module(self, arguments, location),
+            Builtin::TypeDefName => type_def_name(interner, arguments, location),
+            Builtin::TypeEq => eq_item(arguments, location, get_type),
+            Builtin::TypeGetTraitImpl => {
                 type_get_trait_impl(interner, arguments, return_type, location)
             }
-            "type_hash" => hash_item(arguments, location, interner.field().id(), get_type),
-            "type_implements" => type_implements(interner, arguments, location),
-            "type_is_bool" => type_is_bool(arguments, location),
-            "type_is_field" => type_is_field(arguments, location),
-            "type_is_unit" => type_is_unit(arguments, location),
-            "type_of" => type_of(arguments, location),
-            "typed_expr_as_function_definition" => {
+            Builtin::TypeHash => hash_item(arguments, location, interner.field().id(), get_type),
+            Builtin::TypeImplements => type_implements(interner, arguments, location),
+            Builtin::TypeIsBool => type_is_bool(arguments, location),
+            Builtin::TypeIsField => type_is_field(arguments, location),
+            Builtin::TypeIsUnit => type_is_unit(arguments, location),
+            Builtin::TypeOf => type_of(arguments, location),
+            Builtin::TypedExprAsFunctionDefinition => {
                 typed_expr_as_function_definition(interner, arguments, return_type, location)
             }
-            "typed_expr_get_type" => {
+            Builtin::TypedExprGetType => {
                 typed_expr_get_type(interner, arguments, return_type, location)
             }
-            "typed_expr_location" => typed_expr_location(interner, arguments, location),
-            "unresolved_type_as_mutable_reference" => {
-                unresolved_type_as_mutable_reference(interner, arguments, return_type, location)
-            }
-            "unresolved_type_as_vector" => {
-                unresolved_type_as_vector(interner, arguments, return_type, location)
-            }
-            "unresolved_type_is_bool" => unresolved_type_is_bool(interner, arguments, location),
-            "unresolved_type_is_field" => unresolved_type_is_field(interner, arguments, location),
-            "unresolved_type_is_unit" => unresolved_type_is_unit(interner, arguments, location),
-            "zeroed" => {
+            Builtin::TypedExprLocation => typed_expr_location(interner, arguments, location),
+            Builtin::Zeroed => {
                 let field = interner.field().id();
                 // Resolve any deferred struct fields or enum variants in the
                 // return type so `zeroed` returns a real `Value::Struct`/`Enum`
@@ -327,7 +357,7 @@ impl Interpreter<'_, '_> {
                 Ok(zeroed(return_type, location, field))
             }
             _ => {
-                let item = format!("Comptime evaluation for builtin function '{name}'");
+                let item = format!("Comptime evaluation for builtin function '{builtin}'");
                 Err(InterpreterError::Unimplemented { item, location })
             }
         }?;
@@ -350,7 +380,7 @@ fn failing_constraint<T>(
 }
 
 fn array_len(arguments: Vec<(Value, Location)>, location: Location) -> IResult<Value> {
-    let (argument, argument_location) = check_one_argument(arguments, location)?;
+    let [(argument, argument_location)] = check_arguments(arguments, location)?;
 
     match argument {
         Value::Array(values, _) | Value::Vector(values, _) => Ok(Value::u32(values.len() as u32)),
@@ -367,7 +397,7 @@ fn apply_range_constraint(
     location: Location,
     call_stack: &Vector<Location>,
 ) -> IResult<Value> {
-    let (value, num_bits) = check_two_arguments(arguments, location)?;
+    let [value, num_bits] = check_arguments(arguments, location)?;
 
     let field = get_field(value)?;
     let num_bits = get_u32(num_bits)?;
@@ -388,7 +418,7 @@ fn apply_range_constraint(
 }
 
 fn array_as_str_unchecked(arguments: Vec<(Value, Location)>, location: Location) -> IResult<Value> {
-    let argument = check_one_argument(arguments, location)?;
+    let [argument] = check_arguments(arguments, location)?;
 
     let array = get_array(argument)?.0;
     let string_bytes = try_vecmap(array, |byte| get_u8((byte, location)))?;
@@ -396,7 +426,7 @@ fn array_as_str_unchecked(arguments: Vec<(Value, Location)>, location: Location)
 }
 
 fn as_vector(arguments: Vec<(Value, Location)>, location: Location) -> IResult<Value> {
-    let (array, array_location) = check_one_argument(arguments, location)?;
+    let [(array, array_location)] = check_arguments(arguments, location)?;
 
     match array {
         Value::Array(values, Type::Array(typ, _)) => Ok(Value::Vector(values, Type::Vector(typ))),
@@ -409,12 +439,13 @@ fn as_vector(arguments: Vec<(Value, Location)>, location: Location) -> IResult<V
 }
 
 fn as_witness(arguments: Vec<(Value, Location)>, location: Location) -> IResult<Value> {
-    check_one_argument(arguments, location)?;
+    check_arguments::<1>(arguments, location)?;
     Ok(Value::Unit)
 }
 
 fn black_box(arguments: Vec<(Value, Location)>, location: Location) -> IResult<Value> {
-    Ok(check_one_argument(arguments, location)?.0)
+    let [(value, _)] = check_arguments(arguments, location)?;
+    Ok(value)
 }
 
 fn checked_transmute(
@@ -422,7 +453,7 @@ fn checked_transmute(
     return_type: Type,
     location: Location,
 ) -> IResult<Value> {
-    let (value, location) = check_one_argument(arguments, location)?;
+    let [(value, location)] = check_arguments(arguments, location)?;
 
     if value.get_type().try_unify_with_default_bindings(&return_type).is_err() {
         return Err(InterpreterError::CheckedTransmuteFailed {
@@ -442,12 +473,12 @@ fn field_cast(
     return_type: Type,
     location: Location,
 ) -> IResult<Value> {
-    let (value, _) = check_one_argument(arguments, location)?;
+    let [(value, _)] = check_arguments(arguments, location)?;
     evaluate_cast_one_step(field, &return_type, location, value)
 }
 
 fn vector_push_back(arguments: Vec<(Value, Location)>, location: Location) -> IResult<Value> {
-    let (vector, (element, _)) = check_two_arguments(arguments, location)?;
+    let [vector, (element, _)] = check_arguments(arguments, location)?;
 
     let (mut values, typ) = get_vector(vector)?;
     values.push_back(element);
@@ -462,7 +493,7 @@ fn static_assert(
     location: Location,
     call_stack: &Vector<Location>,
 ) -> IResult<Value> {
-    let (predicate, message) = check_two_arguments(arguments, location)?;
+    let [predicate, message] = check_arguments(arguments, location)?;
     let predicate = get_bool(predicate)?;
     let message = message.0.display(interner, files).to_string();
 
@@ -489,8 +520,8 @@ fn issue_diagnostic(
     location: Location,
     is_warning: bool,
 ) -> IResult<Value> {
-    let (msg_argument, (secondary, secondary_location), location_argument) =
-        check_three_arguments(arguments, location)?;
+    let [msg_argument, (secondary, secondary_location), location_argument] =
+        check_arguments(arguments, location)?;
     let (fragments, _, _) = get_format_string(msg_argument)?;
 
     // Unwrap the `Option<fmtstr<N, T>>`
@@ -515,7 +546,7 @@ fn issue_diagnostic(
 }
 
 fn str_as_bytes(arguments: Vec<(Value, Location)>, location: Location) -> IResult<Value> {
-    let string = check_one_argument(arguments, location)?;
+    let [string] = check_arguments(arguments, location)?;
     let string_bytes = get_str(string)?;
     let bytes: Vector<Value> = string_bytes.iter().copied().map(Value::u8).collect();
     let byte_array_type = byte_array_type(bytes.len());
@@ -524,7 +555,7 @@ fn str_as_bytes(arguments: Vec<(Value, Location)>, location: Location) -> IResul
 
 // fn str_as_ctstring(self) -> CtString
 fn str_as_ctstring(arguments: Vec<(Value, Location)>, location: Location) -> IResult<Value> {
-    let self_argument = check_one_argument(arguments, location)?;
+    let [self_argument] = check_arguments(arguments, location)?;
     let string_bytes = get_str(self_argument)?;
     Ok(Value::CtString(string_bytes))
 }
@@ -535,7 +566,7 @@ fn type_def_add_abi(
     arguments: Vec<(Value, Location)>,
     location: Location,
 ) -> IResult<Value> {
-    let (self_argument, attribute) = check_two_arguments(arguments, location)?;
+    let [self_argument, attribute] = check_arguments(arguments, location)?;
     let attribute_location = attribute.1;
     let attribute = get_ctstring(attribute)?;
     let attribute = String::from_utf8_lossy(&attribute);
@@ -562,7 +593,7 @@ fn type_def_as_type(
     arguments: Vec<(Value, Location)>,
     location: Location,
 ) -> IResult<Value> {
-    let argument = check_one_argument(arguments, location)?;
+    let [argument] = check_arguments(arguments, location)?;
     let struct_id = get_type_id(argument)?;
     let type_def_rc = interner.get_type(struct_id);
     let type_def = type_def_rc.borrow();
@@ -581,7 +612,7 @@ fn type_def_as_type_with_generics(
     location: Location,
 ) -> IResult<Value> {
     let field = interner.field().id();
-    let (type_def, generics) = check_two_arguments(arguments, location)?;
+    let [type_def, generics] = check_arguments(arguments, location)?;
     let type_id = get_type_id(type_def)?;
     let type_def_rc = interner.get_type(type_id);
     let type_def = type_def_rc.borrow();
@@ -611,7 +642,7 @@ fn type_def_generics(
     location: Location,
 ) -> IResult<Value> {
     let field = interner.field().id();
-    let argument = check_one_argument(arguments, location)?;
+    let [argument] = check_arguments(arguments, location)?;
     let type_id = get_type_id(argument)?;
     let type_def = interner.get_type(type_id);
     let type_def = type_def.borrow();
@@ -641,13 +672,13 @@ fn type_def_generics(
         .iter()
         .map(|generic| {
             let generic_as_named = generic.clone().into_named_generic(None);
-            let numeric_type = match generic_as_named.kind() {
+            let numeric_type = match generic_as_named.kind().into_owned() {
                 Kind::Numeric(numeric_type) => Some(Value::Type(*numeric_type)),
                 _ => None,
             };
             let numeric_type =
-                Shared::new(option(option_typ.clone(), numeric_type, location, field));
-            Value::Tuple(vec![Shared::new(Value::Type(generic_as_named)), numeric_type])
+                ValueCell::new(option(option_typ.clone(), numeric_type, location, field));
+            Value::Tuple(vec![ValueCell::new(Value::Type(generic_as_named)), numeric_type])
         })
         .collect();
 
@@ -662,7 +693,7 @@ fn type_def_has_attribute(
     location: Location,
     builtin_only: bool,
 ) -> IResult<Value> {
-    let (self_argument, name) = check_two_arguments(arguments, location)?;
+    let [self_argument, name] = check_arguments(arguments, location)?;
     let type_id = get_type_id(self_argument)?;
 
     let name = get_str(name)?;
@@ -730,7 +761,7 @@ fn type_def_named_attribute_args(
     arguments: Vec<(Value, Location)>,
     location: Location,
 ) -> IResult<Value> {
-    let (self_argument, name) = check_two_arguments(arguments, location)?;
+    let [self_argument, name] = check_arguments(arguments, location)?;
     let type_id = get_type_id(self_argument)?;
     let name = get_str(name)?;
     let name = String::from_utf8_lossy(&name).to_string();
@@ -746,7 +777,7 @@ fn function_def_named_attribute_args(
     arguments: Vec<(Value, Location)>,
     location: Location,
 ) -> IResult<Value> {
-    let (self_argument, name) = check_two_arguments(arguments, location)?;
+    let [self_argument, name] = check_arguments(arguments, location)?;
     let func_id = get_function_def(self_argument)?;
     let name = get_str(name)?;
     let name = String::from_utf8_lossy(&name).to_string();
@@ -764,7 +795,7 @@ fn module_named_attribute_args(
     arguments: Vec<(Value, Location)>,
     location: Location,
 ) -> IResult<Value> {
-    let (self_argument, name) = check_two_arguments(arguments, location)?;
+    let [self_argument, name] = check_arguments(arguments, location)?;
     let module_id = get_module(self_argument)?;
     let name = get_str(name)?;
     let name = String::from_utf8_lossy(&name).to_string();
@@ -785,7 +816,7 @@ fn type_def_fields(
     location: Location,
     call_stack: &Vector<Location>,
 ) -> IResult<Value> {
-    let (typ, generic_args) = check_two_arguments(arguments, location)?;
+    let [typ, generic_args] = check_arguments(arguments, location)?;
     let struct_id = get_type_id(typ)?;
 
     interpreter.elaborator.define_struct_fields_if_undefined(struct_id);
@@ -830,9 +861,9 @@ fn type_def_fields(
     if let Some(struct_fields) = struct_def.get_fields(&generic_args) {
         for (field_name, field_type, visibility) in struct_fields {
             let token = LocatedToken::new(Token::Ident(field_name), location);
-            let name = Shared::new(Value::Quoted(Rc::new(vec![token])));
-            let field_type = Shared::new(Value::Type(field_type));
-            let visibility = Shared::new(visibility_to_quoted(visibility, location));
+            let name = ValueCell::new(Value::Quoted(Rc::new(vec![token])));
+            let field_type = ValueCell::new(Value::Type(field_type));
+            let visibility = ValueCell::new(visibility_to_quoted(visibility, location));
             fields.push_back(Value::Tuple(vec![name, field_type, visibility]));
         }
     }
@@ -854,7 +885,7 @@ fn type_def_fields_as_written(
     arguments: Vec<(Value, Location)>,
     location: Location,
 ) -> IResult<Value> {
-    let argument = check_one_argument(arguments, location)?;
+    let [argument] = check_arguments(arguments, location)?;
     let struct_id = get_type_id(argument)?;
 
     interpreter.elaborator.define_struct_fields_if_undefined(struct_id);
@@ -867,10 +898,10 @@ fn type_def_fields_as_written(
     if let Some(struct_fields) = struct_def.get_fields_as_written() {
         for field in struct_fields {
             let token = LocatedToken::new(Token::Ident(field.name.to_string()), location);
-            let name = Shared::new(Value::Quoted(Rc::new(vec![token])));
+            let name = ValueCell::new(Value::Quoted(Rc::new(vec![token])));
 
-            let typ = Shared::new(Value::Type(field.typ));
-            let visibility = Shared::new(visibility_to_quoted(field.visibility, location));
+            let typ = ValueCell::new(Value::Type(field.typ));
+            let visibility = ValueCell::new(visibility_to_quoted(field.visibility, location));
             fields.push_back(Value::Tuple(vec![name, typ, visibility]));
         }
     }
@@ -889,7 +920,7 @@ fn type_def_module(
     arguments: Vec<(Value, Location)>,
     location: Location,
 ) -> IResult<Value> {
-    let self_argument = check_one_argument(arguments, location)?;
+    let [self_argument] = check_arguments(arguments, location)?;
     let struct_id = get_type_id(self_argument)?;
     let parent = struct_id.parent_module_id(interpreter.elaborator.def_maps);
     Ok(Value::ModuleDefinition(parent))
@@ -901,7 +932,7 @@ fn type_def_location(
     arguments: Vec<(Value, Location)>,
     location: Location,
 ) -> IResult<Value> {
-    let self_argument = check_one_argument(arguments, location)?;
+    let [self_argument] = check_arguments(arguments, location)?;
     let type_id = get_type_id(self_argument)?;
     Ok(Value::Location(interner.get_type(type_id).borrow().location))
 }
@@ -912,7 +943,7 @@ fn type_def_name(
     arguments: Vec<(Value, Location)>,
     location: Location,
 ) -> IResult<Value> {
-    let self_argument = check_one_argument(arguments, location)?;
+    let [self_argument] = check_arguments(arguments, location)?;
     let struct_id = get_type_id(self_argument)?;
     let the_struct = interner.get_type(struct_id);
 
@@ -926,7 +957,7 @@ fn vector_remove(
     location: Location,
     call_stack: &Vector<Location>,
 ) -> IResult<Value> {
-    let (vector, index) = check_two_arguments(arguments, location)?;
+    let [vector, index] = check_arguments(arguments, location)?;
 
     let (mut values, typ) = get_vector(vector)?;
     let index = get_u32(index)? as usize;
@@ -948,14 +979,14 @@ fn vector_remove(
     }
 
     // The removed element is returned by value, so it must not keep sharing interior
-    // `Shared<Value>` cells with the source vector (otherwise a `&mut` into the temporary
+    // `ValueCell` cells with the source vector (otherwise a `&mut` into the temporary
     // would write back through to the original vector).
-    let element = Shared::new(values.remove(index).move_struct());
-    Ok(Value::Tuple(vec![Shared::new(Value::Vector(values, typ)), element]))
+    let element = ValueCell::new(values.remove(index).move_struct());
+    Ok(Value::Tuple(vec![ValueCell::new(Value::Vector(values, typ)), element]))
 }
 
 fn vector_push_front(arguments: Vec<(Value, Location)>, location: Location) -> IResult<Value> {
-    let (vector, (element, _)) = check_two_arguments(arguments, location)?;
+    let [vector, (element, _)] = check_arguments(arguments, location)?;
 
     let (mut values, typ) = get_vector(vector)?;
     values.push_front(element);
@@ -967,22 +998,21 @@ fn vector_pop_front(
     location: Location,
     call_stack: &Vector<Location>,
 ) -> IResult<Value> {
-    let argument = check_one_argument(arguments, location)?;
+    let [argument] = check_arguments(arguments, location)?;
 
     let (mut values, typ) = get_vector(argument)?;
     match values.pop_front() {
         Some(element) => {
             // The popped element is returned by value, so it must not keep sharing interior
-            // `Shared<Value>` cells with the source vector (otherwise a `&mut` into the
+            // `ValueCell` cells with the source vector (otherwise a `&mut` into the
             // temporary would write back through to the original vector).
             let element = element.move_struct();
-            Ok(Value::Tuple(vec![Shared::new(element), Shared::new(Value::Vector(values, typ))]))
+            Ok(Value::Tuple(vec![
+                ValueCell::new(element),
+                ValueCell::new(Value::Vector(values, typ)),
+            ]))
         }
-        None => failing_constraint(
-            "Index out of bounds: vector_pop_front called on empty vector",
-            location,
-            call_stack,
-        ),
+        None => failing_constraint("Attempt to pop from an empty vector", location, call_stack),
     }
 }
 
@@ -991,22 +1021,21 @@ fn vector_pop_back(
     location: Location,
     call_stack: &Vector<Location>,
 ) -> IResult<Value> {
-    let argument = check_one_argument(arguments, location)?;
+    let [argument] = check_arguments(arguments, location)?;
 
     let (mut values, typ) = get_vector(argument)?;
     match values.pop_back() {
         Some(element) => {
             // The popped element is returned by value, so it must not keep sharing interior
-            // `Shared<Value>` cells with the source vector (otherwise a `&mut` into the
+            // `ValueCell` cells with the source vector (otherwise a `&mut` into the
             // temporary would write back through to the original vector).
             let element = element.move_struct();
-            Ok(Value::Tuple(vec![Shared::new(Value::Vector(values, typ)), Shared::new(element)]))
+            Ok(Value::Tuple(vec![
+                ValueCell::new(Value::Vector(values, typ)),
+                ValueCell::new(element),
+            ]))
         }
-        None => failing_constraint(
-            "Index out of bounds: vector_pop_back called on empty vector",
-            location,
-            call_stack,
-        ),
+        None => failing_constraint("Attempt to pop from an empty vector", location, call_stack),
     }
 }
 
@@ -1015,7 +1044,7 @@ fn vector_insert(
     location: Location,
     call_stack: &Vector<Location>,
 ) -> IResult<Value> {
-    let (vector, index, (element, _)) = check_three_arguments(arguments, location)?;
+    let [vector, index, (element, _)] = check_arguments(arguments, location)?;
 
     let (mut values, typ) = get_vector(vector)?;
     let index = get_u32(index)? as usize;
@@ -1041,7 +1070,7 @@ fn quoted_as_expr(
     location: Location,
 ) -> IResult<Value> {
     let field = elaborator.interner.field().id();
-    let argument = check_one_argument(arguments, location)?;
+    let [argument] = check_arguments(arguments, location)?;
 
     let result = parse(
         elaborator,
@@ -1072,7 +1101,7 @@ fn quoted_as_module(
     location: Location,
 ) -> IResult<Value> {
     let field = interpreter.elaborator.interner.field().id();
-    let argument = check_one_argument(arguments, location)?;
+    let [argument] = check_arguments(arguments, location)?;
 
     let path =
         parse(interpreter.elaborator, argument, Parser::parse_path_no_turbofish_or_error, "a path")
@@ -1080,10 +1109,11 @@ fn quoted_as_module(
     let option_value = path.and_then(|path| {
         let path = interpreter.elaborator.validate_path(path);
         let reason = Some(ElaborateReason::EvaluatingComptimeCall("Quoted::as_module", location));
-        let module =
-            interpreter.elaborate_in_function(interpreter.current_function, reason, |elaborator| {
-                elaborator.resolve_module_by_path(path)
-            });
+        let module = interpreter.elaborator.elaborate_item_from_comptime_in_function(
+            interpreter.current_function,
+            reason,
+            |elaborator| elaborator.resolve_module_by_path(path),
+        );
         module.map(Value::ModuleDefinition)
     });
 
@@ -1096,7 +1126,7 @@ fn quoted_as_trait_constraint(
     arguments: Vec<(Value, Location)>,
     location: Location,
 ) -> IResult<Value> {
-    let argument = check_one_argument(arguments, location)?;
+    let [argument] = check_arguments(arguments, location)?;
     let trait_bound = parse(
         interpreter.elaborator,
         argument,
@@ -1106,9 +1136,12 @@ fn quoted_as_trait_constraint(
     let reason =
         Some(ElaborateReason::EvaluatingComptimeCall("Quoted::as_trait_constraint", location));
     let bound = interpreter
-        .elaborate_in_function(interpreter.current_function, reason, |elaborator| {
-            elaborator.use_trait_bound(&trait_bound)
-        })
+        .elaborator
+        .elaborate_item_from_comptime_in_function(
+            interpreter.current_function,
+            reason,
+            |elaborator| elaborator.use_trait_bound(&trait_bound),
+        )
         .ok_or(InterpreterError::FailedToResolveTraitBound { trait_bound, location })?;
 
     Ok(Value::TraitConstraint(bound.trait_id, bound.trait_generics))
@@ -1120,7 +1153,7 @@ fn quoted_as_type(
     arguments: Vec<(Value, Location)>,
     location: Location,
 ) -> IResult<Value> {
-    let argument = check_one_argument(arguments, location)?;
+    let [argument] = check_arguments(arguments, location)?;
     let typ = parse(
         interpreter.elaborator,
         argument,
@@ -1129,18 +1162,21 @@ fn quoted_as_type(
     )?;
     let reason = Some(ElaborateReason::EvaluatingComptimeCall("Quoted::as_type", location));
     let wildcard_allowed = WildcardAllowed::No(WildcardDisallowedContext::QuotedAsType);
-    let typ =
-        interpreter.elaborate_in_function(interpreter.current_function, reason, |elaborator| {
+    let typ = interpreter.elaborator.elaborate_item_from_comptime_in_function(
+        interpreter.current_function,
+        reason,
+        |elaborator| {
             // `Kind::Any` so a numeric type expression (e.g. `quote { 4 }`) resolves to a
             // `Type::Constant` rather than being rejected as a non-`Normal` kind.
             elaborator.use_type_with_kind(typ, &Kind::Any, wildcard_allowed)
-        });
+        },
+    );
     Ok(Value::Type(typ))
 }
 
 // fn tokens(quoted: Quoted) -> [Quoted]
 fn quoted_tokens(arguments: Vec<(Value, Location)>, location: Location) -> IResult<Value> {
-    let argument = check_one_argument(arguments, location)?;
+    let [argument] = check_arguments(arguments, location)?;
     let value = get_quoted(argument)?;
 
     Ok(Value::Vector(
@@ -1156,7 +1192,7 @@ fn quoted_location(
     location: Location,
     field: FieldId,
 ) -> IResult<Value> {
-    let argument = check_one_argument(arguments, location)?;
+    let [argument] = check_arguments(arguments, location)?;
     let tokens = get_quoted(argument)?;
 
     let merged = match (tokens.first(), tokens.last()) {
@@ -1173,7 +1209,7 @@ fn to_be_bits(
     location: Location,
     call_stack: &Vector<Location>,
 ) -> IResult<Value> {
-    let value = check_one_argument(arguments, location)?;
+    let [value] = check_arguments(arguments, location)?;
     let radix = (Value::u32(2), value.1);
     to_be_radix(vec![value, radix], return_type, location, call_stack)
 }
@@ -1184,7 +1220,7 @@ fn to_le_bits(
     location: Location,
     call_stack: &Vector<Location>,
 ) -> IResult<Value> {
-    let value = check_one_argument(arguments, location)?;
+    let [value] = check_arguments(arguments, location)?;
     let radix = (Value::u32(2), value.1);
     to_le_radix(vec![value, radix], return_type, location, call_stack)
 }
@@ -1211,7 +1247,7 @@ fn to_le_radix(
     location: Location,
     call_stack: &Vector<Location>,
 ) -> IResult<Value> {
-    let (value, radix) = check_two_arguments(arguments, location)?;
+    let [value, radix] = check_arguments(arguments, location)?;
 
     let value = get_field(value)?;
     let radix = get_u32(radix)?;
@@ -1281,8 +1317,8 @@ fn type_as_array(
 ) -> IResult<Value> {
     type_as(arguments, return_type, location, field, |typ| {
         if let Type::Array(array_type, length) = typ {
-            let array_type = Shared::new(Value::Type(*array_type));
-            let length_type = Shared::new(Value::Type(*length));
+            let array_type = ValueCell::new(Value::Type(*array_type));
+            let length_type = ValueCell::new(Value::Type(*length));
             Some(Value::Tuple(vec![array_type, length_type]))
         } else {
             None
@@ -1327,8 +1363,8 @@ fn type_as_integer(
         if let Type::Integer(sign, width) = typ {
             // A width that still names a generic is not an integer type this can describe.
             let bits = width.constant_width()?;
-            let sign = Shared::new(Value::Bool(sign.is_signed()));
-            let bit_size = Shared::new(Value::u32(bits));
+            let sign = ValueCell::new(Value::Bool(sign.is_signed()));
+            let bit_size = ValueCell::new(Value::u32(bits));
             Some(Value::Tuple(vec![sign, bit_size]))
         } else {
             None
@@ -1382,8 +1418,8 @@ fn type_as_data_type(
     type_as(arguments, return_type, location, field, |typ| {
         if let Type::DataType(struct_type, generics) = typ {
             Some(Value::Tuple(vec![
-                Shared::new(Value::TypeDefinition(struct_type.borrow().id)),
-                Shared::new(Value::Vector(
+                ValueCell::new(Value::TypeDefinition(struct_type.borrow().id)),
+                ValueCell::new(Value::Vector(
                     generics.into_iter().map(Value::Type).collect(),
                     Type::Vector(Box::new(Type::Quoted(QuotedType::Type))),
                 )),
@@ -1440,7 +1476,7 @@ fn type_as_or_err<F>(
 where
     F: FnOnce(Type) -> IResult<Option<Value>>,
 {
-    let value = check_one_argument(arguments, location)?;
+    let [value] = check_arguments(arguments, location)?;
     let typ = get_type(value)?;
 
     let option_value = f(typ)?;
@@ -1457,7 +1493,7 @@ fn type_get_trait_impl(
     location: Location,
 ) -> IResult<Value> {
     let field = interner.field().id();
-    let (typ, constraint) = check_two_arguments(arguments, location)?;
+    let [typ, constraint] = check_arguments(arguments, location)?;
 
     let typ = get_type(typ)?;
     let (trait_id, generics) = get_trait_constraint(constraint)?;
@@ -1481,7 +1517,7 @@ fn type_implements(
     arguments: Vec<(Value, Location)>,
     location: Location,
 ) -> IResult<Value> {
-    let (typ, constraint) = check_two_arguments(arguments, location)?;
+    let [typ, constraint] = check_arguments(arguments, location)?;
 
     let typ = get_type(typ)?;
     let (trait_id, generics) = get_trait_constraint(constraint)?;
@@ -1494,7 +1530,7 @@ fn type_implements(
 
 // fn is_bool(self) -> bool
 fn type_is_bool(arguments: Vec<(Value, Location)>, location: Location) -> IResult<Value> {
-    let value = check_one_argument(arguments, location)?;
+    let [value] = check_arguments(arguments, location)?;
     let typ = get_type(value)?;
 
     Ok(Value::Bool(matches!(typ, Type::Bool)))
@@ -1502,7 +1538,7 @@ fn type_is_bool(arguments: Vec<(Value, Location)>, location: Location) -> IResul
 
 // fn is_field(self) -> bool
 fn type_is_field(arguments: Vec<(Value, Location)>, location: Location) -> IResult<Value> {
-    let value = check_one_argument(arguments, location)?;
+    let [value] = check_arguments(arguments, location)?;
     let typ = get_type(value)?;
 
     Ok(Value::Bool(matches!(typ, Type::FieldElement)))
@@ -1510,7 +1546,7 @@ fn type_is_field(arguments: Vec<(Value, Location)>, location: Location) -> IResu
 
 // fn is_unit(self) -> bool
 fn type_is_unit(arguments: Vec<(Value, Location)>, location: Location) -> IResult<Value> {
-    let value = check_one_argument(arguments, location)?;
+    let [value] = check_arguments(arguments, location)?;
     let typ = get_type(value)?;
 
     Ok(Value::Bool(matches!(typ, Type::Unit)))
@@ -1518,7 +1554,7 @@ fn type_is_unit(arguments: Vec<(Value, Location)>, location: Location) -> IResul
 
 // fn type_of<T>(x: T) -> Type
 fn type_of(arguments: Vec<(Value, Location)>, location: Location) -> IResult<Value> {
-    let (value, _) = check_one_argument(arguments, location)?;
+    let [(value, _)] = check_arguments(arguments, location)?;
     let typ = value.get_type().into_owned();
     Ok(Value::Type(typ))
 }
@@ -1529,7 +1565,7 @@ fn trait_impl_methods(
     arguments: Vec<(Value, Location)>,
     location: Location,
 ) -> IResult<Value> {
-    let argument = check_one_argument(arguments, location)?;
+    let [argument] = check_arguments(arguments, location)?;
 
     let trait_impl_id = get_trait_impl(argument)?;
     let trait_impl = interner.get_trait_implementation(trait_impl_id);
@@ -1547,7 +1583,7 @@ fn trait_impl_trait_generic_args(
     arguments: Vec<(Value, Location)>,
     location: Location,
 ) -> IResult<Value> {
-    let argument = check_one_argument(arguments, location)?;
+    let [argument] = check_arguments(arguments, location)?;
 
     let trait_impl_id = get_trait_impl(argument)?;
     let ordered_generics = interner.get_ordered_generics_for_impl(trait_impl_id);
@@ -1565,7 +1601,7 @@ fn typed_expr_as_function_definition(
     location: Location,
 ) -> IResult<Value> {
     let field = interner.field().id();
-    let self_argument = check_one_argument(arguments, location)?;
+    let [self_argument] = check_arguments(arguments, location)?;
     let typed_expr = get_typed_expr(self_argument)?;
     let option_value = if let TypedExpr::ExprId(expr_id) = typed_expr {
         let func_id = interner.lookup_function_from_expr(&expr_id, location)?;
@@ -1584,7 +1620,7 @@ fn typed_expr_get_type(
     location: Location,
 ) -> IResult<Value> {
     let field = interner.field().id();
-    let self_argument = check_one_argument(arguments, location)?;
+    let [self_argument] = check_arguments(arguments, location)?;
     let typed_expr = get_typed_expr(self_argument)?;
     let option_value = if let TypedExpr::ExprId(expr_id) = typed_expr {
         let typ = interner.id_type(expr_id);
@@ -1592,120 +1628,6 @@ fn typed_expr_get_type(
     } else {
         None
     };
-    Ok(option(return_type, option_value, location, field))
-}
-
-// fn as_mutable_reference(self) -> Option<UnresolvedType>
-fn unresolved_type_as_mutable_reference(
-    interner: &NodeInterner,
-    arguments: Vec<(Value, Location)>,
-    return_type: Type,
-    location: Location,
-) -> IResult<Value> {
-    unresolved_type_as(interner, arguments, return_type, location, |typ| {
-        if let UnresolvedTypeData::Reference(typ, true) = typ {
-            Some(Value::UnresolvedType(typ.typ))
-        } else {
-            None
-        }
-    })
-}
-
-// fn as_vector(self) -> Option<UnresolvedType>
-fn unresolved_type_as_vector(
-    interner: &NodeInterner,
-    arguments: Vec<(Value, Location)>,
-    return_type: Type,
-    location: Location,
-) -> IResult<Value> {
-    unresolved_type_as(interner, arguments, return_type, location, |typ| {
-        if let UnresolvedTypeData::Vector(typ) = typ {
-            Some(Value::UnresolvedType(typ.typ))
-        } else {
-            None
-        }
-    })
-}
-
-// fn is_bool(self) -> bool
-fn unresolved_type_is_bool(
-    interner: &NodeInterner,
-    arguments: Vec<(Value, Location)>,
-    location: Location,
-) -> IResult<Value> {
-    let self_argument = check_one_argument(arguments, location)?;
-    let typ = get_unresolved_type(interner, self_argument)?;
-
-    // TODO: we should resolve the type here instead of just checking the name
-    // See https://github.com/noir-lang/noir/issues/8505
-    let UnresolvedTypeData::Named(path, generics, _) = typ else {
-        return Ok(Value::Bool(false));
-    };
-    if !generics.is_empty() {
-        return Ok(Value::Bool(false));
-    }
-    let Some(ident) = path.as_ident() else {
-        return Ok(Value::Bool(false));
-    };
-    let Some(primitive_type) = PrimitiveType::lookup_by_name(ident.as_str()) else {
-        return Ok(Value::Bool(false));
-    };
-    Ok(Value::Bool(primitive_type == PrimitiveType::Bool))
-}
-
-// fn is_field(self) -> bool
-fn unresolved_type_is_field(
-    interner: &NodeInterner,
-    arguments: Vec<(Value, Location)>,
-    location: Location,
-) -> IResult<Value> {
-    let self_argument = check_one_argument(arguments, location)?;
-    let typ = get_unresolved_type(interner, self_argument)?;
-
-    // TODO: we should resolve the type here instead of just checking the name
-    // See https://github.com/noir-lang/noir/issues/8505
-    let UnresolvedTypeData::Named(path, generics, _) = typ else {
-        return Ok(Value::Bool(false));
-    };
-    if !generics.is_empty() {
-        return Ok(Value::Bool(false));
-    }
-    let Some(ident) = path.as_ident() else {
-        return Ok(Value::Bool(false));
-    };
-    let Some(primitive_type) = PrimitiveType::lookup_by_name(ident.as_str()) else {
-        return Ok(Value::Bool(false));
-    };
-    Ok(Value::Bool(primitive_type == PrimitiveType::Field))
-}
-
-// fn is_unit(self) -> bool
-fn unresolved_type_is_unit(
-    interner: &NodeInterner,
-    arguments: Vec<(Value, Location)>,
-    location: Location,
-) -> IResult<Value> {
-    let self_argument = check_one_argument(arguments, location)?;
-    let typ = get_unresolved_type(interner, self_argument)?;
-    Ok(Value::Bool(matches!(typ, UnresolvedTypeData::Unit)))
-}
-
-// Helper function for implementing the `unresolved_type_as_...` functions.
-fn unresolved_type_as<F>(
-    interner: &NodeInterner,
-    arguments: Vec<(Value, Location)>,
-    return_type: Type,
-    location: Location,
-    f: F,
-) -> IResult<Value>
-where
-    F: FnOnce(UnresolvedTypeData) -> Option<Value>,
-{
-    let field = interner.field().id();
-    let value = check_one_argument(arguments, location)?;
-    let typ = get_unresolved_type(interner, value)?;
-
-    let option_value = f(typ);
     Ok(option(return_type, option_value, location, field))
 }
 
@@ -1801,7 +1723,7 @@ fn zeroed(return_type: Type, location: Location, field: FieldId) -> Value {
         }
         Type::Unit => Value::Unit,
         Type::Tuple(fields) => {
-            Value::Tuple(vecmap(fields, |typ| Shared::new(zeroed(typ, location, field))))
+            Value::Tuple(vecmap(fields, |typ| ValueCell::new(zeroed(typ, location, field))))
         }
         Type::DataType(data_type, generics) => {
             let typ = data_type.borrow();
@@ -1810,7 +1732,7 @@ fn zeroed(return_type: Type, location: Location, field: FieldId) -> Value {
                 let mut values = HashMap::default();
 
                 for (field_name, field_type, _) in fields {
-                    let field_value = Shared::new(zeroed(field_type, location, field));
+                    let field_value = ValueCell::new(zeroed(field_type, location, field));
                     values.insert(Rc::new(field_name), field_value);
                 }
 
@@ -1842,7 +1764,7 @@ fn zeroed(return_type: Type, location: Location, field: FieldId) -> Value {
         }
         Type::Reference(element, mutable) => {
             let element = zeroed(*element, location, field);
-            Value::Pointer(Shared::new(element), false, mutable)
+            Value::Pointer(ValueCell::new(element), false, mutable)
         }
         // Optimistically assume we can resolve this type later or that the value is unused
         Type::TypeVariable(_)
@@ -1896,7 +1818,7 @@ fn expr_as_assert(
                 } else {
                     (Some(constrain.arguments.pop().unwrap()), constrain.arguments.pop().unwrap())
                 };
-                let predicate = Shared::new(Value::expression(predicate.kind));
+                let predicate = ValueCell::new(Value::expression(predicate.kind));
 
                 let option_type = extract_option_generic_type(return_type);
                 let Type::Tuple(mut tuple_types) = option_type else {
@@ -1906,7 +1828,7 @@ fn expr_as_assert(
 
                 let option_type = tuple_types.pop().unwrap();
                 let message = message.map(|msg| Value::expression(msg.kind));
-                let message = Shared::new(option(option_type, message, location, field));
+                let message = ValueCell::new(option(option_type, message, location, field));
 
                 Some(Value::Tuple(vec![predicate, message]))
             } else {
@@ -1942,8 +1864,8 @@ fn expr_as_assert_eq(
                     )
                 };
 
-                let lhs = Shared::new(Value::expression(lhs.kind));
-                let rhs = Shared::new(Value::expression(rhs.kind));
+                let lhs = ValueCell::new(Value::expression(lhs.kind));
+                let rhs = ValueCell::new(Value::expression(rhs.kind));
 
                 let option_type = extract_option_generic_type(return_type);
                 let Type::Tuple(mut tuple_types) = option_type else {
@@ -1953,7 +1875,7 @@ fn expr_as_assert_eq(
 
                 let option_type = tuple_types.pop().unwrap();
                 let message = message.map(|message| Value::expression(message.kind));
-                let message = Shared::new(option(option_type, message, location, field));
+                let message = ValueCell::new(option(option_type, message, location, field));
 
                 Some(Value::Tuple(vec![lhs, rhs, message]))
             } else {
@@ -1974,8 +1896,8 @@ fn expr_as_assign(
 ) -> IResult<Value> {
     expr_as(interner, arguments, return_type, location, |expr| {
         if let ExprValue::Statement(StatementKind::Assign(assign)) = expr {
-            let lhs = Shared::new(Value::lvalue(assign.lvalue));
-            let rhs = Shared::new(Value::expression(assign.expression.kind));
+            let lhs = ValueCell::new(Value::lvalue(assign.lvalue));
+            let rhs = ValueCell::new(Value::expression(assign.expression.kind));
             Some(Value::Tuple(vec![lhs, rhs]))
         } else {
             None
@@ -2001,9 +1923,10 @@ fn expr_as_binary_op(
 
             tuple_types.pop().unwrap();
             let binary_op_type = tuple_types.pop().unwrap();
-            let binary_op = Shared::new(new_binary_op(&infix_expr.operator, binary_op_type, field));
-            let lhs = Shared::new(Value::expression(infix_expr.lhs.kind));
-            let rhs = Shared::new(Value::expression(infix_expr.rhs.kind));
+            let binary_op =
+                ValueCell::new(new_binary_op(&infix_expr.operator, binary_op_type, field));
+            let lhs = ValueCell::new(Value::expression(infix_expr.lhs.kind));
+            let rhs = ValueCell::new(Value::expression(infix_expr.rhs.kind));
             Some(Value::Tuple(vec![lhs, binary_op, rhs]))
         } else {
             None
@@ -2052,8 +1975,8 @@ fn expr_as_cast(
 ) -> IResult<Value> {
     expr_as(interner, arguments, return_type, location, |expr| {
         if let ExprValue::Expression(ExpressionKind::Cast(cast)) = expr {
-            let lhs = Shared::new(Value::expression(cast.lhs.kind));
-            let typ = Shared::new(Value::UnresolvedType(cast.r#type.typ));
+            let lhs = ValueCell::new(Value::expression(cast.lhs.kind));
+            let typ = ValueCell::new(Value::UnresolvedType(cast.r#type.typ));
             Some(Value::Tuple(vec![lhs, typ]))
         } else {
             None
@@ -2102,17 +2025,17 @@ fn expr_as_constructor(
     location: Location,
 ) -> IResult<Value> {
     let field = interner.field().id();
-    let self_argument = check_one_argument(arguments, location)?;
+    let [self_argument] = check_arguments(arguments, location)?;
     let expr_value = get_expr(interner, self_argument)?;
     let expr_value = unwrap_expr_value(interner, expr_value);
 
     let option_value =
         if let ExprValue::Expression(ExpressionKind::Constructor(constructor)) = expr_value {
-            let typ = Shared::new(Value::UnresolvedType(constructor.typ.typ));
+            let typ = ValueCell::new(Value::UnresolvedType(constructor.typ.typ));
             let fields = constructor.fields.into_iter();
             let fields = fields.map(|(name, value)| {
-                let ident = Shared::new(quote_ident(&name, location));
-                let expr = Shared::new(Value::expression(value.kind));
+                let ident = ValueCell::new(quote_ident(&name, location));
+                let expr = ValueCell::new(Value::expression(value.kind));
                 Value::Tuple(vec![ident, expr])
             });
             let fields = fields.collect();
@@ -2120,7 +2043,7 @@ fn expr_as_constructor(
                 Type::Quoted(QuotedType::Quoted),
                 Type::Quoted(QuotedType::Expr),
             ])));
-            let fields = Shared::new(Value::Vector(fields, fields_type));
+            let fields = ValueCell::new(Value::Vector(fields, fields_type));
             Some(Value::Tuple(vec![typ, fields]))
         } else {
             None
@@ -2141,9 +2064,9 @@ fn expr_as_for(
             if let ForRange::Array(array) = for_statement.range {
                 let token = Token::Ident(for_statement.identifier.into_string());
                 let token = LocatedToken::new(token, location);
-                let identifier = Shared::new(Value::Quoted(Rc::new(vec![token])));
-                let array = Shared::new(Value::expression(array.kind));
-                let body = Shared::new(Value::expression(for_statement.block.kind));
+                let identifier = ValueCell::new(Value::Quoted(Rc::new(vec![token])));
+                let array = ValueCell::new(Value::expression(array.kind));
+                let body = ValueCell::new(Value::expression(for_statement.block.kind));
                 Some(Value::Tuple(vec![identifier, array, body]))
             } else {
                 None
@@ -2166,11 +2089,11 @@ fn expr_as_for_range(
             if let ForRange::Range(bounds) = for_statement.range {
                 let token = Token::Ident(for_statement.identifier.into_string());
                 let token = LocatedToken::new(token, location);
-                let identifier = Shared::new(Value::Quoted(Rc::new(vec![token])));
-                let from = Shared::new(Value::expression(bounds.start.kind));
-                let to = Shared::new(Value::expression(bounds.end.kind));
-                let inclusive = Shared::new(Value::Bool(bounds.inclusive));
-                let body = Shared::new(Value::expression(for_statement.block.kind));
+                let identifier = ValueCell::new(Value::Quoted(Rc::new(vec![token])));
+                let from = ValueCell::new(Value::expression(bounds.start.kind));
+                let to = ValueCell::new(Value::expression(bounds.end.kind));
+                let inclusive = ValueCell::new(Value::Bool(bounds.inclusive));
+                let body = ValueCell::new(Value::expression(for_statement.block.kind));
                 Some(Value::Tuple(vec![identifier, from, to, inclusive, body]))
             } else {
                 None
@@ -2190,10 +2113,10 @@ fn expr_as_function_call(
 ) -> IResult<Value> {
     expr_as(interner, arguments, return_type, location, |expr| {
         if let ExprValue::Expression(ExpressionKind::Call(call_expression)) = expr {
-            let function = Shared::new(Value::expression(call_expression.func.kind));
+            let function = ValueCell::new(Value::expression(call_expression.func.kind));
             let arguments = call_expression.arguments.into_iter();
             let arguments = arguments.map(|argument| Value::expression(argument.kind)).collect();
-            let arguments = Shared::new(Value::Vector(
+            let arguments = ValueCell::new(Value::Vector(
                 arguments,
                 Type::Vector(Box::new(Type::Quoted(QuotedType::Expr))),
             ));
@@ -2230,9 +2153,9 @@ fn expr_as_if(
             );
 
             Some(Value::Tuple(vec![
-                Shared::new(Value::expression(if_expr.condition.kind)),
-                Shared::new(Value::expression(if_expr.consequence.kind)),
-                Shared::new(alternative),
+                ValueCell::new(Value::expression(if_expr.condition.kind)),
+                ValueCell::new(Value::expression(if_expr.consequence.kind)),
+                ValueCell::new(alternative),
             ]))
         } else {
             None
@@ -2250,8 +2173,8 @@ fn expr_as_index(
     expr_as(interner, arguments, return_type, location, |expr| {
         if let ExprValue::Expression(ExpressionKind::Index(index_expr)) = expr {
             Some(Value::Tuple(vec![
-                Shared::new(Value::expression(index_expr.collection.kind)),
-                Shared::new(Value::expression(index_expr.index.kind)),
+                ValueCell::new(Value::expression(index_expr.collection.kind)),
+                ValueCell::new(Value::expression(index_expr.index.kind)),
             ]))
         } else {
             None
@@ -2318,14 +2241,18 @@ fn expr_as_lambda(
                 .parameters
                 .into_iter()
                 .map(|(pattern, typ)| {
-                    let pattern = Shared::new(Value::pattern(pattern));
+                    let pattern = ValueCell::new(Value::pattern(pattern));
                     let typ = typ.map(|typ| Value::UnresolvedType(typ.typ));
-                    let typ =
-                        Shared::new(option(option_unresolved_type.clone(), typ, location, field));
+                    let typ = ValueCell::new(option(
+                        option_unresolved_type.clone(),
+                        typ,
+                        location,
+                        field,
+                    ));
                     Value::Tuple(vec![pattern, typ])
                 })
                 .collect();
-            let parameters = Shared::new(Value::Vector(
+            let parameters = ValueCell::new(Value::Vector(
                 parameters,
                 Type::Vector(Box::new(Type::Tuple(vec![
                     Type::Quoted(QuotedType::Expr),
@@ -2335,9 +2262,9 @@ fn expr_as_lambda(
 
             let return_type = lambda.return_type.map(|typ| Value::UnresolvedType(typ.typ));
             let return_type =
-                Shared::new(option(option_unresolved_type, return_type, location, field));
+                ValueCell::new(option(option_unresolved_type, return_type, location, field));
 
-            let body = Shared::new(Value::expression(lambda.body.kind));
+            let body = ValueCell::new(Value::expression(lambda.body.kind));
 
             Some(Value::Tuple(vec![parameters, return_type, body]))
         } else {
@@ -2368,9 +2295,9 @@ fn expr_as_let(
             let typ = option(option_type, typ, location, field);
 
             Some(Value::Tuple(vec![
-                Shared::new(Value::pattern(let_statement.pattern)),
-                Shared::new(typ),
-                Shared::new(Value::expression(let_statement.expression.kind)),
+                ValueCell::new(Value::pattern(let_statement.pattern)),
+                ValueCell::new(typ),
+                ValueCell::new(Value::expression(let_statement.expression.kind)),
             ]))
         }
         _ => None,
@@ -2387,14 +2314,14 @@ fn expr_as_member_access(
     expr_as(interner, arguments, return_type, location, |expr| match expr {
         ExprValue::Expression(ExpressionKind::MemberAccess(member_access)) => {
             Some(Value::Tuple(vec![
-                Shared::new(Value::expression(member_access.lhs.kind)),
-                Shared::new(quote_ident(&member_access.rhs, location)),
+                ValueCell::new(Value::expression(member_access.lhs.kind)),
+                ValueCell::new(quote_ident(&member_access.rhs, location)),
             ]))
         }
         ExprValue::LValue(LValue::MemberAccess { object, field_name, location: _ }) => {
             Some(Value::Tuple(vec![
-                Shared::new(Value::lvalue(*object)),
-                Shared::new(quote_ident(&field_name, location)),
+                ValueCell::new(Value::lvalue(*object)),
+                ValueCell::new(quote_ident(&field_name, location)),
             ]))
         }
         _ => None,
@@ -2410,20 +2337,20 @@ fn expr_as_method_call(
 ) -> IResult<Value> {
     expr_as(interner, arguments, return_type, location, |expr| {
         if let ExprValue::Expression(ExpressionKind::MethodCall(method_call)) = expr {
-            let object = Shared::new(Value::expression(method_call.object.kind));
+            let object = ValueCell::new(Value::expression(method_call.object.kind));
 
-            let name = Shared::new(quote_ident(&method_call.method_name, location));
+            let name = ValueCell::new(quote_ident(&method_call.method_name, location));
 
             let generics = method_call.generics.unwrap_or_default().into_iter();
             let generics = generics.map(|generic| Value::UnresolvedType(generic.typ)).collect();
-            let generics = Shared::new(Value::Vector(
+            let generics = ValueCell::new(Value::Vector(
                 generics,
                 Type::Vector(Box::new(Type::Quoted(QuotedType::UnresolvedType))),
             ));
 
             let arguments = method_call.arguments.into_iter();
             let arguments = arguments.map(|argument| Value::expression(argument.kind)).collect();
-            let arguments = Shared::new(Value::Vector(
+            let arguments = ValueCell::new(Value::Vector(
                 arguments,
                 Type::Vector(Box::new(Type::Quoted(QuotedType::Expr))),
             ));
@@ -2448,8 +2375,8 @@ fn expr_as_repeated_element_array(
         ))) = expr
         {
             Some(Value::Tuple(vec![
-                Shared::new(Value::expression(repeated_element.kind)),
-                Shared::new(Value::expression(length.kind)),
+                ValueCell::new(Value::expression(repeated_element.kind)),
+                ValueCell::new(Value::expression(length.kind)),
             ]))
         } else {
             None
@@ -2470,8 +2397,8 @@ fn expr_as_repeated_element_vector(
         ))) = expr
         {
             Some(Value::Tuple(vec![
-                Shared::new(Value::expression(repeated_element.kind)),
-                Shared::new(Value::expression(length.kind)),
+                ValueCell::new(Value::expression(repeated_element.kind)),
+                ValueCell::new(Value::expression(length.kind)),
             ]))
         } else {
             None
@@ -2537,8 +2464,9 @@ fn expr_as_unary_op(
 
             tuple_types.pop().unwrap();
             let unary_op_type = tuple_types.pop().unwrap();
-            let unary_op = Shared::new(new_unary_op(prefix_expr.operator, unary_op_type, field)?);
-            let rhs = Shared::new(Value::expression(prefix_expr.rhs.kind));
+            let unary_op =
+                ValueCell::new(new_unary_op(prefix_expr.operator, unary_op_type, field)?);
+            let rhs = ValueCell::new(Value::expression(prefix_expr.rhs.kind));
             Some(Value::Tuple(vec![unary_op, rhs]))
         } else {
             None
@@ -2569,7 +2497,7 @@ fn expr_has_semicolon(
     arguments: Vec<(Value, Location)>,
     location: Location,
 ) -> IResult<Value> {
-    let self_argument = check_one_argument(arguments, location)?;
+    let [self_argument] = check_arguments(arguments, location)?;
     let expr_value = get_expr(interner, self_argument)?;
     let expr_value = unwrap_expr_value_except_semi(interner, expr_value);
     Ok(Value::Bool(matches!(expr_value, ExprValue::Statement(StatementKind::Semi(..)))))
@@ -2581,7 +2509,7 @@ fn expr_is_break(
     arguments: Vec<(Value, Location)>,
     location: Location,
 ) -> IResult<Value> {
-    let self_argument = check_one_argument(arguments, location)?;
+    let [self_argument] = check_arguments(arguments, location)?;
     let expr_value = get_expr(interner, self_argument)?;
     let expr_value = unwrap_expr_value(interner, expr_value);
     Ok(Value::Bool(matches!(expr_value, ExprValue::Statement(StatementKind::Break))))
@@ -2593,7 +2521,7 @@ fn expr_is_continue(
     arguments: Vec<(Value, Location)>,
     location: Location,
 ) -> IResult<Value> {
-    let self_argument = check_one_argument(arguments, location)?;
+    let [self_argument] = check_arguments(arguments, location)?;
     let expr_value = get_expr(interner, self_argument)?;
     let expr_value = unwrap_expr_value(interner, expr_value);
     Ok(Value::Bool(matches!(expr_value, ExprValue::Statement(StatementKind::Continue))))
@@ -2626,7 +2554,7 @@ where
     F: FnOnce(ExprValue) -> IResult<Option<Value>>,
 {
     let field = interner.field().id();
-    let self_argument = check_one_argument(arguments, location)?;
+    let [self_argument] = check_arguments(arguments, location)?;
     let expr_value = get_expr(interner, self_argument)?;
     let expr_value = unwrap_expr_value(interner, expr_value);
 
@@ -2640,7 +2568,7 @@ fn expr_resolve(
     arguments: Vec<(Value, Location)>,
     location: Location,
 ) -> IResult<Value> {
-    let (self_argument, func) = check_two_arguments(arguments, location)?;
+    let [self_argument, func] = check_arguments(arguments, location)?;
     let self_argument_location = self_argument.1;
     let expr_value = get_expr(interpreter.elaborator.interner, self_argument)?;
     let expr_value = unwrap_expr_value(interpreter.elaborator.interner, expr_value);
@@ -2670,42 +2598,47 @@ fn expr_resolve(
     let caller_module = is_some.then(|| interpreter.elaborator.module_id());
 
     let reason = Some(ElaborateReason::EvaluatingComptimeCall("Expr::resolve", location));
-    interpreter.elaborate_in_function(function_to_resolve_in, reason, |elaborator| {
-        if is_some {
-            elaborator.caller_module = caller_module;
-        }
+    interpreter.elaborator.elaborate_item_from_comptime_in_function(
+        function_to_resolve_in,
+        reason,
+        |elaborator| {
+            if is_some {
+                elaborator.set_caller_module(caller_module);
+            }
 
-        match expr_value {
-            ExprValue::Expression(expression_kind) => {
-                let expr = Expression { kind: expression_kind, location: self_argument_location };
-                let (expr_id, _) = elaborator.elaborate_expression(expr);
-                Ok(Value::TypedExpr(TypedExpr::ExprId(expr_id)))
-            }
-            ExprValue::Statement(statement_kind) => {
-                let statement =
-                    Statement { kind: statement_kind, location: self_argument_location };
-                let (stmt_id, _) = elaborator.elaborate_statement(statement);
-                Ok(Value::TypedExpr(TypedExpr::StmtId(stmt_id)))
-            }
-            ExprValue::LValue(lvalue) => {
-                let expr = lvalue.as_expression();
-                let (expr_id, _) = elaborator.elaborate_expression(expr);
-                Ok(Value::TypedExpr(TypedExpr::ExprId(expr_id)))
-            }
-            ExprValue::Pattern(pattern) => {
-                if let Some(expression) = pattern.try_as_expression(elaborator.interner) {
-                    let (expr_id, _) = elaborator.elaborate_expression(expression);
+            match expr_value {
+                ExprValue::Expression(expression_kind) => {
+                    let expr =
+                        Expression { kind: expression_kind, location: self_argument_location };
+                    let (expr_id, _) = elaborator.elaborate_expression(expr);
                     Ok(Value::TypedExpr(TypedExpr::ExprId(expr_id)))
-                } else {
-                    let expression = Value::pattern(pattern)
-                        .display(elaborator.interner, elaborator.files)
-                        .to_string();
-                    let location = self_argument_location;
-                    Err(InterpreterError::CannotResolveExpression { location, expression })
+                }
+                ExprValue::Statement(statement_kind) => {
+                    let statement =
+                        Statement { kind: statement_kind, location: self_argument_location };
+                    let (stmt_id, _) = elaborator.elaborate_statement(statement);
+                    Ok(Value::TypedExpr(TypedExpr::StmtId(stmt_id)))
+                }
+                ExprValue::LValue(lvalue) => {
+                    let expr = lvalue.as_expression();
+                    let (expr_id, _) = elaborator.elaborate_expression(expr);
+                    Ok(Value::TypedExpr(TypedExpr::ExprId(expr_id)))
+                }
+                ExprValue::Pattern(pattern) => {
+                    if let Some(expression) = pattern.try_as_expression(elaborator.interner) {
+                        let (expr_id, _) = elaborator.elaborate_expression(expression);
+                        Ok(Value::TypedExpr(TypedExpr::ExprId(expr_id)))
+                    } else {
+                        let expression = Value::pattern(pattern)
+                            .display(elaborator.interner, elaborator.files)
+                            .to_string();
+                        let location = self_argument_location;
+                        Err(InterpreterError::CannotResolveExpression { location, expression })
+                    }
                 }
             }
-        }
-    })
+        },
+    )
 }
 
 fn unwrap_expr_value(interner: &NodeInterner, expr_value: ExprValue) -> ExprValue {
@@ -2764,7 +2697,7 @@ fn fmtstr_as_ctstring(
     arguments: Vec<(Value, Location)>,
     location: Location,
 ) -> IResult<Value> {
-    let self_argument = check_one_argument(arguments, location)?;
+    let [self_argument] = check_arguments(arguments, location)?;
     let (fragments, _, _) = get_format_string(self_argument)?;
     let bytes = fragments_to_bytes(&fragments, interner, files);
     Ok(Value::CtString(Rc::new(bytes)))
@@ -2777,7 +2710,7 @@ fn fmtstr_quoted_contents(
     arguments: Vec<(Value, Location)>,
     location: Location,
 ) -> IResult<Value> {
-    let self_argument = check_one_argument(arguments, location)?;
+    let [self_argument] = check_arguments(arguments, location)?;
     let (fragments, _, _) = get_format_string(self_argument)?;
     let string = fragments_to_string(&fragments, interner, files);
     let tokens = lex(&string, location);
@@ -2795,7 +2728,7 @@ fn function_def_as_typed_expr(
     arguments: Vec<(Value, Location)>,
     location: Location,
 ) -> IResult<Value> {
-    let self_argument = check_one_argument(arguments, location)?;
+    let [self_argument] = check_arguments(arguments, location)?;
     let func_id = get_function_def(self_argument)?;
     let trait_impl_id = interpreter.elaborator.function_meta(func_id).trait_impl;
 
@@ -2884,11 +2817,14 @@ fn function_def_as_typed_expr(
         "FunctionDefinition::as_typed_expr",
         location,
     ));
-    let typ =
-        interpreter.elaborate_in_function(interpreter.current_function, reason, |elaborator| {
+    let typ = interpreter.elaborator.elaborate_item_from_comptime_in_function(
+        interpreter.current_function,
+        reason,
+        |elaborator| {
             let bindings = TypeBindings::default();
             elaborator.type_check_variable_with_bindings(hir_ident, &expr_id, generics, bindings)
-        });
+        },
+    );
     let expr_id = interpreter.elaborator.intern_expr_type(expr_id, typ);
     Ok(Value::TypedExpr(TypedExpr::ExprId(expr_id)))
 }
@@ -2899,7 +2835,7 @@ fn function_def_body(
     arguments: Vec<(Value, Location)>,
     location: Location,
 ) -> IResult<Value> {
-    let self_argument = check_one_argument(arguments, location)?;
+    let [self_argument] = check_arguments(arguments, location)?;
     let func_id = get_function_def(self_argument)?;
     let func_meta = interpreter.elaborator.function_meta(func_id);
     if let FunctionBody::Unresolved(_, block_expr, _) = &func_meta.function_body {
@@ -2915,7 +2851,7 @@ fn function_def_disable(
     arguments: Vec<(Value, Location)>,
     location: Location,
 ) -> IResult<Value> {
-    let (self_argument, error_message) = check_two_arguments(arguments, location)?;
+    let [self_argument, error_message] = check_arguments(arguments, location)?;
     let error_message = get_ctstring(error_message)?;
     let error_message = String::from_utf8_lossy(&error_message).into_owned();
 
@@ -2954,7 +2890,7 @@ fn function_def_has_attribute(
     location: Location,
     builtin_only: bool,
 ) -> IResult<Value> {
-    let (self_argument, name) = check_two_arguments(arguments, location)?;
+    let [self_argument, name] = check_arguments(arguments, location)?;
     let func_id = get_function_def(self_argument)?;
 
     let name = &*get_str(name)?;
@@ -2982,7 +2918,7 @@ fn function_def_is_unconstrained(
     arguments: Vec<(Value, Location)>,
     location: Location,
 ) -> IResult<Value> {
-    let self_argument = check_one_argument(arguments, location)?;
+    let [self_argument] = check_arguments(arguments, location)?;
     let func_id = get_function_def(self_argument)?;
     let is_unconstrained = interpreter.elaborator.function_meta(func_id).is_unconstrained();
     Ok(Value::Bool(is_unconstrained))
@@ -2994,7 +2930,7 @@ fn function_def_module(
     arguments: Vec<(Value, Location)>,
     location: Location,
 ) -> IResult<Value> {
-    let self_argument = check_one_argument(arguments, location)?;
+    let [self_argument] = check_arguments(arguments, location)?;
     let func_id = get_function_def(self_argument)?;
     let module = interner.function_module(func_id);
     Ok(Value::ModuleDefinition(module))
@@ -3006,7 +2942,7 @@ fn function_def_location(
     arguments: Vec<(Value, Location)>,
     location: Location,
 ) -> IResult<Value> {
-    let self_argument = check_one_argument(arguments, location)?;
+    let [self_argument] = check_arguments(arguments, location)?;
     let func_id = get_function_def(self_argument)?;
     Ok(Value::Location(elaborator.function_meta(func_id).location))
 }
@@ -3017,7 +2953,7 @@ fn function_def_name(
     arguments: Vec<(Value, Location)>,
     location: Location,
 ) -> IResult<Value> {
-    let self_argument = check_one_argument(arguments, location)?;
+    let [self_argument] = check_arguments(arguments, location)?;
     let func_id = get_function_def(self_argument)?;
     let name = interner.function_name(&func_id).to_string();
     let token = Token::Ident(name);
@@ -3032,7 +2968,7 @@ fn function_def_parameters(
     arguments: Vec<(Value, Location)>,
     location: Location,
 ) -> IResult<Value> {
-    let self_argument = check_one_argument(arguments, location)?;
+    let [self_argument] = check_arguments(arguments, location)?;
     let func_id = get_function_def(self_argument)?;
     let parameters_meta: Vec<_> = interpreter
         .elaborator
@@ -3047,8 +2983,8 @@ fn function_def_parameters(
         .map(|(hir_pattern, typ)| {
             let tokens = hir_pattern_to_tokens(interpreter.elaborator.interner, &hir_pattern);
             let tokens = vecmap(tokens, |token| LocatedToken::new(token, location));
-            let name = Shared::new(Value::Quoted(Rc::new(tokens)));
-            let typ = Shared::new(Value::Type(typ));
+            let name = ValueCell::new(Value::Quoted(Rc::new(tokens)));
+            let typ = ValueCell::new(Value::Type(typ));
             Value::Tuple(vec![name, typ])
         })
         .collect();
@@ -3067,7 +3003,7 @@ fn function_def_return_type(
     arguments: Vec<(Value, Location)>,
     location: Location,
 ) -> IResult<Value> {
-    let self_argument = check_one_argument(arguments, location)?;
+    let [self_argument] = check_arguments(arguments, location)?;
     let func_id = get_function_def(self_argument)?;
     let func_meta = interpreter.elaborator.function_meta(func_id);
 
@@ -3080,7 +3016,7 @@ fn function_def_visibility(
     arguments: Vec<(Value, Location)>,
     location: Location,
 ) -> IResult<Value> {
-    let self_argument = check_one_argument(arguments, location)?;
+    let [self_argument] = check_arguments(arguments, location)?;
     let func_id = get_function_def(self_argument)?;
     let visibility = interner.function_visibility(func_id);
     Ok(visibility_to_quoted(visibility, location))
@@ -3092,7 +3028,7 @@ fn module_child_modules(
     arguments: Vec<(Value, Location)>,
     location: Location,
 ) -> IResult<Value> {
-    let self_argument = check_one_argument(arguments, location)?;
+    let [self_argument] = check_arguments(arguments, location)?;
     let module_id = get_module(self_argument)?;
     let module_data = interpreter.elaborator.get_module(module_id);
 
@@ -3113,7 +3049,7 @@ fn module_functions(
     arguments: Vec<(Value, Location)>,
     location: Location,
 ) -> IResult<Value> {
-    let self_argument = check_one_argument(arguments, location)?;
+    let [self_argument] = check_arguments(arguments, location)?;
     let module_id = get_module(self_argument)?;
     let module_data = interpreter.elaborator.get_module(module_id);
     let func_ids = module_data
@@ -3141,7 +3077,7 @@ fn module_parent(
     location: Location,
 ) -> IResult<Value> {
     let field = interpreter.elaborator.interner.field().id();
-    let self_argument = check_one_argument(arguments, location)?;
+    let [self_argument] = check_arguments(arguments, location)?;
     let module_id = get_module(self_argument)?;
     let module_data = interpreter.elaborator.get_module(module_id);
 
@@ -3158,7 +3094,7 @@ fn module_structs(
     arguments: Vec<(Value, Location)>,
     location: Location,
 ) -> IResult<Value> {
-    let self_argument = check_one_argument(arguments, location)?;
+    let [self_argument] = check_arguments(arguments, location)?;
     let module_id = get_module(self_argument)?;
     let module_data = interpreter.elaborator.get_module(module_id);
     let struct_ids = module_data
@@ -3186,7 +3122,7 @@ fn module_has_attribute(
     location: Location,
     builtin_only: bool,
 ) -> IResult<Value> {
-    let (self_argument, name) = check_two_arguments(arguments, location)?;
+    let [self_argument, name] = check_arguments(arguments, location)?;
     let module_id = get_module(self_argument)?;
     let module_data = interpreter.elaborator.get_module(module_id);
 
@@ -3208,7 +3144,7 @@ fn module_is_contract(
     arguments: Vec<(Value, Location)>,
     location: Location,
 ) -> IResult<Value> {
-    let self_argument = check_one_argument(arguments, location)?;
+    let [self_argument] = check_arguments(arguments, location)?;
     let module_id = get_module(self_argument)?;
     Ok(Value::Bool(interpreter.elaborator.module_is_contract(module_id)))
 }
@@ -3219,7 +3155,7 @@ fn module_name(
     arguments: Vec<(Value, Location)>,
     location: Location,
 ) -> IResult<Value> {
-    let self_argument = check_one_argument(arguments, location)?;
+    let [self_argument] = check_arguments(arguments, location)?;
     let module_id = get_module(self_argument)?;
     let name = &interner.module_attributes(module_id).name;
     let token = Token::Ident(name.clone());
@@ -3298,7 +3234,7 @@ fn quoted_eq(
     arguments: Vec<(Value, Location)>,
     location: Location,
 ) -> IResult<Value> {
-    let (self_arg, other_arg) = check_two_arguments(arguments, location)?;
+    let [self_arg, other_arg] = check_arguments(arguments, location)?;
     let self_arg = get_quoted(self_arg)?;
     let other_arg = get_quoted(other_arg)?;
 
@@ -3318,7 +3254,7 @@ fn quoted_hash(
     arguments: Vec<(Value, Location)>,
     location: Location,
 ) -> IResult<Value> {
-    let argument = check_one_argument(arguments, location)?;
+    let [argument] = check_arguments(arguments, location)?;
     let tokens = get_quoted(argument)?;
 
     // For consistency with quoted_eq, we compute the hash of the Quoted string representation.
@@ -3334,7 +3270,7 @@ fn trait_def_as_trait_constraint(
     arguments: Vec<(Value, Location)>,
     location: Location,
 ) -> IResult<Value> {
-    let argument = check_one_argument(arguments, location)?;
+    let [argument] = check_arguments(arguments, location)?;
 
     let trait_id = get_trait_def(argument)?;
     let constraint = interner.get_trait(trait_id).as_constraint(location);
@@ -3348,7 +3284,7 @@ fn trait_def_location(
     arguments: Vec<(Value, Location)>,
     location: Location,
 ) -> IResult<Value> {
-    let self_argument = check_one_argument(arguments, location)?;
+    let [self_argument] = check_arguments(arguments, location)?;
     let trait_id = get_trait_def(self_argument)?;
     Ok(Value::Location(interner.get_trait(trait_id).location))
 }
@@ -3359,7 +3295,7 @@ fn module_location(
     arguments: Vec<(Value, Location)>,
     location: Location,
 ) -> IResult<Value> {
-    let self_argument = check_one_argument(arguments, location)?;
+    let [self_argument] = check_arguments(arguments, location)?;
     let module_id = get_module(self_argument)?;
     Ok(Value::Location(interner.module_attributes(module_id).location))
 }
@@ -3370,7 +3306,7 @@ fn typed_expr_location(
     arguments: Vec<(Value, Location)>,
     location: Location,
 ) -> IResult<Value> {
-    let self_argument = check_one_argument(arguments, location)?;
+    let [self_argument] = check_arguments(arguments, location)?;
     let typed_expr = get_typed_expr(self_argument)?;
     let loc = match typed_expr {
         TypedExpr::ExprId(expr_id) => interner.expr_location(&expr_id),
@@ -3395,8 +3331,8 @@ pub(crate) fn option(
     };
 
     let mut fields = HashMap::default();
-    fields.insert(Rc::new("_is_some".to_string()), Shared::new(is_some));
-    fields.insert(Rc::new("_value".to_string()), Shared::new(value));
+    fields.insert(Rc::new("_is_some".to_string()), ValueCell::new(is_some));
+    fields.insert(Rc::new("_value".to_string()), ValueCell::new(value));
     Value::Struct(fields, option_type)
 }
 
@@ -3414,7 +3350,7 @@ pub(crate) fn extract_option_generic_type(typ: Type) -> Type {
 
 // fn append(self, other: CtString) -> CtString
 fn ctstring_append(arguments: Vec<(Value, Location)>, location: Location) -> IResult<Value> {
-    let (self_argument, other_argument) = check_two_arguments(arguments, location)?;
+    let [self_argument, other_argument] = check_arguments(arguments, location)?;
     let self_bytes = get_ctstring(self_argument)?;
     let other_bytes = get_ctstring(other_argument)?;
 
@@ -3440,7 +3376,7 @@ fn derive_generators(
         Some(EmbeddedCurve::Grumpkin) => {}
     }
 
-    let (domain_separator_string, starting_index) = check_two_arguments(arguments, location)?;
+    let [domain_separator_string, starting_index] = check_arguments(arguments, location)?;
 
     let domain_separator_location = domain_separator_string.1;
     let (domain_separator_string, _) = get_array(domain_separator_string)?;
@@ -3471,8 +3407,8 @@ fn derive_generators(
         let x = FieldValue::from_bn254_element(Bn254FieldElement::from_repr(generator.x));
         let y = FieldValue::from_bn254_element(Bn254FieldElement::from_repr(generator.y));
         let mut embedded_curve_point_fields = HashMap::default();
-        embedded_curve_point_fields.insert(x_field_name.clone(), Shared::new(Value::field(x)));
-        embedded_curve_point_fields.insert(y_field_name.clone(), Shared::new(Value::field(y)));
+        embedded_curve_point_fields.insert(x_field_name.clone(), ValueCell::new(Value::field(x)));
+        embedded_curve_point_fields.insert(y_field_name.clone(), ValueCell::new(Value::field(y)));
         let embedded_curve_point_struct =
             Value::Struct(embedded_curve_point_fields, *elements.clone());
         results.push_back(embedded_curve_point_struct);
@@ -3482,7 +3418,7 @@ fn derive_generators(
 }
 
 fn field_less_than(arguments: Vec<(Value, Location)>, location: Location) -> IResult<Value> {
-    let (lhs, rhs) = check_two_arguments(arguments, location)?;
+    let [lhs, rhs] = check_arguments(arguments, location)?;
 
     let lhs = get_field(lhs)?;
     let rhs = get_field(rhs)?;

@@ -25,49 +25,75 @@ use super::{Elaborator, PathResolutionTarget, ResolverMeta};
 
 type ScopeTree = GenericScopeTree<String, ResolverMeta>;
 
-pub(crate) struct ReplacedModule(CrateId, Option<LocalModuleId>);
+/// The crate and module an [`Elaborator::replace_module`] displaced.
+pub(crate) struct ReplacedModule(CrateId, LocalModuleId);
 
 impl Elaborator<'_> {
-    pub fn module_id(&self) -> ModuleId {
-        ModuleId { krate: self.crate_id, local_id: self.local_module() }
+    pub(crate) fn module_id(&self) -> ModuleId {
+        ModuleId { krate: self.crate_id, local_id: self.item.module.local_module() }
     }
 
+    /// The module that visibility checks during path resolution are made from: the caller's
+    /// module when one is set, else the module the lookup runs in.
+    pub(crate) fn visibility_module(&self) -> ModuleId {
+        self.item.module.caller_module().unwrap_or_else(|| self.module_id())
+    }
+
+    /// Makes visibility checks during path resolution use `caller_module` instead of the module
+    /// the current item is in, for the rest of the current item's elaboration.
+    pub(crate) fn set_caller_module(&mut self, caller_module: Option<ModuleId>) {
+        self.item.module.set_caller_module(caller_module);
+    }
+
+    /// Resolves the rest of the item in `new_module`, in whichever crate that module belongs to.
+    /// Returns the crate and module it replaces, to be given back to [`Self::restore_module`].
+    ///
+    /// Call [`Self::in_module`] instead. This split form exists only to be the body of a scoped
+    /// helper: the elaborator's, and the interpreter's own, which needs a separate one because
+    /// the body it wraps borrows the interpreter rather than the elaborator.
     #[must_use]
     #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) fn replace_module(&mut self, new_module: ModuleId) -> ReplacedModule {
         let old_crate_id = self.crate_id;
-        let old_local_module = self.local_module;
+        let old_local_module = self.item.module.replace_local_module(new_module.local_id);
         self.crate_id = new_module.krate;
-        self.local_module = Some(new_module.local_id);
         ReplacedModule(old_crate_id, old_local_module)
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) fn restore_module(&mut self, replaced_module: ReplacedModule) {
         self.crate_id = replaced_module.0;
-        self.local_module = replaced_module.1;
+        self.item.module.set_local_module(replaced_module.1);
     }
 
-    /// Runs `f` with `self.local_module` set to `module`, restoring the previous value
-    /// afterwards (on every exit path, including early returns inside `f`). This is the
-    /// module-scope analogue of [`Self::recover_generics`] and should be used instead of a
-    /// bare `self.local_module = Some(..)` so that the caller's module context is never left
-    /// dangling.
+    /// Runs `f` with both the crate and the item's module set to `module`, restoring them
+    /// afterwards (on every exit path, including early returns inside `f`). The cross-crate
+    /// counterpart of [`Self::in_local_module`], for elaborating on behalf of an item that
+    /// lives in another crate.
+    #[tracing::instrument(level = "trace", skip_all)]
+    pub(crate) fn in_module<T>(&mut self, module: ModuleId, f: impl FnOnce(&mut Self) -> T) -> T {
+        let replaced = self.replace_module(module);
+        let result = f(self);
+        self.restore_module(replaced);
+        result
+    }
+
+    /// Runs `f` with the item's module set to `module`, restoring the previous value afterwards
+    /// (on every exit path, including early returns inside `f`). This is the module-scope
+    /// analogue of [`Self::recover_generics`] and should be used instead of a bare
+    /// [`ModuleContext::set_local_module`] so that the caller's module is never left dangling.
+    ///
+    /// [`ModuleContext::set_local_module`]: super::item_context::ModuleContext::set_local_module
     #[tracing::instrument(level = "trace", skip_all)]
     pub(super) fn in_local_module<T>(
         &mut self,
         module: LocalModuleId,
         f: impl FnOnce(&mut Self) -> T,
     ) -> T {
-        let previous = self.replace_local_module(module);
+        let previous = self.item.module.replace_local_module(module);
         let result = f(self);
-        self.local_module = previous;
+        self.item.module.set_local_module(previous);
         result
-    }
-
-    #[must_use]
-    pub(super) fn replace_local_module(&mut self, module: LocalModuleId) -> Option<LocalModuleId> {
-        self.local_module.replace(module)
     }
 
     pub(super) fn get_type(&self, type_id: TypeId) -> Shared<DataType> {
@@ -91,11 +117,14 @@ impl Elaborator<'_> {
 
         let mut transitive_capture_index: Option<usize> = None;
 
-        for lambda_index in 0..self.lambda_stack.len() {
-            if self.lambda_stack[lambda_index].scope_index > variable.scope {
+        for lambda_index in 0..self.item.body.lambda_depth() {
+            if self.item.body.lambda_at_depth_mut(lambda_index).scope_index > variable.scope {
                 // Beware: the same variable may be captured multiple times, so we check
                 // for its presence before adding the capture below.
-                let position = self.lambda_stack[lambda_index]
+                let position = self
+                    .item
+                    .body
+                    .lambda_at_depth_mut(lambda_index)
                     .captures
                     .iter()
                     .position(|capture| capture.ident.id == variable.ident.id);
@@ -107,19 +136,21 @@ impl Elaborator<'_> {
                     if self.in_comptime_context()
                         || !self.interner.definition(variable.ident.id).is_comptime_local()
                     {
-                        self.lambda_stack[lambda_index].captures.push(HirCapturedVar {
-                            ident: variable.ident.clone(),
-                            transitive_capture_index,
-                        });
+                        self.item.body.lambda_at_depth_mut(lambda_index).captures.push(
+                            HirCapturedVar {
+                                ident: variable.ident.clone(),
+                                transitive_capture_index,
+                            },
+                        );
                         // If this was a fresh capture, we added it to the end of
                         // the captures vector:
-                        Some(self.lambda_stack[lambda_index].captures.len() - 1)
+                        Some(self.item.body.lambda_at_depth_mut(lambda_index).captures.len() - 1)
                     } else {
                         None
                     }
                 });
 
-                if lambda_index + 1 < self.lambda_stack.len() {
+                if lambda_index + 1 < self.item.body.lambda_depth() {
                     // There is more than one closure between the current scope and
                     // the scope of the variable, so this is a propagated capture.
                     // We need to track the transitive capture index as we go up in
@@ -212,7 +243,7 @@ impl Elaborator<'_> {
                     found: item.description(self.interner),
                 })
             }
-            PathResolutionItem::TraitConstant(_, _, def_id) => {
+            PathResolutionItem::TraitConstant(_, _, _, def_id) => {
                 // TraitConstant is returned, item is Some
                 Ok(PathValue::Definition { id: def_id, item })
             }
@@ -225,22 +256,22 @@ impl Elaborator<'_> {
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    pub fn push_scope(&mut self) {
+    pub(crate) fn push_scope(&mut self) {
         self.scopes.start_scope();
-        self.interner.comptime_scopes.push(Default::default());
+        self.session.comptime_scopes.push();
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    pub fn pop_scope(&mut self) {
+    pub(crate) fn pop_scope(&mut self) {
         let scope = self.scopes.end_scope();
-        self.interner.comptime_scopes.pop();
+        self.session.comptime_scopes.pop();
         let scope_decls = scope.into();
         self.check_for_unused_variables_in_scope_tree(&scope_decls);
         self.check_for_unnecessary_mut_variables_in_scope_tree(&scope_decls);
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    pub fn check_for_unused_variables_in_scope_tree(&mut self, scope_decls: &ScopeTree) {
+    pub(crate) fn check_for_unused_variables_in_scope_tree(&mut self, scope_decls: &ScopeTree) {
         let mut unused_vars = Vec::new();
 
         for scope in &scope_decls.0 {
@@ -267,7 +298,10 @@ impl Elaborator<'_> {
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    pub fn check_for_unnecessary_mut_variables_in_scope_tree(&mut self, scope_decls: &ScopeTree) {
+    pub(crate) fn check_for_unnecessary_mut_variables_in_scope_tree(
+        &mut self,
+        scope_decls: &ScopeTree,
+    ) {
         let mut unnecessary_mut_vars = Vec::new();
 
         for scope in &scope_decls.0 {
@@ -319,15 +353,19 @@ impl Elaborator<'_> {
         }
     }
 
-    /// Looks up a given [Type] by name.
+    /// Looks up a given [Type] by name, applying the turbofish on the path's last segment.
     ///
-    /// This will also instantiate any struct types found.
+    /// The turbofish is resolved against the generics of the item the path names: a struct's
+    /// own generics for a struct path, and the alias's generics for an alias path, which are
+    /// then substituted into the alias body. Generics not given by a turbofish are instantiated
+    /// with fresh type variables.
     #[tracing::instrument(level = "trace", skip_all)]
     pub(super) fn lookup_type_or_error(&mut self, path: TypedPath) -> Option<Type> {
+        let turbofish = path.last_segment().turbofish();
         let segment = path.as_single_segment();
         if let Some(segment) = segment
             && segment.ident.is_self_type_name()
-            && let Some(typ) = &self.self_type
+            && let Some(typ) = self.item.impl_context.self_type()
         {
             return Some(typ.clone());
         }
@@ -335,9 +373,11 @@ impl Elaborator<'_> {
         let location = path.location;
         match self.use_path_or_error(path, PathResolutionTarget::Type) {
             Ok(PathResolutionItem::Type(struct_id)) => {
-                let struct_type = self.get_type(struct_id);
-                let generics = struct_type.borrow().instantiate(self.interner);
-                let typ = Type::DataType(struct_type, generics);
+                let mut errors = Vec::new();
+                let generics =
+                    self.resolve_struct_id_turbofish_generics(struct_id, turbofish, &mut errors);
+                self.push_errors(errors);
+                let typ = Type::DataType(self.get_type(struct_id), generics);
                 self.check_comptime_type_in_non_comptime_item(&typ, location);
                 Some(typ)
             }
@@ -347,8 +387,12 @@ impl Elaborator<'_> {
                     &Type::Alias(alias.clone(), Vec::new()),
                     location,
                 );
-                let alias = alias.borrow();
-                Some(alias.instantiate(self.interner))
+                let mut errors = Vec::new();
+                let generics =
+                    self.resolve_type_alias_id_turbofish_generics(alias_id, turbofish, &mut errors);
+                self.push_errors(errors);
+                let typ = alias.borrow().get_type(&generics);
+                Some(typ)
             }
             Ok(other) => {
                 self.push_err(ResolverError::Expected {

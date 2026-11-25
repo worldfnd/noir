@@ -83,7 +83,7 @@ impl FunctionBuilder {
     /// Allow `simplify_*` routines to decline (emit a trace and leave the instruction in place)
     /// rather than panic when they encounter malformed input. Applies to the current function and
     /// every function created afterwards. Intended for producers of deliberately malformed SSA,
-    /// such as the `ssa_fuzzer`.
+    /// such as the SSA parser's `allow_malformed` mode.
     pub fn set_allow_malformed_simplify(&mut self, allow: bool) {
         self.allow_malformed_simplify = allow;
         self.current_function.dfg.allow_malformed_simplify = allow;
@@ -267,10 +267,6 @@ impl FunctionBuilder {
         self.current_block
     }
 
-    pub fn get_current_block_index(&self) -> BasicBlockId {
-        self.current_block
-    }
-
     /// Insert an allocate instruction at the end of the current block, allocating the
     /// given amount of field elements. Returns the result of the allocate instruction,
     /// which is always a Reference to the allocated data.
@@ -427,7 +423,7 @@ impl FunctionBuilder {
 
     /// Insert a `make_array` instruction to create a new array or vector.
     /// Returns the new array value. Expects `typ` to be an array or vector type.
-    pub fn insert_make_array(&mut self, elements: im::Vector<ValueId>, typ: Type) -> ValueId {
+    pub fn insert_make_array(&mut self, elements: imbl::Vector<ValueId>, typ: Type) -> ValueId {
         assert!(matches!(typ, Type::Array(..) | Type::Vector(_)));
         self.insert_instruction(Instruction::MakeArray { elements, typ }, None).first()
     }

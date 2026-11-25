@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::Arc;
 
 use acvm::acir::brillig::lengths::SemanticLength;
 use acvm::{FieldElement, acir::AcirField};
@@ -18,7 +18,6 @@ use crate::ssa::ir::basic_block::BasicBlockId;
 use crate::ssa::ir::function::FunctionId as IrFunctionId;
 use crate::ssa::ir::function::{Function, RuntimeType};
 use crate::ssa::ir::instruction::BinaryOp;
-use crate::ssa::ir::map::AtomicCounter;
 use crate::ssa::ir::types::{NumericType, Type};
 use crate::ssa::ir::value::ValueId;
 
@@ -44,6 +43,11 @@ pub(super) struct FunctionContext<'a> {
     pub(super) builder: FunctionBuilder,
     pub(super) shared_context: &'a SharedContext,
 
+    /// Functions reached from the one being generated, which still need SSA of their own.
+    ///
+    /// SSA generation is one sequential walk of this queue, so the context that walks it owns it.
+    pub(super) function_queue: FunctionQueueState,
+
     /// Contains any loops we're currently in the middle of translating.
     /// These are ordered such that an inner loop is at the end of the vector and
     /// outer loops are at the beginning. When a loop is finished, it is popped.
@@ -61,22 +65,6 @@ pub(super) struct FunctionContext<'a> {
 /// `FunctionContext` to generate from the popped function id. Once the queue is empty,
 /// no other functions are reachable and the SSA generation is finished.
 pub(super) struct SharedContext {
-    /// All currently known functions which have already been assigned function ids.
-    /// These functions are all either currently having their SSA generated or are
-    /// already finished.
-    functions: RwLock<HashMap<FuncId, IrFunctionId>>,
-
-    /// Queue of which functions still need to be compiled.
-    ///
-    /// The queue is currently Last-in First-out (LIFO) but this is an
-    /// implementation detail that can be trivially changed and should
-    /// not impact the resulting SSA besides changing which IDs are assigned
-    /// to which functions.
-    function_queue: Mutex<FunctionQueue>,
-
-    /// Shared counter used to assign the ID of the next function
-    function_counter: AtomicCounter<Function>,
-
     /// A pseudo function that represents global values.
     /// Globals are only concerned with the values and instructions (due to `Instruction::MakeArray`)
     /// in a function's `DataFlowGraph`. However, in order to re-use various codegen methods
@@ -94,45 +82,99 @@ pub(super) struct Loop {
     pub(super) loop_entry: BasicBlockId,
     /// The loop index will be `Some` for a `for` and `None` for a `loop`
     pub(super) loop_index: Option<ValueId>,
+    /// The block `break` jumps to. For an inclusive `for` lowered as an exclusive loop plus a
+    /// final iteration, this is the block after the final iteration, so a `break` in the
+    /// exclusive iterations has no control-flow path into the final iteration's body. The
+    /// ownership pass decides moves on the AST, where `break` leaves the whole loop; a CFG
+    /// that reaches a second copy of the body after a `break` would reuse a moved value.
     pub(super) loop_end: BasicBlockId,
-    /// A variable that tracks whether a `break` was hit or not:
-    /// `false` if a `break` was hit, `true` if not.
-    /// This is only `Some` in the case of an inclusive for loop which is
-    /// generated as an exclusive for loop with an extra iteration for the
-    /// end of the loop. This extra iteration is only done if no `break` was hit
-    /// in the exclusive iterations (and if `start <= end`).
-    /// We track the negated value because we execute the last iteration
-    /// if we did not hit a break, in the end being `did_not_hit_break && (start <= end)`.
-    /// If we tracked whether we hit a break or not, the condition to execute
-    /// the last iteration would be `(not hit_break) && (start <= end)`, which is larger
-    /// by one instruction.
-    pub(super) did_not_hit_break_var: Option<ValueId>,
 }
 
 /// The queue of functions remaining to compile
 type FunctionQueue = Vec<(FuncId, IrFunctionId)>;
 
+/// The set of functions SSA generation has reached, and the ones it has not generated yet.
+#[derive(Default)]
+pub(super) struct FunctionQueueState {
+    /// All currently known functions which have already been assigned function ids.
+    /// These functions are all either currently having their SSA generated or are
+    /// already finished.
+    functions: HashMap<FuncId, IrFunctionId>,
+
+    /// Queue of which functions still need to be compiled.
+    ///
+    /// The queue is currently Last-in First-out (LIFO) but this is an
+    /// implementation detail that can be trivially changed and should
+    /// not impact the resulting SSA besides changing which IDs are assigned
+    /// to which functions.
+    function_queue: FunctionQueue,
+
+    /// The id to give the next function reached during SSA generation.
+    function_counter: u32,
+}
+
+impl FunctionQueueState {
+    /// Pops the next function from the function queue, returning None if the queue is empty.
+    pub(super) fn pop_next_function_in_queue(&mut self) -> Option<(FuncId, IrFunctionId)> {
+        self.function_queue.pop()
+    }
+
+    /// Return the matching id for the given function if known. If it is not known this
+    /// will add the function to the queue of functions to compile, assign it a new id,
+    /// and return this new id.
+    pub(super) fn get_or_queue_function(&mut self, id: FuncId) -> IrFunctionId {
+        if let Some(existing_id) = self.functions.get(&id) {
+            return *existing_id;
+        }
+
+        let next_id = IrFunctionId::new(self.function_counter);
+        self.function_counter += 1;
+        self.function_queue.push((id, next_id));
+        self.functions.insert(id, next_id);
+
+        next_id
+    }
+}
+
 /// True if `array[i]` requires an explicit SSA out-of-bounds check rather
 /// than relying on ACIR's implicit OOB check on the underlying memory op.
 ///
 /// ACIR derives the implicit check from the memory op emitted for
-/// `array_get` / `array_set`. When the array's element flattens to zero
-/// ACIR cells (e.g. `[(); N]`), no memory op is laid down — for `array_get`
-/// the access can be optimized away, and for `array_set` the value to
-/// store has zero cells to write — so the implicit check is missing and an
+/// `array_get` / `array_set`. When the array flattens to zero ACIR cells
+/// (e.g. `[(); N]`, or any empty array), no memory op is laid down — for
+/// `array_get` the access can be optimized away, and for `array_set` the value
+/// to store has zero cells to write — so the implicit check is missing and an
 /// explicit one must be emitted. Brillig has no implicit check at all and
 /// always needs the explicit one. `array_type` must be a `Type::Array`.
 ///
-/// When the element flattens to more than one ACIR cell (a composite type such
-/// as a tuple or struct), the implicit memory op check reports the *flattened*
-/// index and size (e.g. `index * element_size`), which are detached from the
-/// logical index and length the user wrote. An explicit check is emitted so the
-/// error can report the logical values instead.
+/// An element that flattens to several ACIR cells (a composite type such as a
+/// tuple or struct) needs no explicit check either: the implicit check covers
+/// the same condition, since the flattened index passes the flattened length
+/// exactly when the logical index passes the logical length. The flattened
+/// coordinates it would report are translated back to logical ones by the
+/// assertion payload ACIR generation attaches to the memory op, so the reported
+/// message matches what the user wrote without a second check.
+///
+/// A one-element array of such a composite is the exception, because there its
+/// check determines the index rather than merely bounding it: zero is the only
+/// index in bounds, so the check resolves the access to a constant index and
+/// the memory op (and for a non-homogenous layout, the element type sizes array
+/// backing it) disappears, which is worth far more than the check costs.
+/// [`crate::ssa::ir::dfg::simplify`] draws that conclusion for arrays whose
+/// elements are single cells, where the index it sees is the logical one; for a
+/// composite element it sees a multiple of the element size plus a field
+/// offset, and the check is what supplies the conclusion instead.
 pub(super) fn array_index_needs_explicit_oob_check(
     runtime: RuntimeType,
     array_type: &Type,
 ) -> bool {
-    runtime.is_brillig() || array_type.element_size().0 != 1
+    let Type::Array(_, len) = array_type else {
+        unreachable!("ICE: expected an array to check the index of, found {array_type}")
+    };
+
+    runtime.is_brillig()
+        || array_type.flattened_size().0 == 0
+        || (len.0 == 1 && array_type.element_size().0 > 1)
 }
 
 impl<'a> FunctionContext<'a> {
@@ -150,9 +192,10 @@ impl<'a> FunctionContext<'a> {
         parameters: &Parameters,
         runtime: RuntimeType,
         shared_context: &'a SharedContext,
+        mut function_queue: FunctionQueueState,
         globals: GlobalsGraph,
     ) -> Self {
-        let function_id = shared_context
+        let function_id = function_queue
             .pop_next_function_in_queue()
             .expect("No function in queue for the FunctionContext to compile")
             .1;
@@ -166,6 +209,7 @@ impl<'a> FunctionContext<'a> {
             definitions,
             builder,
             shared_context,
+            function_queue,
             loops: Vec::new(),
             redefinitions_allowed: false,
         };
@@ -230,11 +274,22 @@ impl<'a> FunctionContext<'a> {
     pub(super) fn new_mutable_variable(&mut self, value_to_store: ValueId) -> Value {
         let element_type =
             self.builder.current_function.dfg.type_of_value(value_to_store).into_owned();
+        self.new_mutable_variable_with_type(value_to_store, element_type)
+    }
 
-        let alloc = self.builder.insert_allocate(element_type);
+    /// Like [`Self::new_mutable_variable`], but the cell is allocated with the given
+    /// element type instead of the initializer value's type. The two can differ in
+    /// reference mutability: a borrow used as an initializer is `&mut T`-typed while
+    /// the binding may declare `&T`, and the cell must use the declared type so that
+    /// later assignments of genuinely `&T`-typed values still type-check.
+    pub(super) fn new_mutable_variable_with_type(
+        &mut self,
+        value_to_store: ValueId,
+        element_type: Type,
+    ) -> Value {
+        let alloc = self.builder.insert_allocate(element_type.clone());
         self.builder.insert_store(alloc, value_to_store);
-        let typ = self.builder.type_of_value(value_to_store);
-        Value::Mutable(alloc, typ)
+        Value::Mutable(alloc, element_type)
     }
 
     /// Maps the given type to a Tree of the result type.
@@ -584,6 +639,25 @@ impl<'a> FunctionContext<'a> {
         )
     }
 
+    /// Increment a `for` loop's induction variable by one, for the back-edge jump.
+    ///
+    /// For a signed index this is an unchecked add, so in an ACIR function it may leave the
+    /// value as an extended (non-reduced) field element rather than wrapping. A `truncate`
+    /// brings it back to the type's bit size immediately, so the value seen at the next loop
+    /// entry (and by anything constant-folding it, such as `Unrolling`) is always the correctly
+    /// wrapped index rather than the raw field-extended one. The step itself cannot signed-overflow
+    /// for a well-typed loop, so no overflow check is needed here, only the reduction.
+    pub(super) fn increment_loop_index(&mut self, loop_index: ValueId) -> ValueId {
+        let typ = self.builder.type_of_value(loop_index).unwrap_numeric();
+        let new_index = self.make_offset(loop_index, 1, true);
+        if typ.is_signed() {
+            let bit_size = typ.bit_size::<FieldElement>();
+            self.builder.insert_truncate(new_index, bit_size, bit_size + 1)
+        } else {
+            new_index
+        }
+    }
+
     /// Create a const offset of an address for an array load or store
     pub(super) fn make_offset(
         &mut self,
@@ -669,7 +743,7 @@ impl<'a> FunctionContext<'a> {
     /// Retrieves the given function, adding it to the function queue
     /// if it is not yet compiled.
     pub(super) fn get_or_queue_function(&mut self, id: FuncId) -> Values {
-        let function = self.shared_context.get_or_queue_function(id);
+        let function = self.function_queue.get_or_queue_function(id);
         self.builder.import_function(function).into()
     }
 
@@ -890,9 +964,9 @@ impl<'a> FunctionContext<'a> {
                     Type::Array(_, len) => {
                         if array_index_needs_explicit_oob_check(runtime, array_type) {
                             let logical_len = len.0;
-                            // A composite element type flattens the memory op index, so attach a
-                            // dynamic error reporting the logical index and length (see the read
-                            // path in `codegen_array_index`).
+                            // See the read path in `codegen_array_index`: only an explicit check
+                            // needs the dynamic error, and it is the check for an array with no
+                            // memory op to attach a payload to.
                             let dynamic_error =
                                 if runtime.is_acir() && array_type.element_size().0 > 1 {
                                     Some(self.out_of_bounds_error(index, logical_len))
@@ -1063,13 +1137,15 @@ impl SharedContext {
         let globals_id = Program::global_space_id();
 
         // Queue the function representing the globals space for compilation
-        globals_shared_context.get_or_queue_function(globals_id);
+        let mut function_queue = FunctionQueueState::default();
+        function_queue.get_or_queue_function(globals_id);
 
         let mut context = FunctionContext::new(
             "globals".to_owned(),
             &vec![],
             RuntimeType::Brillig(InlineType::default()),
             &globals_shared_context,
+            function_queue,
             GlobalsGraph::default(),
         );
         let mut globals = BTreeMap::default();
@@ -1078,55 +1154,13 @@ impl SharedContext {
             globals.insert(*id, values);
         }
 
-        Self {
-            functions: Default::default(),
-            function_queue: Default::default(),
-            function_counter: Default::default(),
-            program,
-            globals_context: context.builder.current_function,
-            globals,
-        }
+        Self { program, globals_context: context.builder.current_function, globals }
     }
 
     pub(super) fn new_for_globals() -> Self {
         let globals_context = Function::new_for_globals();
 
-        Self {
-            functions: Default::default(),
-            function_queue: Default::default(),
-            function_counter: Default::default(),
-            program: Default::default(),
-            globals_context,
-            globals: Default::default(),
-        }
-    }
-
-    /// Pops the next function from the shared function queue, returning None if the queue is empty.
-    pub(super) fn pop_next_function_in_queue(&self) -> Option<(FuncId, IrFunctionId)> {
-        self.function_queue.lock().expect("Failed to lock function_queue").pop()
-    }
-
-    /// Return the matching id for the given function if known. If it is not known this
-    /// will add the function to the queue of functions to compile, assign it a new id,
-    /// and return this new id.
-    pub(super) fn get_or_queue_function(&self, id: FuncId) -> IrFunctionId {
-        // Start a new block to guarantee the destructor for the map lock is released
-        // before map needs to be acquired again in self.functions.write() below
-        {
-            let map = self.functions.read().expect("Failed to read self.functions");
-            if let Some(existing_id) = map.get(&id) {
-                return *existing_id;
-            }
-        }
-
-        let next_id = self.function_counter.next();
-
-        let mut queue = self.function_queue.lock().expect("Failed to lock function queue");
-        queue.push((id, next_id));
-
-        self.functions.write().expect("Failed to write to self.functions").insert(id, next_id);
-
-        next_id
+        Self { program: Default::default(), globals_context, globals: Default::default() }
     }
 }
 

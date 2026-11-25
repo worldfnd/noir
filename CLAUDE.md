@@ -51,7 +51,7 @@ Test cases are auto-generated from these directories by `tooling/nargo_cli/build
 ### Key Patterns
 
 - **Unsafe code is forbidden** (`#![forbid(unsafe_code)]` workspace-wide).
-- **SSA passes** live in `compiler/noirc_evaluator/src/ssa/opt/` — each module has its own unit tests.
+- **SSA passes** live in `compiler/noirc_evaluator/src/ssa/opt/` — each module has its own unit tests. See `.claude/skills/noir-ssa-tests/SKILL.md` for how to write them: a snapshot alone does not prove a pass is correct, so default to `assert_pass_does_not_affect_execution` (interprets the SSA before and after the pass) and pair it with `assert_ssa_snapshot!`.
 - **Elaboration** (`compiler/noirc_frontend/src/elaborator/`) combines name resolution and type checking in a single pass.
 - PRs are **squash-merged** into `master`.
 
@@ -60,6 +60,20 @@ Test cases are auto-generated from these directories by `tooling/nargo_cli/build
 A code comment must stand on its own when read against the post-change state of the file. Do not reference transitions between states ("was a `debug_assert!`, now a plain `assert!`"), the current task or fix ("added for the Y flow"), or what the code used to do. That context belongs in the commit message and PR description, where it naturally lives alongside the diff. In the code it rots the moment the PR stops being recent, leaving a reader with a narrative they cannot verify.
 
 Test: imagine cherry-picking this file into a fresh repository with no git history. If the comment would still make sense to that reader, keep it. If it only makes sense to someone who remembers the change that introduced it, move it to the commit message.
+
+Explain why the code is needed, not the bug it fixes. A comment written alongside a fix tends to describe the broken behavior and then the repair, which only makes sense to someone who saw the code before the fix. Instead, state the requirement the code meets in terms of what it does now, and leave the bug to the regression test, the commit message and the PR description:
+
+```rust
+// BAD: describes the bug, then the fix
+// An associated item the parent bound leaves out is a placeholder shared by every use of the
+// trait, so it is matched with a fresh variable instead.
+
+// GOOD: states why the code is the way it is
+// An associated item the parent bound leaves out puts no requirement on the parent impl, so it
+// is matched against a fresh variable.
+```
+
+Words such as "instead", "now", "no longer" or "anymore" in a new comment usually mean it is narrating a change. The same goes for a "rather than ..." that names what the code used to do.
 
 ## Design Decisions
 
@@ -83,7 +97,7 @@ The project uses `just` as a task runner and `cargo` for Rust builds. Minimum Ru
 ### Building
 
 ```bash
-cargo build                          # Build default members (nargo_cli, acvm_cli, etc.)
+cargo build                          # Build default members (nargo_cli, artifact_cli, etc.)
 cargo build -p noirc_frontend        # Build a specific crate
 cargo build --release                # Release build
 ```

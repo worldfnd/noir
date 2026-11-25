@@ -1,0 +1,5 @@
+---
+source: tooling/nargo_cli/tests/execute.rs
+expression: stdout
+---
+[regression_nc1710] Circuit output: ([0, 7, 0, 0], [0, 7, 9, 0])

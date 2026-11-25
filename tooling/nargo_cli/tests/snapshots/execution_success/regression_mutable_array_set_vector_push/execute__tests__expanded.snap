@@ -1,0 +1,42 @@
+---
+source: tooling/nargo_cli/tests/execute.rs
+expression: expanded_code
+---
+use std::convert::UnsafeFrom;
+
+fn main(
+    seed: [[u8; 2]; 1],
+    xs: [u8; 3],
+    idx: [u32; 3],
+    j: u32,
+    a: [u8; 2],
+    b: [[u8; 2]; 1],
+    i: u32,
+    k: u32,
+) -> pub [u8; 2] {
+    let seed: [[Field; 2]; 1] = seed.map(|row: [u8; 2]| -> [Field; 2] {
+        row.map(|v: u8| -> Field { <Field as From<u8>>::from(v) })
+    });
+    let xs: [Field; 3] = xs.map(|v: u8| -> Field { <Field as From<u8>>::from(v) });
+    let a: [Field; 2] = a.map(|v: u8| -> Field { <Field as From<u8>>::from(v) });
+    let b: [[Field; 2]; 1] = b.map(|row: [u8; 2]| -> [Field; 2] {
+        row.map(|v: u8| -> Field { <Field as From<u8>>::from(v) })
+    });
+    let mut row: [Field; 2] = [0_Field; 2];
+    let mut rows: [[Field; 2]] = seed.as_vector();
+    for n in 0_u32..3_u32 {
+        row[idx[n]] = xs[n];
+        rows = rows.push_back(row);
+    }
+    row[idx[0_u32]] = 1000_Field;
+    let sum: Field = rows[j][0_u32] + rows[j][1_u32];
+    assert(sum == 5_Field);
+    assert(row[0_u32] == 1000_Field);
+    let mut e: [Field; 2] = a;
+    e[i] = 7_Field;
+    let v: [[Field; 2]] = b.as_vector().push_front(e);
+    e[k] = 99_Field;
+    assert(v[0_u32][0_u32] == 1_Field);
+    assert(e[0_u32] == 99_Field);
+    [u8::unsafe_from(sum), u8::unsafe_from(v[0_u32][0_u32])]
+}

@@ -1,5 +1,23 @@
-// docs:start:aes128
 /// Given a plaintext as an array of bytes, returns the corresponding aes128 ciphertext (CBC mode). Input padding is performed using PKCS#7, so that the output length is `input.len() + (16 - input.len() % 16)`.
+///
+/// An input whose length is already a multiple of 16 gets a full extra block of padding. The
+/// function only encrypts: it does not authenticate the ciphertext, and the caller is responsible
+/// for choosing a fresh, unpredictable `iv` for each encryption with the same `key`.
+///
+/// Example:
+///
+/// ```noir
+/// let input = "hello, world".as_bytes();
+/// let iv = "0000000000000000".as_bytes();
+/// let key = "0000000000000000".as_bytes();
+///
+/// let ciphertext = std::aes128::aes128_encrypt(input, iv, key);
+/// assert_eq(
+///     ciphertext,
+///     [111, 184, 119, 247, 120, 133, 199, 176, 39, 84, 23, 18, 180, 106, 198, 111],
+/// );
+/// ```
+// docs:start:aes128
 pub fn aes128_encrypt<let N: u32>(
     input: [u8; N],
     iv: [u8; 16],

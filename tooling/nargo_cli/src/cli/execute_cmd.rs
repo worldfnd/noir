@@ -89,7 +89,8 @@ pub(crate) fn run(args: ExecuteCommand, workspace: Workspace) -> Result<(), CliE
 
         let cmd = noir_artifact_cli::commands::execute_cmd::ExecuteCommand {
             artifact_path: program_artifact_path,
-            prover_file,
+            prover_file: Some(prover_file),
+            witness_file: None,
             overwrite_return: args.overwrite_return,
             output_dir: Some(workspace.target_directory_path()),
             witness_name: Some(
@@ -116,11 +117,11 @@ fn execute_without_artifacts(args: ExecuteCommand, workspace: Workspace) -> Resu
     for package in workspace.into_iter().filter(|package| package.is_binary()) {
         let (mut context, crate_id) = prepare_package(&file_manager, &parsed_files, package);
         link_to_debug_crate(&mut context, crate_id);
-        context.package_build_path = workspace.package_build_path(package);
-        context.count_array_copies = true;
+        let package_build_path = workspace.package_build_path(package);
 
         // Passing no cached program ignores any previously persisted, un-instrumented artifact.
-        let compilation_result = compile_main(&mut context, crate_id, &args.compile_options, None);
+        let compilation_result =
+            compile_main(context, crate_id, &args.compile_options, &package_build_path, true, None);
         let program = report_errors(
             compilation_result,
             &file_manager,
@@ -137,7 +138,9 @@ fn execute_without_artifacts(args: ExecuteCommand, workspace: Workspace) -> Resu
             &program,
             &circuit_name,
             &noir_artifact_cli::commands::execute_cmd::ExecuteProgramArgs {
-                prover_file: &prover_file,
+                input: noir_artifact_cli::commands::execute_cmd::InputSource::ProverFile(
+                    &prover_file,
+                ),
                 output_dir: Some(&workspace.target_directory_path()),
                 witness_name: Some(&witness_name),
                 overwrite_return: args.overwrite_return,

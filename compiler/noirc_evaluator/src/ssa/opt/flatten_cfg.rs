@@ -140,6 +140,8 @@
 //!   ... b3 instructions ...
 //! ```
 
+use std::ops::Range;
+
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
 use acvm::{FieldElement, acir::AcirField, acir::BlackBoxFunc};
@@ -307,6 +309,33 @@ pub(crate) struct Context<'f> {
     /// because they have been replaced by an optimized merged array. Doing it during
     /// flattening rather than leaving it to DIE means we avoid leaving a constraint behind.
     superseded_array_sets: HashSet<InstructionId>,
+
+    /// Number of instructions that may write memory (`Store`, `Call`) in the target block so far.
+    /// Any such write may go through an alias of any address, so two loads of the same address
+    /// are only known to observe the same memory snapshot if they were emitted in the same epoch.
+    memory_epoch: u32,
+
+    /// The `memory_epoch` at which each `Load` in the target block was emitted.
+    load_epochs: HashMap<ValueId, u32>,
+}
+
+/// How an instruction interacts with memory, for tracking `Context::memory_epoch`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MemoryEffect {
+    Load,
+    /// The instruction may write memory through any address.
+    Write,
+    None,
+}
+
+impl MemoryEffect {
+    fn of(instruction: &Instruction) -> Self {
+        match instruction {
+            Instruction::Load { .. } => MemoryEffect::Load,
+            Instruction::Store { .. } | Instruction::Call { .. } => MemoryEffect::Write,
+            _ => MemoryEffect::None,
+        }
+    }
 }
 
 /// Tracks the origin of a merge result to collapse redundant nested merges.
@@ -374,6 +403,15 @@ struct ConditionalContext {
     /// `Else`. Tracking on which phase we are allows us to assert the processing
     /// is done as expected.
     phase: BranchPhase,
+    /// Position in the target block of the first instruction emitted for the then branch.
+    ///
+    /// Instructions are only appended to the target block during flattening, so the
+    /// instructions at or after this position are exactly those emitted since the `jmpif`.
+    then_start: usize,
+    /// Position in the target block of the first instruction emitted for the else branch.
+    ///
+    /// To be filled in by `then_stop`.
+    else_start: Option<usize>,
 }
 
 /// Flattens the control flow graph of the function such that it is left with a
@@ -408,6 +446,8 @@ impl<'f> Context<'f> {
         branch_ends: HashMap<BasicBlockId, BasicBlockId>,
         target_block: BasicBlockId,
     ) -> Self {
+        let (memory_epoch, load_epochs) = Self::initial_memory_epochs(function, target_block);
+
         Context {
             inserter: FunctionInserter::new(function),
             cfg,
@@ -420,7 +460,30 @@ impl<'f> Context<'f> {
             target_block,
             no_predicate: false,
             superseded_array_sets: HashSet::default(),
+            memory_epoch,
+            load_epochs,
         }
+    }
+
+    /// Computes the `memory_epoch` and `load_epochs` for the instructions already in the
+    /// target block, which are never pushed through `push_instruction`.
+    fn initial_memory_epochs(
+        function: &Function,
+        target_block: BasicBlockId,
+    ) -> (u32, HashMap<ValueId, u32>) {
+        let mut memory_epoch = 0;
+        let mut load_epochs = HashMap::default();
+        for instruction in function.dfg[target_block].instructions() {
+            match MemoryEffect::of(&function.dfg[*instruction]) {
+                MemoryEffect::Load => {
+                    let result = function.dfg.instruction_results(*instruction)[0];
+                    load_epochs.insert(result, memory_epoch);
+                }
+                MemoryEffect::Write => memory_epoch += 1,
+                MemoryEffect::None => {}
+            }
+        }
+        (memory_epoch, load_epochs)
     }
 
     /// Flatten the CFG by inlining all instructions from the queued blocks
@@ -466,6 +529,11 @@ impl<'f> Context<'f> {
         } else {
             condition
         }
+    }
+
+    /// Number of instructions currently in the target block.
+    fn target_block_len(&self) -> usize {
+        self.inserter.function.dfg[self.target_block].instructions().len()
     }
 
     /// Returns the current condition
@@ -678,6 +746,8 @@ impl<'f> Context<'f> {
             local_allocations,
             jmpif_else_arguments,
             phase: BranchPhase::Then,
+            then_start: self.target_block_len(),
+            else_start: None,
         };
         // Clear merge provenance from previous conditionals at this nesting level.
         // Provenance from a previous conditional's merges must not be re-used by
@@ -729,6 +799,7 @@ impl<'f> Context<'f> {
         // All local allocations on the stopped 'then_branch' go out of scope.
         self.local_allocations.clear();
         cond_context.else_branch = Some(else_branch);
+        cond_context.else_start = Some(self.target_block_len());
         self.reset_predicated_values(&mut cond_context);
         self.condition_stack.push(cond_context);
 
@@ -803,6 +874,38 @@ impl<'f> Context<'f> {
             }
         }
         None
+    }
+
+    /// Orient a merge so that its `then_value` carries the weaker of the two operand types.
+    ///
+    /// [`Instruction::result_type`] takes an `IfElse`'s type from its `then_value` alone, so the
+    /// two operands cannot be merged in an arbitrary order once their types differ. Branch
+    /// arguments joining on a block parameter are exactly where two independently-typed values
+    /// meet: an immutable borrow of a temporary is allocated as `&mut T` by SSA gen, so a
+    /// conditional can join one with a genuine `&T`. Merging in that order would type the result
+    /// `&mut T` and hand out a writable alias of an immutable reference.
+    ///
+    /// Swapping both values *and* their conditions is semantics-preserving — the instruction names
+    /// each side's condition explicitly, and both the interpreter and Brillig codegen treat the two
+    /// sides symmetrically — so the merge is simply built the other way around when that is the
+    /// well-typed orientation. The operands are left alone when neither type can be used as the
+    /// other; that is a malformed merge which validation reports rather than silently reorders.
+    fn orient_merge_by_type(
+        &self,
+        then_condition: ValueId,
+        then_value: ValueId,
+        else_condition: ValueId,
+        else_value: ValueId,
+    ) -> (ValueId, ValueId, ValueId, ValueId) {
+        let dfg = &self.inserter.function.dfg;
+        let then_type = dfg.type_of_value(then_value);
+        let else_type = dfg.type_of_value(else_value);
+
+        if !else_type.can_be_used_as(&then_type) && then_type.can_be_used_as(&else_type) {
+            (else_condition, else_value, then_condition, then_value)
+        } else {
+            (then_condition, then_value, else_condition, else_value)
+        }
     }
 
     /// Build the collapsed merge tuple, deriving the else_condition as `NOT(then_condition)`.
@@ -903,6 +1006,10 @@ impl<'f> Context<'f> {
         });
         let block = self.target_block;
 
+        // Positions in the target block of the instructions emitted for the then branch.
+        let then_instructions = cond_context.then_start
+            ..cond_context.else_start.expect("ICE: else_start is set by then_stop");
+
         // Cannot include this in the previous vecmap since it requires exclusive access to self
         let args =
             vecmap(args, |(then_arg, else_arg)| {
@@ -912,6 +1019,7 @@ impl<'f> Context<'f> {
                     else_arg,
                     cond_context.then_branch.condition,
                     cond_context.call_stack,
+                    then_instructions.clone(),
                 ) {
                     return optimized;
                 }
@@ -925,6 +1033,8 @@ impl<'f> Context<'f> {
                 let (then_condition, then_value, else_condition, else_value) = collapsed.unwrap_or(
                     (cond_context.then_branch.condition, then_arg, else_branch.condition, else_arg),
                 );
+                let (then_condition, then_value, else_condition, else_value) = self
+                    .orient_merge_by_type(then_condition, then_value, else_condition, else_value);
 
                 let instruction =
                     Instruction::IfElse { then_condition, then_value, else_condition, else_value };
@@ -1147,7 +1257,9 @@ impl<'f> Context<'f> {
     /// ```
     ///
     /// This works because if cond is false, the array_set just puts back the original
-    /// value, producing the same array as v1'.
+    /// value, producing the same array as v1'. It requires `v1` and `v1'` to hold the same
+    /// array: if anything may have written memory between the two loads, `v1'` can differ from
+    /// `v1` in slots other than `index`, and those differences would leak into the stored array.
     fn try_optimize_store_of_array_set(
         &mut self,
         value: ValueId,
@@ -1162,6 +1274,13 @@ impl<'f> Context<'f> {
         // already accounts for the condition, and array_set in ACIR is
         // protected by memory ops (predicated_index/predicated_store_value).
         let protect_array_set = true;
+        // The store is in the innermost branch being inlined, then or else.
+        let context = self.condition_stack.last()?;
+        let branch_start = match context.phase {
+            BranchPhase::Then => context.then_start,
+            BranchPhase::Else => context.else_start.expect("ICE: else_start is set by then_stop"),
+        };
+        let branch_instructions = branch_start..self.target_block_len();
 
         self.try_optimize_array_set_merge_inner(
             value,
@@ -1169,12 +1288,17 @@ impl<'f> Context<'f> {
             condition,
             call_stack,
             protect_array_set,
+            branch_instructions,
             |this, array| this.was_loaded_from_address(array, address),
         )
     }
 
-    /// Check if a value was the result of loading from a specific address.
+    /// Check if a value was the result of loading from a specific address, with no potential
+    /// memory write emitted since, so that it holds the same array as a fresh load of `address`.
     fn was_loaded_from_address(&self, value: ValueId, address: ValueId) -> bool {
+        if self.load_epochs.get(&value) != Some(&self.memory_epoch) {
+            return false;
+        }
         let Value::Instruction { instruction, .. } = &self.inserter.function.dfg[value] else {
             return false;
         };
@@ -1204,6 +1328,7 @@ impl<'f> Context<'f> {
         else_value: ValueId,
         then_condition: ValueId,
         call_stack: CallStackId,
+        branch_instructions: Range<usize>,
     ) -> Option<ValueId> {
         self.try_optimize_array_set_merge_inner(
             then_value,
@@ -1211,6 +1336,7 @@ impl<'f> Context<'f> {
             then_condition,
             call_stack,
             false,
+            branch_instructions,
             |_, array| array == else_value,
         )
     }
@@ -1223,6 +1349,7 @@ impl<'f> Context<'f> {
         then_condition: ValueId,
         condition_call_stack: CallStackId,
         protect_array_set: bool,
+        branch_instructions: Range<usize>,
         is_base_array: impl Fn(&Self, ValueId) -> bool,
     ) -> Option<ValueId> {
         // If the condition along which we would merge is a constant 1 or 0,
@@ -1317,8 +1444,17 @@ impl<'f> Context<'f> {
                     );
                 }
 
-                // Remember the potentially superseded chain.
-                self.superseded_array_sets.extend(superseded);
+                // Remember the potentially superseded chain, restricted to the `array_set`s emitted
+                // while inlining this branch. Their bounds checks only fail when the branch is
+                // taken, and so do those of the merged replacements. An `array_set` emitted before
+                // the `jmpif` runs under a weaker predicate: removing it would drop its bounds check
+                // whenever the branch is not taken.
+                let superseded: HashSet<InstructionId> = superseded.into_iter().collect();
+                let emitted_in_branch = self.inserter.function.dfg[self.target_block]
+                    .instructions()[branch_instructions]
+                    .iter()
+                    .filter(|id| superseded.contains(id));
+                self.superseded_array_sets.extend(emitted_in_branch);
 
                 return Some(result);
             }
@@ -1391,6 +1527,7 @@ impl<'f> Context<'f> {
         let instruction = self.handle_instruction_side_effects(instruction, call_stack);
 
         let instruction_is_allocate = matches!(&instruction, Instruction::Allocate);
+        let memory_effect = MemoryEffect::of(&instruction);
         let results = self.inserter.push_instruction_value(
             instruction,
             id,
@@ -1403,6 +1540,13 @@ impl<'f> Context<'f> {
         // values across branches for it later.
         if instruction_is_allocate {
             self.local_allocations.insert(results.first());
+        }
+        match memory_effect {
+            MemoryEffect::Load => {
+                self.load_epochs.insert(results.first(), self.memory_epoch);
+            }
+            MemoryEffect::Write => self.memory_epoch += 1,
+            MemoryEffect::None => {}
         }
     }
 
@@ -1708,8 +1852,54 @@ mod tests {
                 value::{Value, ValueId},
             },
             opt::assert_pass_does_not_affect_execution,
+            ssa_gen::validate_ssa,
         },
     };
+
+    #[test]
+    fn merges_mixed_reference_mutability_at_the_weaker_type() {
+        // `Instruction::result_type` takes an `IfElse`'s type from its `then_value`, so a merge of
+        // a `&mut u1` with a `&u1` must be built the other way round. Merging in source order
+        // would type the result `&mut u1` and launder the immutable `v1` into a writable alias.
+        let src = "
+        acir(inline) fn foo f0 {
+          b0(v0: u1, v1: &u1):
+            v2 = allocate -> &mut u1
+            store v0 at v2
+            jmpif v0 then: b1(), else: b2()
+          b1():
+            jmp b3(v2)
+          b2():
+            jmp b3(v1)
+          b3(v3: &u1):
+            v4 = load v3 -> u1
+            return v4
+        }
+        ";
+        let ssa = Ssa::from_str(src).unwrap().flatten_cfg();
+        validate_ssa(&ssa, true);
+    }
+
+    #[test]
+    fn merges_nested_reference_mutability_at_the_weaker_type() {
+        // The same rule one level down: `&mut &mut u1` weakens to `&&u1` because an immutable
+        // target reference is covariant in its pointee.
+        let src = "
+        acir(inline) fn foo f0 {
+          b0(v0: u1, v1: &&u1):
+            v2 = allocate -> &mut &mut u1
+            jmpif v0 then: b1(), else: b2()
+          b1():
+            jmp b3(v2)
+          b2():
+            jmp b3(v1)
+          b3(v3: &&u1):
+            return
+        }
+        ";
+        let ssa = Ssa::from_str(src).unwrap().flatten_cfg();
+        validate_ssa(&ssa, true);
+    }
 
     #[test]
     fn basic_jmpif() {
@@ -2755,6 +2945,155 @@ mod tests {
         }
     }
 
+    fn assert_flatten_cfg_returns(
+        src: &str,
+        inputs: Vec<InterpreterValue>,
+        expected: InterpreterValue,
+    ) {
+        let ssa = Ssa::from_str(src).unwrap();
+        let (_, result) =
+            assert_pass_does_not_affect_execution(ssa, inputs, |ssa| ssa.flatten_cfg());
+        assert_eq!(result, Ok(vec![expected]));
+    }
+
+    fn field_array(values: &[u32]) -> InterpreterValue {
+        let elements = values.iter().map(|v| InterpreterValue::field((*v).into())).collect();
+        InterpreterValue::array(elements, vec![Type::field()])
+    }
+
+    fn bool_value(value: bool) -> InterpreterValue {
+        InterpreterValue::from_constant(u128::from(value).into(), NumericType::bool()).unwrap()
+    }
+
+    #[test]
+    fn store_of_array_set_with_base_loaded_before_store_in_same_branch() {
+        // Both stores in `b1` are based on `v3`. The second one must produce `[42, 2]`:
+        // rebuilding it on a fresh load would keep the `99` written by the first store.
+        let src = "
+        acir(inline) fn main f0 {
+          b0(v0: [Field; 2], v1: u1):
+            v2 = allocate -> &mut [Field; 2]
+            store v0 at v2
+            jmpif v1 then: b1(), else: b2()
+          b1():
+            v3 = load v2 -> [Field; 2]
+            v4 = array_set v3, index u32 1, value Field 99
+            store v4 at v2
+            v5 = array_set v3, index u32 0, value Field 42
+            store v5 at v2
+            jmp b2()
+          b2():
+            v6 = load v2 -> [Field; 2]
+            return v6
+        }
+        ";
+        assert_flatten_cfg_returns(
+            src,
+            vec![field_array(&[1, 2]), bool_value(true)],
+            field_array(&[42, 2]),
+        );
+    }
+
+    #[test]
+    fn store_of_array_set_with_base_loaded_before_store_in_entry_block() {
+        // `v3` is loaded in the entry block before `store v6 at v2`, so it does not hold the
+        // array in `v2` when the branch stores `array_set v3`. The result must be `2`, not `50`.
+        let src = "
+        acir(inline) fn main f0 {
+          b0(v0: [Field; 3], v1: u1):
+            v2 = allocate -> &mut [Field; 3]
+            store v0 at v2
+            v3 = load v2 -> [Field; 3]
+            v6 = array_set v3, index u32 1, value Field 50
+            store v6 at v2
+            jmpif v1 then: b1(), else: b2()
+          b1():
+            v9 = array_set v3, index u32 0, value Field 7
+            store v9 at v2
+            jmp b2()
+          b2():
+            v10 = load v2 -> [Field; 3]
+            v11 = array_get v10, index u32 1 -> Field
+            return v11
+        }
+        ";
+        assert_flatten_cfg_returns(
+            src,
+            vec![field_array(&[1, 2, 3]), bool_value(true)],
+            InterpreterValue::field(2u32.into()),
+        );
+    }
+
+    #[test]
+    fn store_of_array_set_with_base_loaded_before_store_through_alias() {
+        // `v31` aliases `v2`, so `store v4 at v31` changes what a fresh load of `v2` returns
+        // even though the store's address is a different value.
+        let src = "
+        acir(inline) fn main f0 {
+          b0(v0: [Field; 2], v1: u1, v20: u32):
+            v2 = allocate -> &mut [Field; 2]
+            store v0 at v2
+            v30 = make_array [v2, v2] : [&mut [Field; 2]; 2]
+            v31 = array_get v30, index v20 -> &mut [Field; 2]
+            jmpif v1 then: b1(), else: b2()
+          b1():
+            v3 = load v2 -> [Field; 2]
+            v4 = array_set v3, index u32 1, value Field 99
+            store v4 at v31
+            v5 = array_set v3, index u32 0, value Field 42
+            store v5 at v2
+            jmp b2()
+          b2():
+            v6 = load v2 -> [Field; 2]
+            return v6
+        }
+        ";
+        let index =
+            InterpreterValue::from_constant(0_u128.into(), NumericType::unsigned(32)).unwrap();
+        assert_flatten_cfg_returns(
+            src,
+            vec![field_array(&[1, 2]), bool_value(true), index],
+            field_array(&[42, 2]),
+        );
+    }
+
+    #[test]
+    fn store_of_array_set_merges_scalar_after_earlier_conditional_store() {
+        // Each branch loads `v2` after the previous store, so both stores merge a single
+        // element instead of the whole array.
+        let src = "
+        acir(inline) fn main f0 {
+          b0(v0: [Field; 8], v1: u1):
+            v2 = allocate -> &mut [Field; 8]
+            store v0 at v2
+            jmpif v1 then: b1(), else: b2()
+          b1():
+            v3 = load v2 -> [Field; 8]
+            v4 = array_set v3, index u32 1, value Field 99
+            store v4 at v2
+            jmp b2()
+          b2():
+            jmpif v1 then: b3(), else: b4()
+          b3():
+            v5 = load v2 -> [Field; 8]
+            v6 = array_set v5, index u32 2, value Field 77
+            store v6 at v2
+            jmp b4()
+          b4():
+            v7 = load v2 -> [Field; 8]
+            return v7
+        }
+        ";
+        let ssa = Ssa::from_str(src).unwrap().flatten_cfg();
+        let main = ssa.main();
+        let instructions = main.dfg[main.entry_block()].instructions();
+        let if_else_count = instructions
+            .iter()
+            .filter(|id| matches!(main.dfg[**id], Instruction::IfElse { .. }))
+            .count();
+        assert_eq!(if_else_count, 0, "expected scalar merges only, got:\n{ssa}");
+    }
+
     #[test]
     fn simplifies_during_insertion() {
         // `if v0 { false } else { true }`
@@ -3195,6 +3534,56 @@ mod tests {
         ");
     }
 
+    /// An `array_set` emitted before the `jmpif` fails unconditionally when its index is out of
+    /// bounds. The array-merge optimization walks back through it to reach the `else` value, but
+    /// must not remove it: the merged replacement only checks the index when the branch is taken.
+    #[test]
+    fn array_set_merge_keeps_bounds_check_of_array_set_before_branch() {
+        let merge_route = "
+          acir(inline) predicate_pure fn main f0 {
+            b0(v0: [Field; 4], v1: u32, v2: u1):
+              v4 = array_set v0, index v1, value Field 7
+              jmpif v2 then: b1(), else: b2()
+            b1():
+              jmp b3(v4)
+            b2():
+              jmp b3(v0)
+            b3(v5: [Field; 4]):
+              return v5
+          }
+        ";
+        let store_route = "
+          acir(inline) predicate_pure fn main f0 {
+            b0(v0: [Field; 4], v1: u32, v2: u1):
+              v3 = allocate -> &mut [Field; 4]
+              store v0 at v3
+              v4 = load v3 -> [Field; 4]
+              v6 = array_set v4, index v1, value Field 7
+              jmpif v2 then: b1(), else: b2()
+            b1():
+              store v6 at v3
+              jmp b2()
+            b2():
+              v7 = load v3 -> [Field; 4]
+              return v7
+          }
+        ";
+
+        use crate::ssa::interpreter::value::Value;
+        use acvm::FieldElement;
+
+        for src in [merge_route, store_route] {
+            let ssa = Ssa::from_str(src).unwrap();
+            let array = Value::array(
+                (1..=4).map(|i| Value::field(FieldElement::from(i as u128))).collect(),
+                vec![Type::field()],
+            );
+            let args = vec![array, Value::u32(10), Value::bool(false)];
+            let (_, result) = assert_pass_does_not_affect_execution(ssa, args, Ssa::flatten_cfg);
+            assert!(result.is_err(), "out-of-bounds array_set before the branch must still fail");
+        }
+    }
+
     #[test]
     fn store_optimization_chain_with_dynamic_index() {
         // Regression: the Store optimization's chain merge corrupts the last field
@@ -3573,7 +3962,6 @@ mod merge_provenance_tests {
             v11 = unchecked_mul v0, v4
             constrain v0 == u1 1
             constrain v2 == u1 1
-            constrain v0 == u1 1
             constrain v1 == u1 1
             return
         }

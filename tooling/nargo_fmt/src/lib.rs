@@ -103,6 +103,31 @@ pub(crate) fn assert_format_with_config(src: &str, expected: &str, config: Confi
     similar_asserts::assert_eq!(result, expected, "idempotent check failed");
 }
 
+/// Like `assert_format_with_config`, but additionally requires that `src` parses
+/// without warnings and that formatting does not introduce any. Use this for
+/// comment transforms that could move a parser-recognized marker (such as the
+/// `Safety:` line above an `unsafe` block) off the line the parser looks at.
+#[cfg(test)]
+pub(crate) fn assert_format_with_config_keeps_warnings_clean(
+    src: &str,
+    expected: &str,
+    config: Config,
+) {
+    use noirc_frontend::parser;
+
+    let (_, errors) = parser::parse_program_with_dummy_file(src);
+    if !errors.is_empty() {
+        panic!("Expected no errors or warnings in source, got: {errors:?}");
+    }
+
+    assert_format_with_config(src, expected, config);
+
+    let (_, errors) = parser::parse_program_with_dummy_file(expected);
+    if !errors.is_empty() {
+        panic!("Expected no errors or warnings after formatting, got: {errors:?}");
+    }
+}
+
 #[cfg(test)]
 pub(crate) fn assert_formatter_changes_with_config(src: &str, config: Config) {
     use noirc_frontend::parser;
@@ -115,4 +140,46 @@ pub(crate) fn assert_formatter_changes_with_config(src: &str, config: Config) {
     let result = format(src, parsed_module, &config);
 
     assert_ne!(result, src, "idempotent check failed");
+}
+
+#[cfg(test)]
+mod line_comment_regression_tests {
+    use test_case::test_case;
+
+    use super::assert_format;
+
+    #[test_case(
+        "use // import the hash function\nstd::hash::pedersen_hash;\n";
+        "use keyword"
+    )]
+    #[test_case(
+        "fn main(x: Field) {\n    let mut y = 0;\n    y = // copy x\n    x;\n}\n";
+        "assignment operator"
+    )]
+    #[test_case(
+        "fn main(condition: bool) {\n    if // select a branch\n    condition {\n        assert(true);\n    }\n}\n";
+        "if keyword"
+    )]
+    #[test_case(
+        "fn main() {\n    for i in 0..2 // iterate twice\n    {\n        assert(i < 2);\n    }\n}\n";
+        "for loop before body"
+    )]
+    #[test_case(
+        "global // public constant\nANSWER: Field = 42;\n";
+        "global keyword"
+    )]
+    #[test_case(
+        "fn main() {\n    comptime // evaluate during compilation\n    {\n        assert(true);\n    }\n}\n";
+        "comptime keyword"
+    )]
+    fn format_line_comment_before_code_boundary_is_unchanged(src: &str) {
+        assert_format(src, src);
+    }
+
+    #[test]
+    fn format_line_comment_after_function_parameter_modifier() {
+        let src = "fn main(mut // keep parameter mutable\nx: Field) {}\n";
+        let expected = "fn main(\n    mut // keep parameter mutable\n    x: Field,\n) {}\n";
+        assert_format(src, expected);
+    }
 }

@@ -64,26 +64,8 @@ impl Ssa {
     ///
     /// See [`constant_folding`][self] module for more information.
     #[tracing::instrument(level = "trace", skip(self))]
-    pub(crate) fn fold_constants(mut self, max_iter: usize) -> Ssa {
-        // Collect all brillig functions so that later we can find them when processing a call instruction
-        let brillig_functions = clone_brillig_functions(&self.functions);
-
-        let mut interpreter = Interpreter::new_from_functions(
-            &brillig_functions,
-            InterpreterOptions {
-                no_foreign_calls: true,
-                step_limit: Some(DEFAULT_INTERPRETER_STEP_LIMIT),
-                ..Default::default()
-            },
-            std::io::empty(),
-        );
-        // Interpret globals once so that we do not have to repeat this computation on every Brillig call.
-        interpreter.interpret_globals().expect("ICE: Interpreter failed to interpret globals");
-
-        for function in self.functions.values_mut() {
-            function.constant_fold(false, max_iter, &mut interpreter);
-        }
-        self
+    pub(crate) fn fold_constants(self, max_iter: usize) -> Ssa {
+        self.fold_constants_in_all_functions(false, max_iter)
     }
 
     /// Performs constant folding on each instruction.
@@ -94,41 +76,59 @@ impl Ssa {
     ///
     /// See [`constant_folding`][self] module for more information.
     #[tracing::instrument(level = "trace", skip(self))]
-    pub(crate) fn fold_constants_using_constraints(mut self, max_iter: usize) -> Ssa {
-        // Collect all brillig functions so that later we can find them when processing a call instruction
-        let brillig_functions = clone_brillig_functions(&self.functions);
+    pub(crate) fn fold_constants_using_constraints(self, max_iter: usize) -> Ssa {
+        self.fold_constants_in_all_functions(true, max_iter)
+    }
 
-        let mut interpreter = Interpreter::new_from_functions(
-            &brillig_functions,
-            InterpreterOptions {
-                no_foreign_calls: true,
-                step_limit: Some(DEFAULT_INTERPRETER_STEP_LIMIT),
-                ..Default::default()
-            },
-            std::io::empty(),
-        );
+    /// Runs [`Function::constant_fold`] on every function.
+    ///
+    /// Only ACIR functions evaluate calls with the interpreter, and the interpreter only needs
+    /// the Brillig functions. So the functions are split by runtime: the ACIR functions are folded
+    /// first, against an interpreter that borrows the still-unfolded Brillig functions, and the
+    /// Brillig functions are folded afterwards. Moving the functions apart instead of copying the
+    /// Brillig functions for the interpreter keeps the pass from holding a second copy of all
+    /// Brillig code.
+    fn fold_constants_in_all_functions(
+        mut self,
+        use_constraint_info: bool,
+        max_iter: usize,
+    ) -> Ssa {
+        let (mut brillig_functions, mut acir_functions): (BTreeMap<_, _>, BTreeMap<_, _>) =
+            std::mem::take(&mut self.functions)
+                .into_iter()
+                .partition(|(_, function)| function.runtime().is_brillig());
+
+        let mut interpreter = new_interpreter(&brillig_functions);
         // Interpret globals once so that we do not have to repeat this computation on every Brillig call.
         interpreter.interpret_globals().expect("ICE: Interpreter failed to interpret globals");
-
-        for function in self.functions.values_mut() {
-            function.constant_fold(true, max_iter, &mut interpreter);
+        for function in acir_functions.values_mut() {
+            function.constant_fold(use_constraint_info, max_iter, &mut interpreter);
         }
+
+        // Brillig callers never evaluate calls with the interpreter, so it needs no functions.
+        let no_functions = BTreeMap::new();
+        let mut interpreter = new_interpreter(&no_functions);
+        for function in brillig_functions.values_mut() {
+            function.constant_fold(use_constraint_info, max_iter, &mut interpreter);
+        }
+
+        brillig_functions.append(&mut acir_functions);
+        self.functions = brillig_functions;
         self
     }
 }
 
-/// Clones all brillig functions stored within `all_functions` returning these in a new map.
-fn clone_brillig_functions(
-    all_functions: &BTreeMap<FunctionId, Function>,
-) -> BTreeMap<FunctionId, Function> {
-    all_functions
-        .iter()
-        .filter(|(_, func)| func.runtime().is_brillig())
-        .map(|(func_id, func)| {
-            let cloned_function = Function::clone_with_id(*func_id, func);
-            (*func_id, cloned_function)
-        })
-        .collect()
+/// Creates the interpreter used to evaluate calls to the given Brillig `functions`.
+fn new_interpreter(functions: &BTreeMap<FunctionId, Function>) -> Interpreter<'_, Empty> {
+    Interpreter::new_from_functions(
+        functions,
+        InterpreterOptions {
+            no_foreign_calls: true,
+            step_limit: Some(DEFAULT_INTERPRETER_STEP_LIMIT),
+            ..Default::default()
+        },
+        std::io::empty(),
+    )
 }
 
 impl Function {
@@ -841,11 +841,18 @@ fn can_be_deduplicated(instruction: &Instruction, dfg: &DataFlowGraph) -> CanBeD
         | DecrementRc { .. } => CanBeDeduplicated::Never,
 
         Call { func, .. } => match dfg[*func] {
-            Value::Intrinsic(intrinsic) => match intrinsic.purity() {
-                Purity::Pure => CanBeDeduplicated::Always,
-                Purity::PureWithPredicate => CanBeDeduplicated::UnderSamePredicate,
-                Purity::Impure => CanBeDeduplicated::Never,
-            },
+            Value::Intrinsic(intrinsic) => {
+                // Similar to the ArraySet case below: in Brillig vector intrinsics might mutate a vector in-place
+                if dfg.runtime().is_brillig() && intrinsic.mutates_array_operand_in_brillig() {
+                    CanBeDeduplicated::Never
+                } else {
+                    match intrinsic.purity() {
+                        Purity::Pure => CanBeDeduplicated::Always,
+                        Purity::PureWithPredicate => CanBeDeduplicated::UnderSamePredicate,
+                        Purity::Impure => CanBeDeduplicated::Never,
+                    }
+                }
+            }
             // A call to a user-defined function from an ACIR caller lowers to a predicated
             // `Opcode::Call` or `Opcode::BrilligCall`, which leaves the callee's outputs
             // unconstrained when the predicate is disabled. `DataFlowGraph::purity_of` already
@@ -1235,6 +1242,132 @@ mod test {
         assert_ssa_does_not_change(src, |ssa| ssa.fold_constants_using_constraints(MIN_ITER));
     }
 
+    // Regression for noir-claude#1820.
+    // `f2` hands its array parameter straight back, so the vector `vector_push_front` mutates in
+    // place (RC == 1 in brillig, no protecting `inc_rc`) is the one `f1` allocated, not a fresh
+    // one. The instruction whose cached result goes stale is therefore the `f1` call that produced
+    // that buffer, reached through the `f2` call's arguments — so the second `f1` call must not be
+    // deduplicated against the first, or the trailing `array_get` reads 999 instead of `u32 100`.
+    #[test]
+    fn mutating_vector_intrinsic_prevents_dedup_of_call_returning_an_alias() {
+        let src = "
+        brillig(inline) predicate_pure fn main f0 {
+          b0():
+            v1, v2 = call f1() -> (u32, [u32])
+            v3, v4 = call f2(v1, v2) -> (u32, [u32])
+            v5, v6 = call vector_push_front(v3, v4, u32 999) -> (u32, [u32])
+            v7, v8 = call f1() -> (u32, [u32])
+            v9 = array_get v8, index u32 0 -> u32
+            return v9
+        }
+        brillig(inline_never) pure fn get_vector f1 {
+          b0():
+            v1 = make_array [u32 100] : [u32]
+            return u32 1, v1
+        }
+        brillig(inline_never) pure fn alias f2 {
+          b0(v0: u32, v1: [u32]):
+            return v0, v1
+        }
+        ";
+        assert_ssa_does_not_change(src, |ssa| ssa.fold_constants_using_constraints(MIN_ITER));
+    }
+
+    // Regression for noir-claude#1798.
+    // `black_box` is lowered in brillig as a register move, so for an array operand the value it
+    // returns is the operand's heap buffer under a second name. The `array_set` against that result
+    // therefore writes the buffer `v3` names, and the second, identical `make_array` must not be
+    // deduplicated against `v3` — doing so makes the trailing `array_get` read 99 instead of `v0`.
+    #[test]
+    fn mutation_through_black_box_result_prevents_make_array_dedup() {
+        let src = "
+        brillig(inline) impure fn main f0 {
+          b0(v0: Field, v1: u32, v2: u32):
+            v3 = make_array [v0, v0, v0] : [Field; 3]
+            v4 = call black_box(v3) -> [Field; 3]
+            v5 = array_set v4, index v1, value Field 99
+            v6 = make_array [v0, v0, v0] : [Field; 3]
+            v7 = array_get v5, index u32 0 -> Field
+            v8 = array_get v6, index v2 -> Field
+            v9 = make_array [v7, v8] : [Field; 2]
+            return v9
+        }
+        ";
+        assert_ssa_does_not_change(src, |ssa| ssa.fold_constants_using_constraints(MIN_ITER));
+    }
+
+    // Regression for noir-claude#1690.
+    // Each level of this array puts the level below it in both of its element positions, so the
+    // values reachable from the mutated array form a DAG with `DEPTH + 1` values but 2^DEPTH routes
+    // from the top to the bottom. Invalidating the cache for the `array_set` has to visit each
+    // value once; visiting it once per route would not finish.
+    #[test]
+    fn array_mutation_invalidation_is_linear_in_the_size_of_the_value_graph() {
+        const DEPTH: usize = 64;
+
+        let mut src = "brillig(inline) fn main f0 {\n  b0(v0: Field, v1: u32):\n".to_string();
+        let mut typ = "Field".to_string();
+        src += "    v2 = make_array [v0] : [Field; 1]\n";
+        typ = format!("[{typ}; 1]");
+        for level in 0..DEPTH {
+            let (inner, outer) = (level + 2, level + 3);
+            typ = format!("[{typ}; 2]");
+            src += &format!("    v{outer} = make_array [v{inner}, v{inner}] : {typ}\n");
+        }
+        let (top, below_top) = (DEPTH + 2, DEPTH + 1);
+        src += &format!("    v{} = array_set v{top}, index v1, value v{below_top}\n", top + 1);
+        src += &format!("    return v{}\n}}\n", top + 1);
+
+        assert_ssa_does_not_change(&src, |ssa| ssa.fold_constants(MIN_ITER));
+    }
+
+    // An ArraySet in the alias chain between a mutation and the original producer must
+    // also be followed. Here:
+    //   make_array → array_set → call identity() → vector_pop_front (mutation)
+    // The walk must traverse call then array_set to reach and evict the make_array.
+    #[test]
+    fn array_set_in_alias_chain_prevents_make_array_dedup() {
+        let src = "
+        brillig(inline) predicate_pure fn main f0 {
+          b0():
+            v1 = make_array [u32 100, u32 200] : [u32]
+            v2 = array_set v1, index u32 0, value u32 300
+            v3, v4 = call f1(u32 2, v2) -> (u32, [u32])
+            v5, v6, v7 = call vector_pop_front(v3, v4) -> (u32, u32, [u32])
+            v8 = make_array [u32 100, u32 200] : [u32]
+            return v8
+        }
+        brillig(inline_never) pure fn identity f1 {
+          b0(v0: u32, v1: [u32]):
+            return v0, v1
+        }
+        ";
+        assert_ssa_does_not_change(src, |ssa| ssa.fold_constants_using_constraints(MIN_ITER));
+    }
+
+    // Regression for noir-claude#1829.
+    // A repeated array literal `[v; N]` lowers to a `make_array` holding one value in all N element
+    // positions, so invalidating the cache for a mutation of it enqueues that value N times. Every
+    // copy after the first is a duplicate the worklist has to skip, and skipping them must cost no
+    // stack, or a wide enough literal aborts the compiler with a stack overflow.
+    #[test]
+    fn array_mutation_invalidation_does_not_recurse_over_repeated_elements() {
+        const WIDTH: usize = 100_000;
+
+        let elements = vec!["v0"; WIDTH].join(", ");
+        let src = format!(
+            "brillig(inline) fn main f0 {{
+              b0(v0: Field, v1: u32):
+                v2 = make_array [{elements}] : [Field; {WIDTH}]
+                v3 = array_set v2, index v1, value v0
+                return v3
+            }}
+            "
+        );
+
+        assert_ssa_does_not_change(&src, |ssa| ssa.fold_constants(MIN_ITER));
+    }
+
     // Regression for noir-claude#1224.
     // A constant zero-sized-type array (empty `element_types`, e.g. `[(); 3]`) passed as a
     // constant argument to a brillig call reaches the constant-folding interpreter, which must
@@ -1316,6 +1449,29 @@ mod test {
         }
         ";
         assert_ssa_does_not_change(src, |ssa| ssa.fold_constants(MIN_ITER));
+    }
+
+    // Regression for noir-claude#1798.
+    // `black_box` is lowered in brillig as a register move, so for an array operand the value it
+    // returns is the operand's heap buffer under a second name. The `array_set` against that result
+    // therefore writes the buffer `v3` names, and the second, identical `make_array` must not be
+    // deduplicated against `v3` — doing so makes the trailing `array_get` read 99 instead of `v0`.
+    #[test]
+    fn mutation_of_black_box_result_prevents_reuse_of_its_argument() {
+        let src = "
+        brillig(inline) impure fn main f0 {
+          b0(v0: Field, v1: u32, v2: u32):
+            v3 = make_array [v0, v0, v0] : [Field; 3]
+            v4 = call black_box(v3) -> [Field; 3]
+            v5 = array_set v4, index v1, value Field 99
+            v6 = make_array [v0, v0, v0] : [Field; 3]
+            v7 = array_get v5, index u32 0 -> Field
+            v8 = array_get v6, index v2 -> Field
+            v9 = make_array [v7, v8] : [Field; 2]
+            return v9
+        }
+        ";
+        assert_ssa_does_not_change(src, |ssa| ssa.fold_constants_using_constraints(MIN_ITER));
     }
 
     #[test]
@@ -2257,6 +2413,38 @@ mod test {
     }
 
     #[test]
+    fn does_not_interpret_acir_call_with_constant_arguments() {
+        let src = "
+            acir(inline) fn main f0 {
+              b0():
+                v0 = call f1(Field 2, Field 3) -> Field
+                return v0
+            }
+
+            acir(fold) fn add f1 {
+              b0(v0: Field, v1: Field):
+                v2 = add v0, v1
+                return v2
+            }
+            ";
+        let ssa = Ssa::from_str(src).unwrap();
+
+        let ssa = ssa.fold_constants(MIN_ITER);
+        assert_ssa_snapshot!(ssa, @r"
+        acir(inline) fn main f0 {
+          b0():
+            v3 = call f1(Field 2, Field 3) -> Field
+            return v3
+        }
+        acir(fold) fn add f1 {
+          b0(v0: Field, v1: Field):
+            v2 = add v0, v1
+            return v2
+        }
+        ");
+    }
+
+    #[test]
     fn inlines_brillig_call_with_two_field_arguments() {
         let src = "
             acir(inline) fn main f0 {
@@ -3010,6 +3198,80 @@ mod test {
         });
 
         assert!(execution_result.is_ok());
+    }
+
+    // `f3` hands its array parameter straight back, so `f2`'s `array_set` writes into the buffer
+    // `f1` allocated for `v2` in place (RC == 1 in brillig, no protecting `inc_rc`). The second
+    // `f1` call must not be deduplicated against the first, or the trailing `array_get` reads 99
+    // instead of `Field 1`.
+    #[test]
+    fn array_set_through_call_returned_alias_prevents_dedup_of_producer_call() {
+        let src = "
+        brillig(inline) fn main f0 {
+          b0(v0: u32):
+            v2 = call f1() -> [Field; 3]
+            v4 = call f2(v2, v0) -> Field
+            v5 = call f1() -> [Field; 3]
+            v10 = array_get v5, index u32 0 -> Field
+            return v10
+        }
+        brillig(inline_never) fn producer f1 {
+          b0():
+            v3 = make_array [Field 1, Field 2, Field 3] : [Field; 3]
+            return v3
+        }
+        brillig(inline_never) fn write_through_alias f2 {
+          b0(v0: [Field; 3], v1: u32):
+            v3 = call f3(v0) -> [Field; 3]
+            v8 = array_set v3, index v1, value Field 99
+            v10 = array_get v8, index u32 0 -> Field
+            return v10
+        }
+        brillig(inline_never) fn alias f3 {
+          b0(v0: [Field; 3]):
+            return v0
+        }
+        ";
+        let ssa = Ssa::from_str(src).unwrap();
+        let inputs = vec![Value::from_constant(0_u32.into(), NumericType::unsigned(32)).unwrap()];
+
+        let (ssa, _) =
+            assert_pass_does_not_affect_execution(ssa, inputs.clone(), |ssa| ssa.purity_analysis());
+
+        let (ssa, execution_result) = assert_pass_does_not_affect_execution(ssa, inputs, |ssa| {
+            ssa.fold_constants_using_constraints(MIN_ITER)
+        });
+
+        assert_eq!(
+            execution_result,
+            Ok(vec![Value::from_constant(1_u32.into(), NumericType::NativeField).unwrap()])
+        );
+        assert_ssa_snapshot!(ssa, @r"
+        brillig(inline) impure fn main f0 {
+          b0(v0: u32):
+            v2 = call f1() -> [Field; 3]
+            v4 = call f2(v2, v0) -> Field
+            v5 = call f1() -> [Field; 3]
+            v7 = array_get v5, index u32 0 -> Field
+            return v7
+        }
+        brillig(inline_never) pure fn producer f1 {
+          b0():
+            v3 = make_array [Field 1, Field 2, Field 3] : [Field; 3]
+            return v3
+        }
+        brillig(inline_never) impure fn write_through_alias f2 {
+          b0(v0: [Field; 3], v1: u32):
+            v3 = call f3(v0) -> [Field; 3]
+            v5 = array_set v3, index v1, value Field 99
+            v7 = array_get v5, index u32 0 -> Field
+            return v7
+        }
+        brillig(inline_never) pure fn alias f3 {
+          b0(v0: [Field; 3]):
+            return v0
+        }
+        ");
     }
 
     #[test]
@@ -3840,6 +4102,43 @@ mod test {
             });
     }
 
+    /// A borrow is always allocated as `&mut T` even when the source declares `&T`, so an
+    /// array of immutable references holds `&mut`-typed elements while the array type says
+    /// `&`. Folding `array_get` on such a `make_array` maps the `&u1`-typed result onto the
+    /// `&mut u1` cell; the post-check has to accept that weakening or constant folding panics
+    /// on any program that reads an immutable-reference array element.
+    #[test]
+    fn folds_array_get_of_immutable_reference_array_element() {
+        let src = "
+        brillig(inline) fn main f0 {
+          b0(v0: u1):
+            v1 = allocate -> &mut u1
+            store v0 at v1
+            v2 = make_array [v1, v1] : [&u1; 2]
+            v3 = array_get v2, index u32 0 -> &u1
+            v4 = load v3 -> u1
+            return v4
+        }
+        ";
+        let ssa = Ssa::from_str(src).unwrap();
+        let (ssa, execution_result) =
+            assert_pass_does_not_affect_execution(ssa, vec![Value::bool(true)], |ssa| {
+                ssa.fold_constants(DEFAULT_MAX_ITER)
+            });
+        assert_eq!(execution_result, Ok(vec![Value::bool(true)]));
+
+        assert_ssa_snapshot!(ssa, @r"
+        brillig(inline) fn main f0 {
+          b0(v0: u1):
+            v1 = allocate -> &mut u1
+            store v0 at v1
+            v2 = make_array [v1, v1] : [&u1; 2]
+            v3 = load v1 -> u1
+            return v3
+        }
+        ");
+    }
+
     /// Guard: the Brillig-caller relaxation must not leak to ACIR callers. The plain constant
     /// folding pass must not deduplicate an ACIR caller's repeated calls to a pure Brillig
     /// function, since that would drop the predicate sensitivity of the call opcode.
@@ -3860,5 +4159,206 @@ mod test {
         }
         ";
         assert_ssa_does_not_change(src, |ssa| ssa.fold_constants(MIN_ITER));
+    }
+
+    #[test_case("vector_push_front(v11, v12, u8 8)")]
+    #[test_case("vector_push_back(v11, v12, u8 8)")]
+    #[test_case("vector_pop_front(v11, v12)")]
+    #[test_case("vector_pop_back(v11, v12)")]
+    #[test_case("vector_insert(v11, v12, u32 1, u8 8)")]
+    #[test_case("vector_remove(v11, v12, u32 1)")]
+    fn does_not_deduplicate_possibly_mutable_vector_intrinsics_in_brillig(intrinsic: &'static str) {
+        let src = format!(
+            "
+        brillig(inline) predicate_pure fn main f0 {{
+          b0(v0: [u8; 2], v1: u1, v2: u1):
+            v6, v7 = call as_vector(v0) -> (u32, [u8])
+            v11, v12 = call vector_push_front(u32 2, v7, u8 9) -> (u32, [u8])
+            jmpif v1 then: b1(), else: b2()
+          b1():
+            v14, v15 = call {intrinsic} -> (u32, [u8])
+            v17 = lt u32 0, v14
+            constrain v17 == u1 1
+            v19 = array_get v15, index u32 0 -> u8
+            jmp b3(v19)
+          b2():
+            jmpif v2 then: b4(), else: b5()
+          b3(v3: u8):
+            return v3
+          b4():
+            v20, v21 = call {intrinsic} -> (u32, [u8])
+            v22 = lt u32 0, v20
+            constrain v22 == u1 1
+            v23 = array_get v21, index u32 0 -> u8
+            jmp b6(v23)
+          b5():
+            v24 = lt u32 0, v11
+            constrain v24 == u1 1
+            v25 = array_get v12, index u32 0 -> u8
+            jmp b6(v25)
+          b6(v4: u8):
+            jmp b3(v4)
+        }}
+        "
+        );
+        assert_ssa_does_not_change(&src, |ssa| ssa.fold_constants_using_constraints(MIN_ITER));
+    }
+
+    /// Folding a constant-argument Brillig call evaluates it in the compiler's own SSA
+    /// interpreter, and that evaluation is speculative: it happens for a call the compiled
+    /// program may never perform, on a path it may never take. It must therefore leave nothing
+    /// behind for the next call folded with the same interpreter.
+    ///
+    /// Here `evil` writes `Field 99` into the global while it is folded, and `read` — folded
+    /// next — must still see `Field 1`. The two calls are on mutually exclusive `jmpif` arms,
+    /// so no execution performs both. A snapshot assertion alone would not have caught the leak
+    /// (`Field 99` is a perfectly well-formed constant); interpreting before and after does.
+    #[test]
+    fn folding_a_call_does_not_leak_a_global_mutation_into_the_next_call() {
+        let src = "
+        g0 = make_array [Field 1, Field 2] : [Field; 2]
+
+        acir(inline) fn main f0 {
+          b0(v0: u1):
+            jmpif v0 then: b1(), else: b2()
+          b1():
+            v1 = make_array [Field 5, Field 6] : [Field; 2]
+            v2 = call f1(v1) -> Field
+            jmp b3(v2)
+          b2():
+            v3 = call f2(u32 0) -> Field
+            jmp b3(v3)
+          b3(v4: Field):
+            return v4
+        }
+
+        brillig(inline) fn evil f1 {
+          b0(v0: [Field; 2]):
+            v1 = array_set v0, index u32 0, value Field 7
+            v2 = array_set g0, index u32 0, value Field 99
+            v3 = array_get v1, index u32 0 -> Field
+            v4 = array_get v2, index u32 0 -> Field
+            v5 = add v3, v4
+            return v5
+        }
+
+        brillig(inline) fn read f2 {
+          b0(v0: u32):
+            v1 = array_get g0, index v0 -> Field
+            return v1
+        }
+        ";
+
+        // `v0 = false` takes the `else` arm, which reads the global.
+        let (ssa, result) = assert_pass_does_not_affect_execution(
+            Ssa::from_str(src).unwrap(),
+            vec![Value::bool(false)],
+            |ssa| ssa.fold_constants(DEFAULT_MAX_ITER),
+        );
+        assert_eq!(
+            result,
+            Ok(vec![Value::field(1_u128.into())]),
+            "the reader observes the global's own value"
+        );
+
+        // `evil`'s own write is still visible to `evil` itself: it reads back `Field 7 + Field 99`.
+        assert_eq!(
+            ssa.interpret(vec![Value::bool(true)]),
+            Ok(vec![Value::field(106_u128.into())]),
+            "the mutator observes its own copy"
+        );
+    }
+
+    // A `cast` relabels the type of a field element without changing it, so a constant that
+    // does not fit the destination width cannot be represented as a constant of that type.
+    // Folding must keep the cast so that the program computes the same value as before folding.
+    #[test_case("i16 256"; "i16_256")]
+    #[test_case("i32 384"; "i32_384")]
+    #[test_case("i16 -1"; "i16_minus_1")]
+    #[test_case("i64 -129"; "i64_minus_129")]
+    #[test_case("u16 300"; "u16_300")]
+    #[test_case("Field 256"; "field_256")]
+    fn does_not_fold_signed_narrowing_cast_of_out_of_range_constant(constant: &str) {
+        for runtime in ["acir(inline)", "brillig(inline)"] {
+            let src = format!(
+                "
+            {runtime} fn main f0 {{
+              b0():
+                v1 = cast {constant} as i8
+                return v1
+            }}
+            "
+            );
+            let ssa = Ssa::from_str_no_validation(&src).unwrap();
+            let (ssa, result) = assert_pass_does_not_affect_execution(ssa, vec![], |ssa| {
+                ssa.fold_constants(DEFAULT_MAX_ITER)
+            });
+            assert!(result.is_ok(), "{runtime} `cast {constant} as i8` failed: {result:?}");
+
+            // `src` fails full validation, so it is compared without `assert_normalized_ssa_equals`.
+            let mut ssa = ssa;
+            let mut expected = Ssa::from_str_no_validation(&src).unwrap();
+            ssa.normalize_ids();
+            expected.normalize_ids();
+            assert_eq!(
+                ssa.print_without_locations().to_string(),
+                expected.print_without_locations().to_string()
+            );
+        }
+    }
+
+    // Casts into a signed type whose constant fits the destination width are folded, and the
+    // folded constant keeps the same field element: a widening cast does not sign-extend.
+    #[test_case("i16 127", Value::i8(127); "i16_127_to_i8")]
+    #[test_case("i16 200", Value::i8(-56); "i16_200_to_i8")]
+    #[test_case("i32 255", Value::i8(-1); "i32_255_to_i8")]
+    #[test_case("u8 255", Value::i8(-1); "u8_255_to_i8")]
+    #[test_case("Field 255", Value::i8(-1); "field_255_to_i8")]
+    #[test_case("u16 0", Value::i8(0); "u16_0_to_i8")]
+    fn folds_cast_to_i8_of_constant_that_fits(constant: &str, expected: Value) {
+        let src = format!(
+            "
+        acir(inline) fn main f0 {{
+          b0():
+            v1 = cast {constant} as i8
+            return v1
+        }}
+        "
+        );
+        let ssa = Ssa::from_str(&src).unwrap();
+        let (ssa, result) = assert_pass_does_not_affect_execution(ssa, vec![], |ssa| {
+            ssa.fold_constants(DEFAULT_MAX_ITER)
+        });
+        assert_eq!(result, Ok(vec![expected.clone()]));
+        let expected_src = format!(
+            "
+        acir(inline) fn main f0 {{
+          b0():
+            return {expected}
+        }}
+        "
+        );
+        assert_normalized_ssa_equals(ssa, &expected_src);
+    }
+
+    #[test_case("cast i8 -1 as i16", Value::i16(255); "i8_minus_1_to_i16")]
+    #[test_case("cast i8 -128 as i32", Value::i32(128); "i8_minus_128_to_i32")]
+    #[test_case("cast i16 -1 as i64", Value::i64(65535); "i16_minus_1_to_i64")]
+    fn folds_widening_signed_cast_without_sign_extension(instruction: &str, expected: Value) {
+        let src = format!(
+            "
+        acir(inline) fn main f0 {{
+          b0():
+            v1 = {instruction}
+            return v1
+        }}
+        "
+        );
+        let ssa = Ssa::from_str(&src).unwrap();
+        let (ssa, result) = assert_pass_does_not_affect_execution(ssa, vec![], |ssa| {
+            ssa.fold_constants(DEFAULT_MAX_ITER)
+        });
+        assert_eq!(result, Ok(vec![expected]));
+        assert!(!ssa.to_string().contains("cast"), "widening cast was not folded:\n{ssa}");
     }
 }

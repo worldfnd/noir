@@ -52,6 +52,10 @@ fn last_use_in_if_branches() {
     ");
 }
 
+// The loop body breaks unconditionally, so the back edge is unreachable and each use runs at
+// most once. `param` and `local1` are dead afterwards and move; `local2` is read after the loop,
+// so its use inside is copied. See `does_not_move_into_loop_that_repeats` for the case where the
+// back edge is live.
 #[test]
 fn does_not_move_into_loop() {
     let src = "
@@ -76,8 +80,8 @@ fn does_not_move_into_loop() {
         let local1$l1 = [0];
         let local2$l2 = [1];
         loop {
-            use_var$f1(param$l0.clone());;
-            use_var$f2(local1$l1.clone());;
+            use_var$f1(param$l0);;
+            use_var$f2(local1$l1);;
             use_var$f2(local2$l2.clone());;
             break
         };
@@ -86,6 +90,198 @@ fn does_not_move_into_loop() {
     unconstrained fn use_var$f1(_x$l3: [u32; 2]) -> () {
     }
     unconstrained fn use_var$f2(_x$l4: [Field; 1]) -> () {
+    }
+    ");
+}
+
+// With a live back edge, a variable declared outside the loop is read again by the next
+// iteration, so every use inside the loop is copied — including the last one in the body.
+#[test]
+fn does_not_move_into_loop_that_repeats() {
+    let src = "
+    unconstrained fn main(param: [u32; 2]) {
+        let local1 = [0];
+        let local2 = [1];
+        for _i in 0..2 {
+            use_var(param);
+            use_var(local1);
+            use_var(local2);
+        }
+        use_var(local2);
+    }
+
+    fn use_var<T>(_x: T) {}
+    ";
+
+    let program = get_monomorphized(src).unwrap();
+    insta::assert_snapshot!(program, @r"
+    unconstrained fn main$f0(param$l0: [u32; 2]) -> () {
+        let local1$l1 = [0];
+        let local2$l2 = [1];
+        for _i$l3 in 0 .. 2 {
+            use_var$f1(param$l0.clone());;
+            use_var$f2(local1$l1.clone());;
+            use_var$f2(local2$l2.clone());
+        };
+        use_var$f2(local2$l2);
+    }
+    unconstrained fn use_var$f1(_x$l4: [u32; 2]) -> () {
+    }
+    unconstrained fn use_var$f2(_x$l5: [Field; 1]) -> () {
+    }
+    ");
+}
+
+// A `for` is tested at its header, so the loop exits from there. The body's last read of `x`
+// therefore reaches `use_var(x)` after the loop along the exit edge, without crossing
+// `x = [4, 5, 6]` a second time, and must be copied even though the reassignment precedes it.
+#[test]
+fn copies_read_after_reassignment_in_for_body_when_read_after_the_loop() {
+    let src = "
+    unconstrained fn main(n: u32) {
+        let mut x = [1, 2, 3];
+        for _i in 0..n {
+            x = [4, 5, 6];
+            use_var(x);
+        }
+        use_var(x);
+    }
+
+    fn use_var<T>(_x: T) {}
+    ";
+
+    let program = get_monomorphized(src).unwrap();
+    insta::assert_snapshot!(program, @r"
+    unconstrained fn main$f0(n$l0: u32) -> () {
+        let mut x$l1 = [1, 2, 3];
+        for _i$l2 in 0 .. n$l0 {
+            x$l1 = [4, 5, 6];
+            use_var$f1(x$l1.clone());
+        };
+        use_var$f1(x$l1);
+    }
+    unconstrained fn use_var$f1(_x$l3: [Field; 3]) -> () {
+    }
+    ");
+}
+
+// `continue` in a `for` body jumps to the header, which can exit the loop, so the same copy is
+// required on a read the `continue` skips past the reassignment of.
+#[test]
+fn copies_read_before_continue_in_for_body_when_read_after_the_loop() {
+    let src = "
+    unconstrained fn main(n: u32, c: bool) {
+        let mut x = [1, 2, 3];
+        for _i in 0..n {
+            x = [4, 5, 6];
+            use_var(x);
+            if c {
+                continue;
+            }
+            x = [7, 8, 9];
+        }
+        use_var(x);
+    }
+
+    fn use_var<T>(_x: T) {}
+    ";
+
+    let program = get_monomorphized(src).unwrap();
+    insta::assert_snapshot!(program, @r"
+    unconstrained fn main$f0(n$l0: u32, c$l1: bool) -> () {
+        let mut x$l2 = [1, 2, 3];
+        for _i$l3 in 0 .. n$l0 {
+            x$l2 = [4, 5, 6];
+            use_var$f1(x$l2.clone());;
+            if c$l1 {
+                continue
+            };
+            x$l2 = [7, 8, 9]
+        };
+        use_var$f1(x$l2);
+    }
+    unconstrained fn use_var$f1(_x$l4: [Field; 3]) -> () {
+    }
+    ");
+}
+
+// `continue` reaches the loop header the same way falling off the end of the body does, so a read
+// it carries past a later reassignment is still live and must be copied.
+#[test]
+fn copies_read_before_continue_in_while_body_when_read_after_the_loop() {
+    let src = "
+    unconstrained fn main(n: u32, c: bool) {
+        let mut x = [1, 2, 3];
+        let mut k = 0;
+        while k < n {
+            k += 1;
+            x = [4, 5, 6];
+            use_var(x);
+            if c {
+                continue;
+            }
+            x = [7, 8, 9];
+        }
+        use_var(x);
+    }
+
+    fn use_var<T>(_x: T) {}
+    ";
+
+    let program = get_monomorphized(src).unwrap();
+    insta::assert_snapshot!(program, @r"
+    unconstrained fn main$f0(n$l0: u32, c$l1: bool) -> () {
+        let mut x$l2 = [1, 2, 3];
+        let mut k$l3 = 0;
+        while (k$l3 < n$l0) {
+            k$l3 = (k$l3 + 1);
+            x$l2 = [4, 5, 6];
+            use_var$f1(x$l2.clone());;
+            if c$l1 {
+                continue
+            };
+            x$l2 = [7, 8, 9]
+        };
+        use_var$f1(x$l2);
+    }
+    unconstrained fn use_var$f1(_x$l4: [Field; 3]) -> () {
+    }
+    ");
+}
+
+#[test]
+fn moves_read_in_while_body_when_the_condition_reassigns_before_every_later_read() {
+    // Every path from the body's read of `x` reaches `x = [4, 5, 6]` in the condition before
+    // any other read, including the path that leaves the loop, so that read is a move.
+    let src = "
+    unconstrained fn main(n: u32) {
+        let mut x = [1, 2, 3];
+        let mut k = 0;
+        while { x = [4, 5, 6]; k < n } {
+            k += 1;
+            use_var(x);
+        }
+        use_var(x);
+    }
+
+    fn use_var<T>(_x: T) {}
+    ";
+
+    let program = get_monomorphized(src).unwrap();
+    insta::assert_snapshot!(program, @r"
+    unconstrained fn main$f0(n$l0: u32) -> () {
+        let mut x$l1 = [1, 2, 3];
+        let mut k$l2 = 0;
+        while {
+            x$l1 = [4, 5, 6];
+            (k$l2 < n$l0)
+        } {
+            k$l2 = (k$l2 + 1);
+            use_var$f1(x$l1);
+        };
+        use_var$f1(x$l1);
+    }
+    unconstrained fn use_var$f1(_x$l3: [Field; 3]) -> () {
     }
     ");
 }
@@ -411,7 +607,7 @@ fn clone_nested_array_in_lvalue() {
 }
 
 #[test]
-fn pure_builtin_args_get_cloned() {
+fn pure_builtin_args_do_not_get_cloned() {
     let src = "
     unconstrained fn main() -> pub u32 {
         let a = [1, 2, 3];
@@ -423,12 +619,12 @@ fn pure_builtin_args_get_cloned() {
 
     let program = get_monomorphized_with_stdlib(src, &[stdlib_src::ARRAY_LEN]).unwrap();
 
-    // The ownership pass doesn't know which builtin functions are pure and which ones
-    // modifies the arguments, so this optimization is deferred to the SSA generation.
+    // `a` is not at its last use in the first `len` call, but `array_len` cannot
+    // modify it, so the clone is elided anyway. See the `clone_elision` module.
     insta::assert_snapshot!(program, @r"
     unconstrained fn main$f0() -> pub u32 {
         let a$l0 = [1, 2, 3];
-        let x$l1 = len$array_len(a$l0.clone());
+        let x$l1 = len$array_len(a$l0);
         let y$l2 = len$array_len(a$l0);
         (x$l1 + y$l2)
     }
@@ -437,7 +633,11 @@ fn pure_builtin_args_get_cloned() {
 
 #[test]
 fn while_condition_with_array_last_use() {
-    // The arrays last use should be in the while condition
+    // The body breaks unconditionally, so the condition is evaluated exactly once and `arr` is
+    // dead once it returns. Its use in the condition is therefore the last one and is moved. A
+    // condition that can be re-evaluated is copied instead: see
+    // `while_condition_read_is_cloned_when_reused_in_body` and
+    // `while_condition_read_is_cloned_when_body_reassigns_without_reading`.
     let src = "
     unconstrained fn main() {
         let arr = [1, 2, 3];
@@ -452,11 +652,10 @@ fn while_condition_with_array_last_use() {
     ";
 
     let program = get_monomorphized(src).unwrap();
-    // `arr` should be cloned in the while condition since it's evaluated multiple times
     insta::assert_snapshot!(program, @r"
     unconstrained fn main$f0() -> () {
         let arr$l0 = [1, 2, 3];
-        while check$f1(arr$l0.clone()) {
+        while check$f1(arr$l0) {
             break
         }
     }
@@ -1308,6 +1507,34 @@ fn reference_passed_alongside_struct_with_mut_ref_to_ref_prevents_move() {
 }
 
 #[test]
+fn by_value_arg_aliasing_mut_ref_arg_of_same_call_prevents_move() {
+    // When passing `&mut a` and `a`, `a` needs to be cloned
+    let src = "
+    unconstrained fn main(x: [u32; 2]) -> pub ([u32; 2], [u32; 2]) {
+        let mut a = x;
+        foo(&mut a, a)
+    }
+
+    fn foo(r: &mut [u32; 2], b: [u32; 2]) -> ([u32; 2], [u32; 2]) {
+        (*r)[0] = 99;
+        (*r, b)
+    }
+    ";
+
+    let program = get_monomorphized(src).unwrap();
+    insta::assert_snapshot!(program, @r"
+    unconstrained fn main$f0(x$l0: [u32; 2]) -> pub ([u32; 2], [u32; 2]) {
+        let mut a$l1 = x$l0;
+        foo$f1((&mut a$l1), a$l1.clone())
+    }
+    unconstrained fn foo$f1(r$l2: &mut [u32; 2], b$l3: [u32; 2]) -> ([u32; 2], [u32; 2]) {
+        (*r$l2)[0] = 99;
+        ((*r$l2).clone(), b$l3)
+    }
+    ");
+}
+
+#[test]
 fn call_with_extract_tuple_field_args_does_not_prevent_move() {
     // Mirrors the `try_resize` pattern in UHashMap: `insert(&mut new_map, entry.0, entry.1)`
     // where `entry` is a tuple. The arguments `entry.0` and `entry.1` are `ExtractTupleField`
@@ -1630,11 +1857,88 @@ fn confirmed_move_for_variable_reassigned_in_the_loop() {
     ");
 }
 
-/// Regression: `a = c` reassigns `a` from the bare variable `c`, which holds the
-/// buffer just moved out of `a` via `c = { ...; a }`. Reassignment alone would mark
-/// `a` killed and let its loop-carried last use be moved, but `c` may alias the moved
-/// buffer, so the use of `a` in the block tail must be CLONED. Otherwise `a` and `c`
-/// share one refcount-1 buffer and `c[0] = 99` corrupts `a` in place.
+/// A call's result is a new value rather than another variable's buffer, so reassigning from it
+/// frees earlier uses to move. This is the shape of the stack loop in the standard library's
+/// quicksort: the array handed to `pop` is moved, because `stack = new_stack` overwrites `stack`
+/// with a value that came out of the call.
+#[test]
+fn moves_use_before_reassignment_from_a_call_result() {
+    let src = "
+    unconstrained fn main(input: [u32; 2], n: u32) -> pub u32 {
+        let mut stack = input;
+        let mut acc = 0;
+        for _j in 0..n {
+            let (new_stack, v) = pop(stack);
+            stack = new_stack;
+            acc += v;
+        }
+        acc
+    }
+
+    unconstrained fn pop(s: [u32; 2]) -> ([u32; 2], u32) {
+        (s, s[0])
+    }
+    ";
+    let program = get_monomorphized(src).unwrap();
+    insta::assert_snapshot!(program, @r"
+    unconstrained fn main$f0(input$l0: [u32; 2], n$l1: u32) -> pub u32 {
+        let mut stack$l2 = input$l0;
+        let mut acc$l3 = 0;
+        for _j$l4 in 0 .. n$l1 {
+            {
+                let _$l5 = pop$f1(stack$l2);
+                let new_stack$l6 = 0$l5.0.clone();
+                let v$l7 = 1$l5.1
+            };
+            stack$l2 = new_stack$l6;
+            acc$l3 = (acc$l3 + v$l7)
+        };
+        acc$l3
+    }
+    unconstrained fn pop$f1(s$l8: [u32; 2]) -> ([u32; 2], u32) {
+        (s$l8.clone(), s$l8[0])
+    }
+    ");
+}
+
+/// Swapping two arrays through a temporary, inside a loop. Every read is followed by a
+/// reassignment of the variable it read, so each is a move: the loop only exchanges the two
+/// buffers, which never share storage.
+#[test]
+fn moves_array_swap_through_a_temporary_in_a_loop() {
+    let src = "
+    unconstrained fn main(n: u32) -> pub [u32; 2] {
+        let mut a = [1, 2];
+        let mut c = [10, 20];
+        for _j in 0..n {
+            let t = a;
+            a = c;
+            c = t;
+        }
+        c[0] = 99;
+        a
+    }
+    ";
+    let program = get_monomorphized(src).unwrap();
+    insta::assert_snapshot!(program, @r"
+    unconstrained fn main$f0(n$l0: u32) -> pub [u32; 2] {
+        let mut a$l1 = [1, 2];
+        let mut c$l2 = [10, 20];
+        for _j$l3 in 0 .. n$l0 {
+            let t$l4 = a$l1;
+            a$l1 = c$l2;
+            c$l2 = t$l4
+        };
+        c$l2[0] = 99;
+        a$l1
+    }
+    ");
+}
+
+/// Regression: `c = { ...; a }` hands `c` the buffer `a` names and `a = c` hands it straight
+/// back. The inner loop writes `c[0]` before `c` is reassigned, so `c` is live at the loop header
+/// and its read in `a = c` is cloned: the write then copies rather than mutating the buffer `a`
+/// shares. The block tail's read of `a` is followed by `a = c` on every path, so it moves.
 #[test]
 fn clone_for_loop_buffer_rotation_via_aliasing_reassignment() {
     let src = "
@@ -1668,7 +1972,7 @@ fn clone_for_loop_buffer_rotation_via_aliasing_reassignment() {
                     i$l3 = (i$l3 + 1);
                     c$l1[0] = 99
                 };
-                a$l0.clone()
+                a$l0
             };
             a$l0 = c$l1.clone()
         };
@@ -2170,6 +2474,83 @@ fn while_condition_read_is_cloned_when_reused_in_body() {
     ");
 }
 
+// The loop's exit edge leaves from the `while` condition, so the final condition evaluation is
+// followed by no reassignment: the buffer it consumed is the one live after the loop. A body that
+// unconditionally reassigns `x` therefore does not license moving the condition's read, even
+// though it does license moving a read in the body.
+#[test]
+fn while_condition_read_is_cloned_when_body_reassigns_without_reading() {
+    let src = "
+    unconstrained fn main() -> pub u32 {
+        let mut x = [1, 2, 3];
+        while peek(x) {
+            x = [4, 5, 6];
+        }
+        x[0]
+    }
+
+    fn peek(_x: [u32; 3]) -> bool { false }
+    ";
+    let program = get_monomorphized(src).unwrap();
+    insta::assert_snapshot!(program, @r"
+    unconstrained fn main$f0() -> pub u32 {
+        let mut x$l0 = [1, 2, 3];
+        while peek$f1(x$l0.clone()) {
+            x$l0 = [4, 5, 6]
+        };
+        x$l0[0]
+    }
+    unconstrained fn peek$f1(_x$l1: [u32; 3]) -> bool {
+        false
+    }
+    ");
+}
+
+// A read that follows the reassignment must clone when another read precedes it: the preceding
+// read runs again on the next iteration and would observe the buffer the following read moved
+// away. The reassignment sits between the two reads within one iteration, but not across the
+// back edge. No `while` is needed for this — the back edge is what matters, not the exit edge.
+#[test]
+fn read_after_reassignment_in_loop_is_cloned_when_a_read_precedes_it() {
+    let src = "
+    unconstrained fn main(n: u32) -> pub u32 {
+        let mut x = [1, 2, 3];
+        let mut acc = 0;
+        for _j in 0..n {
+            acc += peek(x);
+            x = [4, 5, 6];
+            acc += peek(x);
+        }
+        acc
+    }
+
+    fn peek(x: [u32; 3]) -> u32 { x[0] }
+    ";
+    let program = get_monomorphized(src).unwrap();
+    // The read before the reassignment is moved; the one after it is cloned.
+    insta::assert_snapshot!(program, @r"
+    unconstrained fn main$f0(n$l0: u32) -> pub u32 {
+        let mut x$l1 = [1, 2, 3];
+        let mut acc$l2 = 0;
+        for _j$l3 in 0 .. n$l0 {
+            {
+                let op_rhs_0$l4 = peek$f1(x$l1);
+                acc$l2 = (acc$l2 + op_rhs_0$l4)
+            };
+            x$l1 = [4, 5, 6];
+            {
+                let op_rhs_1$l5 = peek$f1(x$l1.clone());
+                acc$l2 = (acc$l2 + op_rhs_1$l5)
+            }
+        };
+        acc$l2
+    }
+    unconstrained fn peek$f1(x$l6: [u32; 3]) -> u32 {
+        x$l6[0]
+    }
+    ");
+}
+
 // A `break` in a `while` condition targets the *enclosing* loop, not the `while`. Here the inner
 // `while`'s condition can `break` out of the outer loop before the assignment `x = if ...` commits,
 // so the old value of `x` outlives the loop. `let mut y = x` must therefore clone: otherwise `y`
@@ -2279,6 +2660,188 @@ fn closure_captured_array_used_twice_clones_first_use() {
         env$l1.0
     }
     unconstrained fn use_var$f2(_x$l6: [u32; 3]) -> () {
+    }
+    ");
+}
+
+#[test]
+fn break_in_nested_while_condition_clears_killed() {
+    // The `break` in the inner `while`'s condition targets the OUTER loop, so it can skip
+    // the reassignment `x = [v, v, v]`. `x`'s old value is then still live after the loop,
+    // so its use in `let mut y = x` must be cloned, not moved: `x` may not stay in the
+    // `killed` set that exempts it from loop-exit truncation, even though that set is
+    // saved away while the inner loop (and its condition) is traversed.
+    let src = "
+    unconstrained fn main(v: u32, n: u32) -> pub [u32; 2] {
+        let mut x = [v, v, v];
+        let mut z = [0, 0, 0];
+        let mut i = 0;
+        while i < n {
+            let mut y = x;
+            y[0] = 9;
+            z = y;
+            let mut j = 0;
+            while ({ if i == 1 { break; } j < 3 }) { j = j + 1; }
+            x = [v, v, v];
+            i = i + 1;
+        }
+        [x[0], z[0]]
+    }
+    ";
+
+    let program = get_monomorphized(src).unwrap();
+    insta::assert_snapshot!(program, @r"
+    unconstrained fn main$f0(v$l0: u32, n$l1: u32) -> pub [u32; 2] {
+        let mut x$l2 = [v$l0, v$l0, v$l0];
+        let mut z$l3 = [0, 0, 0];
+        let mut i$l4 = 0;
+        while (i$l4 < n$l1) {
+            let mut y$l5 = x$l2.clone();
+            y$l5[0] = 9;
+            z$l3 = y$l5;
+            let mut j$l6 = 0;
+            while {
+                if (i$l4 == 1) {
+                    break
+                };
+                (j$l6 < 3)
+            } {
+                j$l6 = (j$l6 + 1)
+            };
+            x$l2 = [v$l0, v$l0, v$l0];
+            i$l4 = (i$l4 + 1)
+        };
+        [x$l2[0], z$l3[0]]
+    }
+    ");
+}
+
+#[test]
+fn keeps_clone_when_later_sibling_argument_mutates() {
+    // `x` is passed by value to `sha256_compression` and is not at its last use, so it
+    // is cloned. Even though the blackbox callee cannot modify its arguments, the clone
+    // must not be elided: `bump(&mut x, i)` is evaluated after `x` is materialized and
+    // before the call, and without the reference count bump its in-place write would be
+    // visible through the already-materialized argument.
+    let src = "
+    #[foreign(sha256_compression)]
+    fn sha256_compression(input: [u32; 16], state: [u32; 8]) -> [u32; 8] {}
+
+    unconstrained fn bump(x: &mut [u32; 16], i: u32) -> [u32; 8] {
+        (*x)[i] = 7;
+        [1, 2, 3, 4, 5, 6, 7, 8]
+    }
+
+    unconstrained fn main(i: u32) -> pub u64 {
+        let mut x = [i + 1; 16];
+        let out = sha256_compression(x, bump(&mut x, i));
+        out[0] as u64 + x[i] as u64
+    }
+    ";
+
+    let program = get_monomorphized_with_options(
+        src,
+        GetProgramOptions { root_and_stdlib: true, ..Default::default() },
+    )
+    .unwrap();
+    insta::assert_snapshot!(program, @r"
+    unconstrained fn main$f0(i$l0: u32) -> pub u64 {
+        let mut x$l1 = [(i$l0 + 1); 16];
+        let out$l2 = sha256_compression$sha256_compression(x$l1.clone(), bump$f1((&mut x$l1), i$l0));
+        ((out$l2[0] as u64) + (x$l1[i$l0] as u64))
+    }
+    unconstrained fn bump$f1(x$l3: &mut [u32; 16], i$l4: u32) -> [u32; 8] {
+        (*x$l3)[i$l4] = 7;
+        [1, 2, 3, 4, 5, 6, 7, 8]
+    }
+    ");
+}
+
+#[test]
+fn continue_in_nested_while_condition_clears_killed() {
+    // The `continue` spelling of `break_in_nested_while_condition_clears_killed`: it also
+    // targets the outer loop and can also skip the reassignment `x = [v, v, v]`, so the use
+    // of `x` in `let mut y = x` must be cloned, not moved.
+    let src = "
+    unconstrained fn main(v: u32, n: u32) -> pub [u32; 2] {
+        let mut x = [v, v, v];
+        let mut z = [0, 0, 0];
+        let mut i = 0;
+        while i < n {
+            let mut y = x;
+            y[0] = 9;
+            z = y;
+            i = i + 1;
+            let mut j = 0;
+            while ({ if i == n { continue; } j < 3 }) { j = j + 1; }
+            x = [v, v, v];
+        }
+        [x[0], z[0]]
+    }
+    ";
+
+    let program = get_monomorphized(src).unwrap();
+    insta::assert_snapshot!(program, @r"
+    unconstrained fn main$f0(v$l0: u32, n$l1: u32) -> pub [u32; 2] {
+        let mut x$l2 = [v$l0, v$l0, v$l0];
+        let mut z$l3 = [0, 0, 0];
+        let mut i$l4 = 0;
+        while (i$l4 < n$l1) {
+            let mut y$l5 = x$l2.clone();
+            y$l5[0] = 9;
+            z$l3 = y$l5;
+            i$l4 = (i$l4 + 1);
+            let mut j$l6 = 0;
+            while {
+                if (i$l4 == n$l1) {
+                    continue
+                };
+                (j$l6 < 3)
+            } {
+                j$l6 = (j$l6 + 1)
+            };
+            x$l2 = [v$l0, v$l0, v$l0]
+        };
+        [x$l2[0], z$l3[0]]
+    }
+    ");
+}
+
+#[test]
+fn elides_clone_when_mutation_is_in_earlier_argument() {
+    // Same shape as `keeps_clone_when_later_sibling_argument_mutates`, but the mutation
+    // happens in the first argument: by the time `x` is materialized for the second
+    // argument nothing else runs before the call, so its clone is elided.
+    let src = "
+    #[foreign(sha256_compression)]
+    fn sha256_compression(input: [u32; 16], state: [u32; 8]) -> [u32; 8] {}
+
+    unconstrained fn bump(x: &mut [u32; 8], i: u32) -> [u32; 16] {
+        (*x)[i] = 7;
+        [1; 16]
+    }
+
+    unconstrained fn main(i: u32) -> pub u64 {
+        let mut x = [i + 1; 8];
+        let out = sha256_compression(bump(&mut x, i), x);
+        out[0] as u64 + x[i] as u64
+    }
+    ";
+
+    let program = get_monomorphized_with_options(
+        src,
+        GetProgramOptions { root_and_stdlib: true, ..Default::default() },
+    )
+    .unwrap();
+    insta::assert_snapshot!(program, @r"
+    unconstrained fn main$f0(i$l0: u32) -> pub u64 {
+        let mut x$l1 = [(i$l0 + 1); 8];
+        let out$l2 = sha256_compression$sha256_compression(bump$f1((&mut x$l1), i$l0), x$l1);
+        ((out$l2[0] as u64) + (x$l1[i$l0] as u64))
+    }
+    unconstrained fn bump$f1(x$l3: &mut [u32; 8], i$l4: u32) -> [u32; 16] {
+        (*x$l3)[i$l4] = 7;
+        [1; 16]
     }
     ");
 }

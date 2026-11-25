@@ -7,11 +7,12 @@ use insta as _;
 use num_bigint as _;
 
 use std::hash::BuildHasher;
+use std::sync::OnceLock;
 
 use abi_gen::{abi_type_from_hir_type, value_to_abi_value};
 use acvm::acir::circuit::{ErrorSelector, Program, display_program};
 use acvm::{AcirField, FieldConfig, FieldId};
-use clap::Args;
+use clap::{Args, Parser};
 use fm::{FileId, FileManager};
 use iter_extended::vecmap;
 use noirc_abi::{AbiErrorType, AbiNamedValue, AbiParameter, AbiType};
@@ -19,7 +20,7 @@ use noirc_artifacts::contract::{CompiledContract, CompiledContractOutputs, Contr
 use noirc_artifacts::debug::{DebugFile, DebugInfo, FunctionLocation};
 use noirc_artifacts::program::CompiledProgram;
 use noirc_artifacts::ssa::{InternalBug, InternalWarning, SsaReport};
-use noirc_errors::CustomDiagnostic;
+use noirc_errors::{CustomDiagnostic, Location};
 use noirc_evaluator::brillig::brillig_ir::{
     LayoutConfig, MAX_SCRATCH_SPACE, MAX_STACK_FRAME_SIZE, MIN_SCRATCH_SPACE, MIN_STACK_FRAME_SIZE,
     NUM_STACK_FRAMES,
@@ -38,19 +39,18 @@ use noirc_evaluator::ssa::{
 };
 use noirc_frontend::elaborator::{FrontendOptions, UnstableFeature};
 use noirc_frontend::error_reporting::function_locations_in_parsed_module;
-use noirc_frontend::hir::def_map::{CrateDefMap, ModuleDefId, ModuleId};
-use noirc_frontend::hir::{Context, ParsedFiles};
-use noirc_frontend::monomorphization::ast::{
-    Program as MonomorphizedProgram, Type as MonomorphizedType,
-};
+use noirc_frontend::hir::comptime::ComptimeIo;
+use noirc_frontend::hir::def_map::{ModuleDefId, ModuleId};
+use noirc_frontend::hir::{CheckedContext, Context, ParsedFiles};
+use noirc_frontend::monomorphization::ast::{Program as AstProgram, Type as MonomorphizedType};
 use noirc_frontend::monomorphization::{
     errors::MonomorphizationError, monomorphize, monomorphize_debug,
 };
-use noirc_frontend::node_interner::{FuncId, GlobalId, GlobalValue, TypeId};
+use noirc_frontend::node_interner::{FuncId, GlobalId, GlobalValue, NodeInterner, TypeId};
 use noirc_frontend::shared::{LOWERABLE_INTEGER_TYPES, UnlowerableInteger, unlowerable_integer};
 use noirc_frontend::token::SecondaryAttributeKind;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tracing::info;
 
 mod abi_gen;
@@ -319,57 +319,41 @@ pub struct CompileOptions {
 }
 
 impl Default for CompileOptions {
+    /// Derived from the `clap` attributes on the fields above rather than restated here, so
+    /// that the defaults a user gets on the command line and the defaults a caller gets from
+    /// `CompileOptions::default()` cannot drift apart. That matters because `default()` is a
+    /// real compilation path, not just a test convenience: `noir_wasm` and the debug adapter
+    /// both reach the compiler through it rather than through argument parsing.
     fn default() -> Self {
-        Self {
-            force_compile: false,
-            show_ssa: false,
-            show_ssa_pass: Vec::new(),
-            hide_unchanged_ssa: false,
-            with_ssa_locations: false,
-            show_contract_fn: None,
-            skip_ssa_pass: Vec::new(),
-            emit_ssa: false,
-            validate_between_passes: false,
-            minimal_ssa: false,
-            show_brillig: false,
-            show_brillig_opcode_advisories: false,
-            print_acir: false,
-            benchmark_codegen: false,
-            deny_warnings: false,
-            silence_warnings: false,
-            show_monomorphized: false,
-            instrument_debug: false,
-            force_brillig: false,
-            debug_comptime_in_file: None,
-            show_artifact_paths: false,
-            skip_underconstrained_check: false,
-            skip_brillig_constraints_check: false,
-            brillig_constraints_check_max_array_output_length:
-                checks::DEFAULT_MAX_ARRAY_OUTPUT_LENGTH,
-            brillig_constraints_check_max_ancestor_distance: checks::DEFAULT_MAX_ANCESTOR_DISTANCE,
-            enable_brillig_debug_assertions: false,
-            inliner_aggressiveness: i64::MAX,
-            constant_folding_max_iter: CONSTANT_FOLDING_MAX_ITER,
-            small_function_max_instructions: INLINING_MAX_INSTRUCTIONS,
-            max_bytecode_increase_percent: None,
-            max_unroll_iterations: MAX_UNROLL_ITERATIONS,
-            force_unroll_threshold: FORCE_UNROLL_THRESHOLD,
-            specialization_threshold: DEFAULT_SPECIALIZATION_THRESHOLD,
-            max_specializations_per_fn: DEFAULT_MAX_SPECIALIZATIONS_PER_FN,
-            max_stack_frame_size: MAX_STACK_FRAME_SIZE,
-            num_stack_frames: NUM_STACK_FRAMES,
-            max_scratch_space: MAX_SCRATCH_SPACE,
-            debug_compile_stdin: false,
-            unstable_features: Vec::new(),
-            no_unstable_features: false,
-            disable_comptime_printing: false,
-            field: FieldId::linked(),
-            generic_builtins: false,
+        /// Gives the flattened [`CompileOptions`] a [`Parser`] to be parsed through.
+        #[derive(Parser)]
+        struct DefaultCompileOptions {
+            #[command(flatten)]
+            options: CompileOptions,
         }
+
+        // Building the `clap` command costs more than a struct literal, and `default()` is
+        // called once per compilation (and once per iteration in the fuzzers), so build the
+        // defaults once and hand out clones.
+        static DEFAULTS: OnceLock<CompileOptions> = OnceLock::new();
+        DEFAULTS
+            .get_or_init(|| {
+                DefaultCompileOptions::try_parse_from(["nargo"])
+                    .expect(
+                        "no field of CompileOptions is required, so parsing no arguments succeeds",
+                    )
+                    .options
+            })
+            .clone()
     }
 }
 
 impl CompileOptions {
+    /// Where comptime code prints to under these options.
+    pub fn comptime_io(&self) -> ComptimeIo {
+        if self.disable_comptime_printing { ComptimeIo::silent() } else { ComptimeIo::stdout() }
+    }
+
     pub fn as_ssa_options(&self, package_build_path: PathBuf) -> SsaEvaluatorOptions {
         SsaEvaluatorOptions {
             ssa_logging: if !self.show_ssa_pass.is_empty() {
@@ -528,9 +512,7 @@ fn first_unlowerable_integer(
 /// lower: one it has no lowering for, or one whose values can reach the linked field's modulus.
 /// Call between monomorphization and circuit generation; `check_crate` and consumers of the
 /// monomorphized output accept every width the language has.
-pub fn ensure_integer_widths_are_lowerable(
-    program: &MonomorphizedProgram,
-) -> Result<(), CompileError> {
+pub fn ensure_integer_widths_are_lowerable(program: &AstProgram) -> Result<(), CompileError> {
     use noirc_frontend::monomorphization::ast::Expression;
     use noirc_frontend::monomorphization::visitor::visit_expr;
 
@@ -562,13 +544,14 @@ pub fn ensure_integer_widths_are_lowerable(
             if found.is_some() {
                 return false;
             }
-            // Every typed node reports its own type; the loop index is the one type an
-            // expression's own type does not cover.
-            let index_type = match expr {
+            // Every typed node reports its own type. A loop's index and the binding of a `let`
+            // have types no expression reports as its own.
+            let unreported_type = match expr {
                 Expression::For(for_loop) => Some(&for_loop.index_type),
+                Expression::Let(let_) => Some(&let_.typ),
                 _ => None,
             };
-            for typ in index_type.into_iter().chain(expr.return_type().as_deref()) {
+            for typ in unreported_type.into_iter().chain(expr.return_type().as_deref()) {
                 if let Some((typ, rule)) = first_unlowerable_integer(typ) {
                     found = Some((typ.clone(), rule));
                     return false;
@@ -601,20 +584,33 @@ pub type CompilationResult<T> = Result<(T, Warnings), ErrorsAndWarnings>;
 
 /// Run the def collection, elaboration and type checking passes.
 ///
+/// The checked context is returned whether or not there were errors, as its analysis remains
+/// usable for tooling and its files are needed to report them. Alongside it:
+///
 /// On success, this returns () alongside any warnings found during checking.
 ///
 /// On error, this returns a non-empty vector of warnings and error messages, with at least one error.
-#[tracing::instrument(level = "trace", skip_all)]
+///
+/// Comptime code prints to stdout, unless `options` disable comptime printing.
 pub fn check_crate(
-    context: &mut Context,
+    context: Context,
     crate_id: CrateId,
     options: &CompileOptions,
-) -> CompilationResult<()> {
-    if options.disable_comptime_printing {
-        context.disable_comptime_printing();
-    }
+) -> (CheckedContext, CompilationResult<()>) {
+    check_crate_with_comptime_io(context, crate_id, options, &mut options.comptime_io())
+}
 
-    let diagnostics = CrateDefMap::collect_defs(crate_id, context, options.frontend_options());
+/// Same as [`check_crate`], but comptime code writes to `comptime_io`, whatever `options` say
+/// about comptime printing.
+#[tracing::instrument(level = "trace", name = "check_crate", skip_all)]
+pub fn check_crate_with_comptime_io(
+    context: Context,
+    crate_id: CrateId,
+    options: &CompileOptions,
+    comptime_io: &mut ComptimeIo,
+) -> (CheckedContext, CompilationResult<()>) {
+    let (context, diagnostics) =
+        context.check_crate(crate_id, options.frontend_options(), comptime_io);
     let crate_files = context.crate_files(&crate_id);
     let warnings_and_errors: Vec<CustomDiagnostic> = diagnostics
         .iter()
@@ -629,15 +625,16 @@ pub fn check_crate(
         })
         .collect();
 
-    if has_errors(&warnings_and_errors, options.deny_warnings) {
+    let result = if has_errors(&warnings_and_errors, options.deny_warnings) {
         Err(warnings_and_errors)
     } else {
         Ok(((), warnings_and_errors))
-    }
+    };
+    (context, result)
 }
 
 pub fn compute_function_abi(
-    context: &Context,
+    context: &CheckedContext,
     crate_id: &CrateId,
 ) -> Option<(Vec<AbiParameter>, Option<AbiType>)> {
     let main_function = context.get_main_function(crate_id)?;
@@ -650,15 +647,45 @@ pub fn compute_function_abi(
 /// On success this returns the compiled program alongside any warnings that were found.
 /// On error this returns the non-empty list of warnings and errors.
 ///
-/// See [`compile_no_check`] for further information about the use of `cached_program`.
-#[tracing::instrument(level = "trace", skip_all)]
+/// See [`compile_no_check`] for further information about the use of `package_build_path`,
+/// `count_array_copies` and `cached_program`.
+///
+/// Unless the cached program is reused, the HIR is freed once the program has been
+/// monomorphized, so it is not kept in memory during code generation.
 pub fn compile_main(
-    context: &mut Context,
+    context: Context,
     crate_id: CrateId,
     options: &CompileOptions,
+    package_build_path: &Path,
+    count_array_copies: bool,
     cached_program: Option<CompiledProgram>,
 ) -> CompilationResult<CompiledProgram> {
-    let (_, mut warnings) = check_crate(context, crate_id, options)?;
+    let mut comptime_io = options.comptime_io();
+    compile_main_with_comptime_io(
+        context,
+        crate_id,
+        options,
+        package_build_path,
+        count_array_copies,
+        cached_program,
+        &mut comptime_io,
+    )
+}
+
+/// Same as [`compile_main`], but comptime code writes to `comptime_io`, whatever `options` say
+/// about comptime printing.
+#[tracing::instrument(level = "trace", name = "compile_main", skip_all)]
+pub fn compile_main_with_comptime_io(
+    context: Context,
+    crate_id: CrateId,
+    options: &CompileOptions,
+    package_build_path: &Path,
+    count_array_copies: bool,
+    cached_program: Option<CompiledProgram>,
+    comptime_io: &mut ComptimeIo,
+) -> CompilationResult<CompiledProgram> {
+    let (context, result) = check_crate_with_comptime_io(context, crate_id, options, comptime_io);
+    let (_, mut warnings) = result?;
 
     let main = context.get_main_function(&crate_id).ok_or_else(|| {
         // TODO(#2155): This error might be a better to exist in Nargo
@@ -669,9 +696,31 @@ pub fn compile_main(
         vec![err]
     })?;
 
-    let compiled_program =
-        compile_no_check(context, options, main, cached_program, options.force_compile)
-            .map_err(|error| vec![CustomDiagnostic::from(error)])?;
+    let monomorphized = monomorphize_program(&context, options, main)
+        .map_err(|error| vec![CustomDiagnostic::from(error)])?;
+    let compiled_program = match reusable_cached_program(
+        options,
+        count_array_copies,
+        &monomorphized,
+        cached_program,
+        options.force_compile,
+    ) {
+        Some(cached_program) => cached_program,
+        None => {
+            // Nothing past monomorphization reads the HIR, so free it rather than keep it alive
+            // alongside the SSA, ACIR and Brillig for the rest of compilation.
+            let mut context = context.into_context();
+            context.def_interner = NodeInterner::default();
+            compile_monomorphized(
+                &context,
+                options,
+                package_build_path,
+                count_array_copies,
+                monomorphized,
+            )
+            .map_err(|error| vec![CustomDiagnostic::from(error)])?
+        }
+    };
 
     let compilation_warnings =
         vecmap(compiled_program.warnings.clone(), ssa_report_to_custom_diagnostic);
@@ -691,13 +740,18 @@ pub fn compile_main(
 }
 
 /// Run the frontend to check the crate for errors then compile all contracts if there were none
+///
+/// See [`compile_no_check`] for further information about the use of `package_build_path`.
 #[tracing::instrument(level = "trace", skip_all)]
 pub fn compile_contract(
-    context: &mut Context,
+    context: Context,
     crate_id: CrateId,
     options: &CompileOptions,
+    package_build_path: &Path,
 ) -> CompilationResult<CompiledContract> {
-    let (_, mut warnings) = check_crate(context, crate_id, options)?;
+    let (context, result) = check_crate(context, crate_id, options);
+    let context = &context;
+    let (_, mut warnings) = result?;
 
     let def_map = context.def_map(&crate_id).expect("The local crate should be analyzed already");
     let mut contracts = def_map.get_all_contracts();
@@ -722,14 +776,15 @@ pub fn compile_contract(
     let module_id = ModuleId { krate: crate_id, local_id: module_id };
     let contract = read_contract(context, module_id, name);
 
-    let compiled_contract = match compile_contract_inner(context, contract, options) {
-        Ok(contract) => contract,
-        Err(mut more_errors) => {
-            let mut errors = warnings;
-            errors.append(&mut more_errors);
-            return Err(errors);
-        }
-    };
+    let compiled_contract =
+        match compile_contract_inner(context, contract, options, package_build_path) {
+            Ok(contract) => contract,
+            Err(mut more_errors) => {
+                let mut errors = warnings;
+                errors.append(&mut more_errors);
+                return Err(errors);
+            }
+        };
 
     let compilation_warnings =
         vecmap(compiled_contract.warnings.clone(), ssa_report_to_custom_diagnostic);
@@ -809,9 +864,10 @@ fn has_errors(errors: &[CustomDiagnostic], deny_warnings: bool) -> bool {
 
 /// Compile all of the functions associated with a Noir contract.
 fn compile_contract_inner(
-    context: &mut Context,
+    context: &CheckedContext,
     contract: Contract,
     options: &CompileOptions,
+    package_build_path: &Path,
 ) -> Result<CompiledContract, ErrorsAndWarnings> {
     let mut functions = Vec::new();
     let mut errors = Vec::new();
@@ -843,7 +899,15 @@ fn compile_contract_inner(
             }
         }
 
-        let function = match compile_no_check(context, &options, function_id, None, true) {
+        let function = match compile_no_check(
+            context,
+            &options,
+            package_build_path,
+            false,
+            function_id,
+            None,
+            true,
+        ) {
             Ok(function) => function,
             Err(new_error) => {
                 errors.push(new_error.into());
@@ -1010,6 +1074,13 @@ pub fn filter_relevant_files(
 ///
 /// This function assumes [`check_crate`] is called beforehand.
 ///
+/// `package_build_path` is the path of the package's artifact, which `--emit-ssa` derives the
+/// location of the SSA it writes from. It is not read otherwise.
+///
+/// `count_array_copies` instruments the compiled Brillig to count array/vector copies per source
+/// location. It is set only by `nargo execute --count-array-copies`, which compiles in memory so
+/// the instrumented artifact is never persisted.
+///
 /// Whether returned from cache or freshly compiled, the program has already been fully optimized and
 /// transformed for the proving backend (the width-bounding CSAT pass and intermediate-variable
 /// elimination, using the assembled program's Brillig side-effect information) as part of
@@ -1022,30 +1093,62 @@ pub fn filter_relevant_files(
 #[tracing::instrument(level = "trace", skip_all, fields(function_name = context.function_name(&main_function)))]
 #[allow(clippy::result_large_err)]
 pub fn compile_no_check(
-    context: &mut Context,
+    context: &CheckedContext,
     options: &CompileOptions,
+    package_build_path: &Path,
+    count_array_copies: bool,
     main_function: FuncId,
     cached_program: Option<CompiledProgram>,
     force_compile: bool,
 ) -> Result<CompiledProgram, CompileError> {
+    let monomorphized = monomorphize_program(context, options, main_function)?;
+    if let Some(cached_program) = reusable_cached_program(
+        options,
+        count_array_copies,
+        &monomorphized,
+        cached_program,
+        force_compile,
+    ) {
+        return Ok(cached_program);
+    }
+    compile_monomorphized(context, options, package_build_path, count_array_copies, monomorphized)
+}
+
+/// A monomorphized program, together with everything compiling it needs from the
+/// [`NodeInterner`].
+///
+/// [`compile_monomorphized`] reads nothing else from the interner, so the interner can be
+/// freed once this has been built.
+struct MonomorphizedProgram {
+    program: noirc_frontend::monomorphization::ast::Program,
+    /// Fingerprint of `program`, stored as [`CompiledProgram::hash`].
+    hash: u64,
+    abi_parameters: Vec<AbiParameter>,
+    abi_return_type: Option<AbiType>,
+    /// Location reported if a type in the ABI fails to evaluate.
+    main_location: Location,
+}
+
+/// Monomorphizes the program with `main_function` as its entry point and computes the parts of
+/// its ABI which depend on the HIR.
+#[allow(clippy::result_large_err)]
+fn monomorphize_program(
+    context: &CheckedContext,
+    options: &CompileOptions,
+    main_function: FuncId,
+) -> Result<MonomorphizedProgram, CompileError> {
     let force_unconstrained = options.force_brillig || options.minimal_ssa;
 
     let program = if options.instrument_debug {
         monomorphize_debug(
             main_function,
-            &mut context.def_interner,
-            context.file_manager.as_file_map(),
+            &context.def_interner,
             &context.debug_instrumenter,
             context.debug_crate_id,
             force_unconstrained,
         )?
     } else {
-        monomorphize(
-            main_function,
-            &mut context.def_interner,
-            context.file_manager.as_file_map(),
-            force_unconstrained,
-        )?
+        monomorphize(main_function, &context.def_interner, force_unconstrained)?
     };
 
     if options.show_monomorphized {
@@ -1055,35 +1158,64 @@ pub fn compile_no_check(
     ensure_field_is_linked(options.field)?;
     ensure_integer_widths_are_lowerable(&program)?;
 
+    // Hash the AST program, which is going to be used to fingerprint the compilation artifact.
+    let hash = rustc_hash::FxBuildHasher.hash_one(&program);
+
+    let (abi_parameters, abi_return_type) = abi_gen::compute_function_abi(context, &main_function);
+    let main_location = abi_gen::get_main_function_location(context);
+
+    Ok(MonomorphizedProgram { program, hash, abi_parameters, abi_return_type, main_location })
+}
+
+/// Returns `cached_program` if it was compiled from the same monomorphized program and nothing
+/// requires compiling it again.
+fn reusable_cached_program(
+    options: &CompileOptions,
+    count_array_copies: bool,
+    monomorphized: &MonomorphizedProgram,
+    cached_program: Option<CompiledProgram>,
+    force_compile: bool,
+) -> Option<CompiledProgram> {
     // If user has specified that they want to see intermediate steps printed then we should
     // force compilation even if the program hasn't changed.
     let force_compile = force_compile
         || options.print_acir
         || options.show_brillig
         || options.force_brillig
-        || context.count_array_copies
+        || count_array_copies
         || options.show_ssa
         || !options.show_ssa_pass.is_empty()
         || options.emit_ssa
         || options.minimal_ssa;
 
-    // Hash the AST program, which is going to be used to fingerprint the compilation artifact.
-    let hash = rustc_hash::FxBuildHasher.hash_one(&program);
-
-    if let Some(cached_program) = cached_program
-        && !force_compile
-        && cached_program.hash == hash
-    {
-        info!("Program matches existing artifact, returning early");
-        return Ok(cached_program);
+    let cached_program = cached_program?;
+    if force_compile || cached_program.hash != monomorphized.hash {
+        return None;
     }
+    info!("Program matches existing artifact, returning early");
+    Some(cached_program)
+}
+
+/// Compiles a monomorphized program into ACIR and Brillig.
+///
+/// This reads the file manager, parsed files, crate graph and def maps from `context`, but not
+/// its [`NodeInterner`].
+#[allow(clippy::result_large_err)]
+fn compile_monomorphized(
+    context: &Context,
+    options: &CompileOptions,
+    package_build_path: &Path,
+    count_array_copies: bool,
+    monomorphized: MonomorphizedProgram,
+) -> Result<CompiledProgram, CompileError> {
+    let MonomorphizedProgram { program, hash, abi_parameters, abi_return_type, main_location } =
+        monomorphized;
 
     let return_visibility = program.return_visibility();
-    let mut ssa_evaluator_options = options.as_ssa_options(context.package_build_path.clone());
+    let mut ssa_evaluator_options = options.as_ssa_options(package_build_path.to_path_buf());
 
-    // The copy-site registry is what turns on the `--count-array-copies` instrumentation. It is
-    // enabled per-compilation via the context rather than through the shared `CompileOptions`.
-    if context.count_array_copies {
+    // The copy-site registry is what turns on the `--count-array-copies` instrumentation.
+    if count_array_copies {
         ssa_evaluator_options.brillig_options.copy_site_registry =
             Some(CopySiteRegistry::default());
     }
@@ -1095,7 +1227,7 @@ pub fn compile_no_check(
             program,
             &ssa_evaluator_options,
             // The registry resolves copy sites to source locations, which needs the file manager.
-            if options.with_ssa_locations || context.count_array_copies {
+            if options.with_ssa_locations || count_array_copies {
                 Some(&context.file_manager)
             } else {
                 None
@@ -1103,7 +1235,14 @@ pub fn compile_no_check(
         )?
     };
 
-    let abi = gen_abi(context, &main_function, return_visibility, error_types);
+    let abi = abi_gen::assemble_abi(
+        context,
+        main_location,
+        abi_parameters,
+        abi_return_type,
+        return_visibility,
+        error_types,
+    );
     let file_map = filter_relevant_files(&debug, &context.file_manager, &context.parsed_files);
 
     Ok(CompiledProgram {

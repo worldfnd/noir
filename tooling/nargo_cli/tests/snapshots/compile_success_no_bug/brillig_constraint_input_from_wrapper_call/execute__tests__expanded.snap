@@ -1,0 +1,31 @@
+---
+source: tooling/nargo_cli/tests/execute.rs
+expression: expanded_code
+---
+use std::convert::UnsafeFrom;
+
+unconstrained fn halve_helper(x: Field) -> Field {
+    x / 2_Field
+}
+
+fn halve(x: Field) -> Field {
+    // Safety: comment added by `nargo expand`
+    let y: Field = unsafe { halve_helper(x) };
+    assert((y * 2_Field) == x);
+    y
+}
+
+unconstrained fn third_helper(x: Field) -> Field {
+    x / 3_Field
+}
+
+fn main(a: u8, b: u8) -> pub u8 {
+    let a: Field = <Field as From<u8>>::from(a);
+    let b: Field = <Field as From<u8>>::from(b);
+    let p: Field = halve(a);
+    let q: Field = halve(b);
+    // Safety: comment added by `nargo expand`
+    let r: Field = unsafe { third_helper(q) };
+    assert((r * 3_Field) == q);
+    u8::unsafe_from(p + r)
+}

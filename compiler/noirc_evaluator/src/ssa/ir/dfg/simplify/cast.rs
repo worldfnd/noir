@@ -4,7 +4,6 @@ use num_bigint::BigUint;
 use crate::ssa::ir::{
     dfg::{DataFlowGraph, simplify::SimplifyResult, simplify::bail_malformed},
     instruction::Instruction,
-    integer::IntegerConstant,
     types::{NumericType, Type},
     value::{Value, ValueId},
 };
@@ -59,56 +58,29 @@ pub(super) fn simplify_cast(
                 SimplifiedTo(dfg.make_constant(truncated, dst_typ))
             }
             (
-                NumericType::NativeField | NumericType::Unsigned { .. },
+                NumericType::NativeField
+                | NumericType::Unsigned { .. }
+                | NumericType::Signed { .. },
                 NumericType::Signed { bit_size },
             ) => {
-                // `IntegerConstant::from_numeric_constant` cannot handle i128
+                // Noir has no `i128` type and the SSA interpreter does not model one, so casts
+                // into it are left alone.
                 if bit_size == 128 {
                     return None;
                 }
 
-                // Field/Unsigned -> signed
-                // We could only simplify to signed when we are below the maximum integer of the destination type.
-                // However, we expect that overflow constraints have been generated appropriately that enforce correctness.
-                let integer_constant = IntegerConstant::from_numeric_constant(constant, dst_typ);
-                if integer_constant.is_some() {
-                    SimplifiedTo(dfg.make_constant(constant, dst_typ))
-                } else {
-                    None
-                }
-            }
-            (NumericType::Signed { .. }, NumericType::Signed { bit_size }) => {
-                // `IntegerConstant::from_numeric_constant` cannot handle i128
-                if bit_size == 128 {
+                // Field/Unsigned/Signed -> signed
+                // A cast only relabels the type, so the folded constant keeps the same field element.
+                // If that element does not fit in `bit_size` bits the cast is malformed: folding it
+                // would produce a constant outside its own type's range, and truncating it would
+                // pick one value for an operation whose result the backends do not agree on.
+                // Keeping the cast leaves each backend's semantics in place, and lets the validator
+                // reject a narrowing cast of an out-of-range constant.
+                if constant.num_bits() > bit_size {
                     return None;
                 }
 
-                // When going from signed to signed, we first need to interpret the constant as the signed source type,
-                // and then convert it to the signed destination type.
-                // For example, when going from `i8 -1` to `i16`, `i8 -1` is represented as the FieldElement 255,
-                // and it would be incorrect to use `IntegerConstant::from_numeric_constant(constant, dst_typ)` as
-                // that would give `i16 255` instead of the desired `i16 -1`.
-                //
-                // For narrowing casts we also need to truncate to the destination width and
-                // sign-extend, so that e.g. `i16 256 as i8` yields `i8 0` rather than an
-                // out-of-range constant.
-                if let Some(src_constant) =
-                    IntegerConstant::from_numeric_constant(constant, src_typ)
-                {
-                    let value = src_constant.apply(|v| v, |v| v as i128);
-                    let truncated = match bit_size {
-                        8 => i128::from(value as i8),
-                        16 => i128::from(value as i16),
-                        32 => i128::from(value as i32),
-                        64 => i128::from(value as i64),
-                        _ => unreachable!("ICE - invalid bit size {bit_size} for signed integer"),
-                    };
-                    let dst_constant = IntegerConstant::Signed { value: truncated, bit_size };
-                    let (dst_constant, dst_typ) = dst_constant.into_numeric_constant();
-                    SimplifiedTo(dfg.make_constant(dst_constant, dst_typ))
-                } else {
-                    None
-                }
+                SimplifiedTo(dfg.make_constant(constant, dst_typ))
             }
             (NumericType::NativeField, NumericType::NativeField) => {
                 unreachable!("This should be covered in previous if-branch")
@@ -161,12 +133,16 @@ mod tests {
         ";
         let ssa = Ssa::from_str_simplifying(src).unwrap();
 
-        // The overflow check would fail here.
+        // `u8 300` does not fit in 8 bits, so the cast to `i8` is not folded.
         assert_ssa_snapshot!(ssa, @r"
         brillig(inline) predicate_pure fn main f0 {
           b0():
-            constrain u1 1 == u1 0
-            return i8 44
+            v1 = cast u8 300 as i8
+            v2 = truncate v1 to 8 bits, max_bit_size: 9
+            v3 = cast v2 as u8
+            v5 = lt v3, u8 128
+            constrain v5 == u1 0
+            return v2
         }
         ");
     }
@@ -214,86 +190,6 @@ mod tests {
             v2 = unchecked_add v0, v1
             v3 = cast v2 as i64
             return v2
-        }
-        ");
-    }
-
-    #[test]
-    fn simplifies_cast_from_i8_minus_1_to_i16() {
-        let src = "
-        acir(inline) pure fn main f0 {
-          b0():
-            v0 = cast i8 -1 as i16
-            return v0
-        }
-        ";
-
-        let ssa = Ssa::from_str_simplifying(src).unwrap();
-
-        assert_ssa_snapshot!(ssa, @"
-        acir(inline) pure fn main f0 {
-          b0():
-            return i16 -1
-        }
-        ");
-    }
-
-    #[test]
-    fn simplifies_cast_from_i16_minus_1_to_i8() {
-        let src = "
-        acir(inline) pure fn main f0 {
-          b0():
-            v0 = cast i16 -1 as i8
-            return v0
-        }
-        ";
-
-        let ssa = Ssa::from_str_simplifying(src).unwrap();
-
-        assert_ssa_snapshot!(ssa, @"
-        acir(inline) pure fn main f0 {
-          b0():
-            return i8 -1
-        }
-        ");
-    }
-
-    #[test]
-    fn simplifies_cast_from_i16_256_to_i8() {
-        let src = "
-        acir(inline) pure fn main f0 {
-          b0():
-            v0 = cast i16 256 as i8
-            return v0
-        }
-        ";
-
-        let ssa = Ssa::from_str_simplifying(src).unwrap();
-
-        assert_ssa_snapshot!(ssa, @r"
-        acir(inline) pure fn main f0 {
-          b0():
-            return i8 0
-        }
-        ");
-    }
-
-    #[test]
-    fn simplifies_cast_from_i32_384_to_i8() {
-        let src = "
-        acir(inline) pure fn main f0 {
-          b0():
-            v0 = cast i32 384 as i8
-            return v0
-        }
-        ";
-
-        let ssa = Ssa::from_str_simplifying(src).unwrap();
-
-        assert_ssa_snapshot!(ssa, @r"
-        acir(inline) pure fn main f0 {
-          b0():
-            return i8 -128
         }
         ");
     }

@@ -4,7 +4,7 @@ use noirc_errors::Location;
 use num_bigint::BigInt;
 
 use crate::{
-    Kind, Type, TypeBindings,
+    Kind, Type, TypeBindings, TypeVariable,
     elaborator::lints::check_integer_literal_fits_its_type,
     hir::{
         comptime::{InterpreterError, Value},
@@ -87,6 +87,45 @@ struct LocalTraitConstraint {
     /// True if a reference to some function in this constraint's trait should replace the
     /// expression at `self.expr` during monomorphization.
     select_impl: bool,
+
+    /// Where [`Elaborator::select_where_possible`] has got with this constraint.
+    progress: Progress,
+
+    /// For a where-clause bound of a referenced function that
+    /// [`Elaborator::check_where_clauses_without_generics`] also checks where it is declared, the
+    /// bound as declared, before the reference's instantiation. A failure here is not reported
+    /// again if that check reports the declared bound. It does not decide every instance (an
+    /// associated type set to a generic is only fixed here), so any other failure is reported.
+    declared_bound: Option<TraitConstraint>,
+}
+
+/// How far solving a queued constraint while its function is being checked has got. Whatever
+/// it reaches, the constraint is checked again at the end of the function, which reports errors
+/// and records the impl it selects.
+#[derive(Debug, Default)]
+enum Progress {
+    /// Not tried yet.
+    #[default]
+    New,
+    /// Tried while the impl to use was undecided. The type variables it was waiting on, so it is
+    /// only tried again once one of them is bound.
+    Stalled(Vec<TypeVariable>),
+    /// An impl was selected and its bindings applied.
+    Selected,
+}
+
+impl Progress {
+    /// Whether trying the constraint again could get further: it hasn't been tried, or one of
+    /// the type variables it was waiting on has been bound since.
+    fn may_advance(&self) -> bool {
+        match self {
+            Progress::New => true,
+            Progress::Stalled(waiting_on) => {
+                waiting_on.iter().any(|var| !var.binding().is_unbound())
+            }
+            Progress::Selected => false,
+        }
+    }
 }
 
 /// The kind of required type variable.
@@ -139,43 +178,87 @@ impl Elaborator<'_> {
         expr: ExprId,
         select_impl: bool,
     ) {
+        let declared_bound = None;
+        self.push_local_trait_constraint(constraint, expr, select_impl, declared_bound);
+    }
+
+    /// [`Self::push_trait_constraint`] for a bound of the where clause of the function referenced
+    /// by `expr`, instantiated for that reference.
+    pub(super) fn push_where_clause_constraint(
+        &mut self,
+        constraint: TraitConstraint,
+        expr: ExprId,
+        declared_bound: Option<TraitConstraint>,
+    ) {
+        let select_impl = false;
+        self.push_local_trait_constraint(constraint, expr, select_impl, declared_bound);
+    }
+
+    fn push_local_trait_constraint(
+        &mut self,
+        constraint: TraitConstraint,
+        expr: ExprId,
+        select_impl: bool,
+        declared_bound: Option<TraitConstraint>,
+    ) {
         self.get_function_context_mut().trait_constraints.push(LocalTraitConstraint {
             constraint,
             expr,
             select_impl,
+            progress: Progress::New,
+            declared_bound,
         });
     }
 
-    /// Number of trait constraints currently queued in the FunctionContext. Pair with
-    /// [Self::try_resolve_trait_constraints_since] to apply eager resolution to only
-    /// the constraints pushed after this checkpoint.
-    #[tracing::instrument(level = "trace", skip_all)]
-    pub(super) fn pending_trait_constraint_checkpoint(&mut self) -> usize {
-        self.get_function_context_mut().trait_constraints.len()
+    /// Follows the bindings of `typ`, which is about to be inspected. If it isn't known yet, the
+    /// queued trait constraints that can be solved are solved first, as one of them may decide it
+    /// (the result of a call that returns an associated type).
+    pub(super) fn structurally_resolve_type(&mut self, typ: &Type) -> Type {
+        let typ = typ.follow_bindings();
+        if !matches!(typ, Type::TypeVariable(_)) {
+            return typ;
+        }
+        self.select_where_possible();
+        typ.follow_bindings()
     }
 
-    /// Try to resolve trait constraints pushed since `checkpoint` whose object type has
-    /// become concrete. Successfully resolving an impl applies its type bindings, which
-    /// can bind associated-type variables that subsequent unifications (e.g. of a call's
-    /// return type against a let-binding annotation) need to see as already bound.
-    /// Constraints remain in the queue and are re-validated at function end.
-    #[tracing::instrument(level = "trace", skip_all)]
-    pub(super) fn try_resolve_trait_constraints_since(&mut self, checkpoint: usize) {
-        let constraints: Vec<_> = self.get_function_context_mut().trait_constraints[checkpoint..]
-            .iter()
-            .filter(|local| !local.constraint.typ.follow_bindings().is_bindable())
-            .map(|local| local.constraint.clone())
-            .collect();
-
-        for constraint in constraints {
-            let _ = constraint.find_impl(self.interner, None);
+    /// Solves each queued trait constraint whose impl can already be decided, binding the type
+    /// variables that impl decides (its associated types, and the trait arguments it fixes). A
+    /// constraint whose impl still depends on an unknown type is left alone, and only tried
+    /// again once one of its types has changed.
+    pub(super) fn select_where_possible(&mut self) {
+        let context = self.function_context.last_mut().expect("no function context");
+        let mut to_try = Vec::new();
+        for (index, local) in context.trait_constraints.iter().enumerate() {
+            if local.progress.may_advance() {
+                to_try.push((index, local.constraint.clone()));
+            }
+        }
+        for (index, constraint) in to_try {
+            let bound = &constraint.trait_bound;
+            let progress = match self.interner.try_lookup_trait_implementation(
+                &constraint.typ,
+                bound.trait_id,
+                &bound.trait_generics.ordered,
+                &bound.trait_generics.named,
+                TraitLookupMode::Default,
+            ) {
+                Ok((_, bindings, _)) => {
+                    Type::apply_type_bindings(bindings);
+                    Progress::Selected
+                }
+                // Errors are reported by the check at the end of the function. A constraint whose
+                // types can't change any more is never tried again.
+                Err(_) => Progress::Stalled(unbound_type_variables(&constraint)),
+            };
+            self.get_function_context_mut().trait_constraints[index].progress = progress;
         }
     }
 
     /// Push an `ExprId` that corresponds to an integer literal.
     /// At the end of the current function we'll check that they fit in their type's range.
     #[tracing::instrument(level = "trace", skip_all)]
-    pub fn push_integer_literal_expr_id(&mut self, literal_expr_id: ExprId) {
+    pub(crate) fn push_integer_literal_expr_id(&mut self, literal_expr_id: ExprId) {
         self.get_function_context_mut().integer_literal_expr_ids.push(literal_expr_id);
     }
 
@@ -190,14 +273,6 @@ impl Elaborator<'_> {
     ) {
         let cast = FieldCast { lhs, from, to, location, defaulted: false };
         self.get_function_context_mut().field_casts.push(cast);
-    }
-
-    pub(super) fn integer_literal_expr_ids_len(&mut self) -> usize {
-        self.get_function_context_mut().integer_literal_expr_ids.len()
-    }
-
-    pub(super) fn truncate_integer_literal_expr_ids(&mut self, len: usize) {
-        self.get_function_context_mut().integer_literal_expr_ids.truncate(len);
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
@@ -269,7 +344,7 @@ impl Elaborator<'_> {
         &self,
         trait_constraints: &[LocalTraitConstraint],
     ) {
-        let current_trait_self = self.current_trait.and_then(|_| self.self_type.clone());
+        let current_trait_self = self.item.impl_context.trait_self_type();
         for local in trait_constraints {
             let _ = local.constraint.find_impl(self.interner, current_trait_self.as_ref());
         }
@@ -414,7 +489,7 @@ impl Elaborator<'_> {
 
     #[tracing::instrument(level = "trace", skip_all)]
     fn check_trait_constraints(&mut self, trait_constraints: Vec<LocalTraitConstraint>) {
-        let current_trait_self = self.current_trait.and_then(|_| self.self_type.clone());
+        let current_trait_self = self.item.impl_context.trait_self_type();
 
         for local in trait_constraints {
             match local.constraint.find_impl(self.interner, current_trait_self.as_ref()) {
@@ -423,12 +498,20 @@ impl Elaborator<'_> {
                         self.select_impl(local.expr, impl_kind, instantiation_bindings);
                     }
                 }
+                Err(_) if self.reported_at_declaration(local.declared_bound.as_ref()) => (),
                 Err(error) => {
                     let location = self.interner.expr_location(&local.expr);
                     self.push_trait_constraint_error(&local.constraint.typ, error, location);
                 }
             }
         }
+    }
+
+    /// Whether `declared_bound`, a where-clause bound as declared, is reported as failing where it
+    /// is declared (see [`Elaborator::check_where_clauses_without_generics`]).
+    fn reported_at_declaration(&self, declared_bound: Option<&TraitConstraint>) -> bool {
+        declared_bound
+            .is_some_and(|bound| self.where_clause_bound_without_generics_error(bound).is_some())
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
@@ -477,6 +560,11 @@ impl Elaborator<'_> {
         error: ImplSearchErrorKind,
         location: Location,
     ) {
+        // An object of the error type comes from an error that has already been reported.
+        if matches!(object_type.follow_bindings(), Type::Error) {
+            return;
+        }
+
         match error {
             ImplSearchErrorKind::TypeAnnotationsNeededOnObjectType => {
                 self.push_err(TypeCheckError::TypeAnnotationsNeededForMethodCall { location });
@@ -516,7 +604,7 @@ impl Elaborator<'_> {
                         let generic_name = generic.name.to_string();
                         let item_kind = "struct";
                         let item_name = data_type.borrow().name.to_string();
-                        let is_numeric = matches!(generic.type_var.kind(), Kind::Numeric(..));
+                        let is_numeric = matches!(*generic.type_var.kind(), Kind::Numeric(..));
                         self.push_err(TypeCheckError::TypeAnnotationNeededOnItem {
                             location,
                             generic_name,
@@ -553,7 +641,7 @@ impl Elaborator<'_> {
                                     let item_name =
                                         self.interner.definition_name(definition_id).to_string();
                                     let is_numeric =
-                                        matches!(generic.type_var.kind(), Kind::Numeric(..));
+                                        matches!(*generic.type_var.kind(), Kind::Numeric(..));
                                     self.push_err(TypeCheckError::TypeAnnotationNeededOnItem {
                                         location,
                                         generic_name: generic.name.to_string(),
@@ -579,7 +667,7 @@ impl Elaborator<'_> {
                                     all_generics.find(|generic| generic.type_var.id() == id);
                                 if let Some(generic) = generic {
                                     let is_numeric =
-                                        matches!(generic.type_var.kind(), Kind::Numeric(..));
+                                        matches!(*generic.type_var.kind(), Kind::Numeric(..));
                                     self.push_err(TypeCheckError::TypeAnnotationNeededOnItem {
                                         location,
                                         generic_name: generic.name.to_string(),
@@ -612,7 +700,7 @@ impl Elaborator<'_> {
                                 drop(def);
                                 if let Some(generic) = generic {
                                     let is_numeric =
-                                        matches!(generic.type_var.kind(), Kind::Numeric(..));
+                                        matches!(*generic.type_var.kind(), Kind::Numeric(..));
                                     self.push_err(TypeCheckError::TypeAnnotationNeededOnItem {
                                         location,
                                         generic_name: generic.name.to_string(),
@@ -629,4 +717,18 @@ impl Elaborator<'_> {
             }
         }
     }
+}
+
+/// The unbound type variables in `constraint`'s types.
+fn unbound_type_variables(constraint: &TraitConstraint) -> Vec<TypeVariable> {
+    let mut variables = Vec::new();
+    constraint.typ.unbound_type_variables(&mut variables);
+    let generics = &constraint.trait_bound.trait_generics;
+    for typ in &generics.ordered {
+        typ.unbound_type_variables(&mut variables);
+    }
+    for named in &generics.named {
+        named.typ.unbound_type_variables(&mut variables);
+    }
+    variables
 }

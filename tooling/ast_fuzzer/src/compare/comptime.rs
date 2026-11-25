@@ -15,12 +15,13 @@ use nargo::{foreign_calls::DefaultForeignCallBuilder, parse_all};
 use noirc_abi::Abi;
 use noirc_artifacts::program::CompiledProgram;
 use noirc_driver::{
-    CompilationResult, CompileOptions, CrateId, compile_main, file_manager_with_stdlib,
-    prepare_crate,
+    CompilationResult, CompileOptions, CrateId, compile_main_with_comptime_io,
+    file_manager_with_stdlib, prepare_crate,
 };
 use noirc_errors::CustomDiagnostic;
 use noirc_evaluator::ssa::SsaProgramArtifact;
 use noirc_frontend::elaborator::test_utils::ElaboratorError;
+use noirc_frontend::hir::comptime::ComptimeIo;
 use noirc_frontend::hir::def_collector::dc_crate::CompilationError;
 use noirc_frontend::{
     elaborator::test_utils::interpret, hir::Context, monomorphization::ast::Program,
@@ -32,28 +33,6 @@ use crate::compare::logging;
 use crate::{
     Config, DisplayAstAsNoirComptime, arb_program_comptime, program_abi, program_wrap_expression,
 };
-
-/// The print part of the stdlib, for the elaborator to be able to use the print oracle.
-const STDLIB_PRINT: &str = r#"
-        #[oracle(print)]
-        unconstrained fn print_oracle<T>(with_newline: bool, input: T) {}
-
-        unconstrained fn print_unconstrained<T>(with_newline: bool, input: T) {
-            print_oracle(with_newline, input);
-        }
-
-        pub fn println<T>(input: T) {
-            unsafe {
-                print_unconstrained(true, input);
-            }
-        }
-
-        pub fn print<T>(input: T) {
-            unsafe {
-                print_unconstrained(false, input);
-            }
-        }
-        "#;
 
 /// The conversions between `Field` and the integer types, where a printed program names them.
 const STDLIB_CONVERT: &str = r#"
@@ -86,15 +65,9 @@ const STDLIB_CONVERT: &str = r#"
         }
         "#;
 
-/// The source the comptime interpreter runs for the `printed` program: `main` made `comptime`,
-/// with the parts of the stdlib the program uses declared beside it.
-fn direct_source(printed: &str) -> String {
-    format!("comptime {printed}{STDLIB_PRINT}{STDLIB_CONVERT}")
-}
-
 /// Prepare a code snippet.
 /// (copied from `nargo_cli/tests/common.rs`)
-fn prepare_snippet(source: String) -> (Context<'static, 'static>, CrateId) {
+fn prepare_snippet(source: String) -> (Context, CrateId) {
     let root = Path::new("");
     let file_name = Path::new("main.nr");
     let mut file_manager = file_manager_with_stdlib(root);
@@ -120,8 +93,8 @@ fn prepare_and_compile_snippet<W: std::io::Write + 'static>(
     output: W,
 ) -> (CompilationResult<CompiledProgram>, W) {
     let output = Rc::new(RefCell::new(output));
-    let (mut context, root_crate_id) = prepare_snippet(source);
-    context.set_comptime_printing(output.clone());
+    let (context, root_crate_id) = prepare_snippet(source);
+    let mut comptime_io = ComptimeIo::printing_to(output.clone());
     let options = CompileOptions {
         force_brillig,
         silence_warnings: true,
@@ -129,10 +102,63 @@ fn prepare_and_compile_snippet<W: std::io::Write + 'static>(
         skip_brillig_constraints_check: true,
         ..Default::default()
     };
-    let res = compile_main(&mut context, root_crate_id, &options, None);
-    drop(context);
+    let res = compile_main_with_comptime_io(
+        context,
+        root_crate_id,
+        &options,
+        Path::new(""),
+        false,
+        None,
+        &mut comptime_io,
+    );
+    drop(comptime_io);
     let output = Rc::into_inner(output).expect("context is gone").into_inner();
     (res, output)
+}
+
+/// Declarations appended to the generated source before it is handed to the elaborator
+/// by [`CompareComptime::exec_direct`].
+///
+/// That path elaborates the snippet standalone, registering it as both the root crate and
+/// the stdlib, so nothing from `noir_stdlib` is in scope. Any stdlib item the AST printer
+/// can emit therefore has to be declared here, or elaboration fails before the comparison
+/// even runs. The printer renders builtins that are methods in Noir source as method calls
+/// (`s.as_bytes()`), so a bare `#[builtin]` free function would not resolve either — the
+/// declaration has to keep the same shape the printer assumes.
+///
+/// Vector and array builtins are deliberately absent: they are low-level extensions that
+/// cannot be expressed this way, which is why the target that uses this path sets
+/// `Config::avoid_vectors`.
+const COMPTIME_STDLIB_SHIM: &str = r#"
+        impl<let N: u32> str<N> {
+            #[builtin(str_as_bytes)]
+            pub fn as_bytes(self) -> [u8; N] {}
+        }
+
+        #[oracle(print)]
+        unconstrained fn print_oracle<T>(with_newline: bool, input: T) {}
+
+        unconstrained fn print_unconstrained<T>(with_newline: bool, input: T) {
+            print_oracle(with_newline, input);
+        }
+
+        pub fn println<T>(input: T) {
+            unsafe {
+                print_unconstrained(true, input);
+            }
+        }
+
+        pub fn print<T>(input: T) {
+            unsafe {
+                print_unconstrained(false, input);
+            }
+        }
+        "#;
+
+/// The source handed to the elaborator by [`CompareComptime::exec_direct`]: the generated
+/// program made `comptime`, followed by the stdlib items that path cannot import.
+fn comptime_source(program_source: &str) -> String {
+    format!("comptime {program_source}{COMPTIME_STDLIB_SHIM}{STDLIB_CONVERT}")
 }
 
 /// Compare the execution of a Noir program in pure comptime (via interpreter)
@@ -158,7 +184,7 @@ impl CompareComptime {
             Self::exec_bytecode(&self.ssa.artifact.program, initial_witness.clone());
 
         // The interpreter runs the source as the standard library, which has no `std` to call.
-        let source = direct_source(&DisplayAstAsNoirComptime(&self.program).to_string());
+        let source = comptime_source(&DisplayAstAsNoirComptime(&self.program).to_string());
         let output = Rc::new(RefCell::new(Vec::new()));
 
         // Take the printed output.
@@ -354,7 +380,29 @@ mod tests {
 
     use noirc_frontend::elaborator::test_utils::interpret;
 
-    use super::{direct_source, prepare_and_compile_snippet};
+    use super::{comptime_source, prepare_and_compile_snippet};
+
+    /// The AST fuzzer turns a `str<N>` into a `[u8; N]` with the `str_as_bytes` builtin, which the
+    /// printer renders as `s.as_bytes()`. `exec_direct` elaborates with the generated snippet
+    /// standing in for the stdlib, so the shim it appends has to carry that method or every
+    /// generated program containing a string-to-bytes conversion dies with `UnresolvedMethodCall`
+    /// before it is ever compared.
+    #[test]
+    fn shim_resolves_str_as_bytes() {
+        let source = comptime_source(
+            r#"
+fn main() -> pub [u8; 2] {
+    comptime { func_1("AB") }
+}
+fn func_1(a: str<2>) -> [u8; 2] {
+    a.as_bytes()
+}
+"#,
+        );
+        let output = Rc::new(RefCell::new(Vec::new()));
+        interpret(&source, output)
+            .expect("`str::as_bytes` should resolve against the comptime shim");
+    }
 
     /// A printed program converts between `Field` and an integer through `std::convert`, which
     /// the interpreted source declares for itself.
@@ -368,7 +416,7 @@ mod tests {
             }
         }";
         let output = Rc::new(RefCell::new(Vec::new()));
-        let result = interpret(&direct_source(printed), output);
+        let result = interpret(&comptime_source(printed), output);
         assert!(result.is_ok(), "{:?}", result.err());
     }
 

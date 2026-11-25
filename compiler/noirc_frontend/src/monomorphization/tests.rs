@@ -1,9 +1,12 @@
 #![cfg(test)]
 use acvm::FieldId;
+use noirc_errors::Location;
 
 use crate::{
     elaborator::UnstableFeature,
-    monomorphization::errors::MonomorphizationError,
+    hir::comptime::Integer,
+    hir_def::types::{BinaryTypeOperator, Kind, Type, TypeVariable, TypeVariableId},
+    monomorphization::{Monomorphizer, errors::MonomorphizationError},
     test_utils::{
         GetProgramOptions, get_monomorphization_output, get_monomorphized,
         get_monomorphized_with_options, get_monomorphized_with_stdlib,
@@ -12,15 +15,28 @@ use crate::{
     tests::check_monomorphization_error_using_features,
 };
 
+/// Monomorphize `src` with the `enums` unstable feature enabled.
+fn get_monomorphized_with_enums(
+    src: &str,
+) -> Result<crate::monomorphization::ast::Program, MonomorphizationError> {
+    let features = vec![UnstableFeature::Enums];
+    let options = GetProgramOptions {
+        frontend_options: crate::elaborator::FrontendOptions {
+            enabled_unstable_features: &features,
+            ..crate::elaborator::FrontendOptions::test_default()
+        },
+        ..Default::default()
+    };
+    get_monomorphized_with_options(src, options)
+}
+
 #[test]
-fn bounded_recursive_type_errors() {
-    // We want to eventually allow bounded recursive types like this, but for now they are
-    // disallowed because they cause a panic in convert_type during monomorphization.
+fn bounded_recursive_type_monomorphizes() {
+    // `Tree<Tree<Tree<()>>>` nests `Tree` inside itself, but only to a fixed depth, so each
+    // level converts to a differently-sized tuple.
     let src = "
         fn main() {
             let _tree: Tree<Tree<Tree<()>>> = Tree::Branch(
-                                              ^^^^^^^^^^^^ Type `Tree<()>` is recursive
-                                              ~~~~~~~~~~~~ All types in Noir must have a known size at compile-time
                 Tree::Branch(Tree::Leaf, Tree::Leaf),
                 Tree::Branch(Tree::Leaf, Tree::Leaf),
             );
@@ -31,32 +47,26 @@ fn bounded_recursive_type_errors() {
             Leaf,
         }
         ";
-    let features = vec![UnstableFeature::Enums];
-    check_monomorphization_error_using_features(src, &features, false);
+    let program = get_monomorphized_with_enums(src).unwrap();
+    insta::assert_snapshot!(program, @r"
+    global Leaf$g0: (Field, ((), ()), ()) = (1, ((), ()), ());
+    fn main$f0() -> () {
+        let _tree$l0 = Branch$f1(Branch$f2(Leaf$g0, Leaf$g0), Branch$f2(Leaf$g0, Leaf$g0))
+    }
+    fn Branch$f1($0$l1: (Field, ((Field, ((), ()), ()), (Field, ((), ()), ())), ()), $1$l2: (Field, ((Field, ((), ()), ()), (Field, ((), ()), ())), ())) -> (Field, ((Field, ((Field, ((), ()), ()), (Field, ((), ()), ())), ()), (Field, ((Field, ((), ()), ()), (Field, ((), ()), ())), ())), ()) {
+        (0, ($0$l1, $1$l2), ())
+    }
+    fn Branch$f2($0$l3: (Field, ((), ()), ()), $1$l4: (Field, ((), ()), ())) -> (Field, ((Field, ((), ()), ()), (Field, ((), ()), ())), ()) {
+        (0, ($0$l3, $1$l4), ())
+    }
+    ");
 }
 
 #[test]
-fn recursive_type_with_alias_errors() {
-    // We want to eventually allow bounded recursive types like this, but for now they are
-    // disallowed because they cause a panic in convert_type during monomorphization.
-    //
-    // In the future we could lower this type to:
-    // struct OptOptUnit {
-    //     is_some: Field,
-    //     some: OptUnit,
-    //     none: (),
-    // }
-    //
-    // struct OptUnit {
-    //     is_some: Field,
-    //     some: (),
-    //     none: (),
-    // }
+fn bounded_recursive_type_through_alias_monomorphizes() {
     let src = "
         fn main() {
             let _tree: Opt<OptAlias<()>> = Opt::Some(OptAlias::None);
-                                           ^^^^^^^^^ Type `Opt<()>` is recursive
-                                           ~~~~~~~~~ All types in Noir must have a known size at compile-time
         }
 
         type OptAlias<T> = Opt<T>;
@@ -66,8 +76,16 @@ fn recursive_type_with_alias_errors() {
             None,
         }
         ";
-    let features = vec![UnstableFeature::Enums];
-    check_monomorphization_error_using_features(src, &features, false);
+    let program = get_monomorphized_with_enums(src).unwrap();
+    insta::assert_snapshot!(program, @r"
+    global None$g0: (Field, ((),), ()) = (1, (()), ());
+    fn main$f0() -> () {
+        let _tree$l0 = Some$f1(None$g0)
+    }
+    fn Some$f1($0$l1: (Field, ((),), ())) -> (Field, ((Field, ((),), ()),), ()) {
+        (0, ($0$l1), ())
+    }
+    ");
 }
 
 #[test]
@@ -122,6 +140,58 @@ fn numeric_generic_checked_cast_in_instantiation_bindings() {
     assert!(get_monomorphized(src).is_ok());
 }
 
+fn unbound_u32_variable(id: usize) -> TypeVariable {
+    TypeVariable::unbound(TypeVariableId(id), Kind::Numeric(Box::new(Type::u32())))
+}
+
+/// Check the cast `from -> to`, asserting that it is accepted and that `variable`, which one of
+/// the two sides mentions, is still unbound afterwards.
+///
+/// `check_checked_cast` validates a cast that is already part of the elaborated program, and the
+/// type variables it meets are shared with that program: a binding it left behind would outlive
+/// monomorphization and be seen by every later compilation against the same context. The cast
+/// must still be accepted, which requires both sides to be evaluated under the bindings that
+/// unifying them found.
+fn assert_checked_cast_accepted_without_binding(from: &Type, to: &Type, variable: &TypeVariable) {
+    let result = Monomorphizer::check_checked_cast(from, to, Location::dummy());
+    assert!(result.is_ok(), "checking `{from} -> {to}` failed: {result:?}");
+    assert!(
+        variable.binding().is_unbound(),
+        "checking `{from} -> {to}` left type variable {} as {:?}",
+        variable.id().0,
+        *variable.binding()
+    );
+}
+
+#[test]
+fn check_checked_cast_does_not_bind_a_variable_in_its_source() {
+    let variable = unbound_u32_variable(0);
+    let from = Type::TypeVariable(variable.clone());
+    let to = Type::Constant(Integer::u32(1));
+    assert_checked_cast_accepted_without_binding(&from, &to, &variable);
+}
+
+#[test]
+fn check_checked_cast_does_not_bind_a_variable_in_its_destination() {
+    let variable = unbound_u32_variable(1);
+    let from = Type::Constant(Integer::u32(1));
+    let to = Type::TypeVariable(variable.clone());
+    assert_checked_cast_accepted_without_binding(&from, &to, &variable);
+}
+
+#[test]
+fn check_checked_cast_does_not_bind_a_variable_inside_arithmetic() {
+    let variable = unbound_u32_variable(2);
+    let from = Type::InfixExpr(
+        Box::new(Type::TypeVariable(variable.clone())),
+        BinaryTypeOperator::Addition,
+        Box::new(Type::Constant(Integer::u32(1))),
+        false,
+    );
+    let to = Type::Constant(Integer::u32(3));
+    assert_checked_cast_accepted_without_binding(&from, &to, &variable);
+}
+
 #[test]
 fn simple_closure_with_no_captured_variables() {
     let src = r#"
@@ -153,6 +223,119 @@ fn simple_closure_with_no_captured_variables() {
     }
     unconstrained fn lambda$f2(mut env$l2: (u32,)) -> u32 {
         env$l2.0
+    }
+    ");
+}
+
+/// Each closure reads its captures from its own environment, including a capture it only holds to
+/// pass on to a closure nested inside it, and the enclosing closure still reads its own
+/// environment once the nested one is done.
+#[test]
+fn nested_closures_capturing_through_two_levels() {
+    let src = r#"
+    fn main(a: u32, b: u32) -> pub u32 {
+        let outer = |x: u32| {
+            let middle = |y: u32| {
+                let inner = |z: u32| a + x + y + z;
+                inner(1) + b
+            };
+            middle(2) + a
+        };
+        outer(3)
+    }
+    "#;
+
+    let program = get_monomorphized(src).unwrap();
+    insta::assert_snapshot!(program, @r"
+    fn main$f0(a$l0: u32, b$l1: u32) -> pub u32 {
+        let outer$l30 = {
+            let closure_variable$l29 = {
+                let env$l3 = (a$l0, b$l1);
+                ((env$l3, lambda$f1), (env$l3, lambda$f7))
+            };
+            closure_variable$l29
+        };
+        {
+            let tmp$l31 = outer$l30.0;
+            tmp$l31.1(tmp$l31.0, 3)
+        }
+    }
+    fn lambda$f1(mut env$l3: (u32, u32), x$l2: u32) -> u32 {
+        let middle$l17 = {
+            let closure_variable$l16 = {
+                let env$l5 = (env$l3.0, x$l2, env$l3.1);
+                ((env$l5, lambda$f2), (env$l5, lambda$f5))
+            };
+            closure_variable$l16
+        };
+        ({
+            let tmp$l18 = middle$l17.0;
+            tmp$l18.1(tmp$l18.0, 2)
+        } + env$l3.0)
+    }
+    fn lambda$f2(mut env$l5: (u32, u32, u32), y$l4: u32) -> u32 {
+        let inner$l9 = {
+            let closure_variable$l8 = {
+                let env$l7 = (env$l5.0, env$l5.1, y$l4);
+                ((env$l7, lambda$f3), (env$l7, lambda$f4))
+            };
+            closure_variable$l8
+        };
+        ({
+            let tmp$l10 = inner$l9.0;
+            tmp$l10.1(tmp$l10.0, 1)
+        } + env$l5.2)
+    }
+    fn lambda$f3(mut env$l7: (u32, u32, u32), z$l6: u32) -> u32 {
+        (((env$l7.0 + env$l7.1) + env$l7.2) + z$l6)
+    }
+    unconstrained fn lambda$f4(mut env$l7: (u32, u32, u32), z$l6: u32) -> u32 {
+        (((env$l7.0 + env$l7.1) + env$l7.2) + z$l6)
+    }
+    unconstrained fn lambda$f5(mut env$l5: (u32, u32, u32), y$l4: u32) -> u32 {
+        let inner$l14 = {
+            let closure_variable$l13 = {
+                let env$l12 = (env$l5.0, env$l5.1, y$l4);
+                ((env$l12, lambda$f6), (env$l12, lambda$f6))
+            };
+            closure_variable$l13
+        };
+        ({
+            let tmp$l15 = inner$l14.1;
+            tmp$l15.1(tmp$l15.0, 1)
+        } + env$l5.2)
+    }
+    unconstrained fn lambda$f6(mut env$l12: (u32, u32, u32), z$l11: u32) -> u32 {
+        (((env$l12.0 + env$l12.1) + env$l12.2) + z$l11)
+    }
+    unconstrained fn lambda$f7(mut env$l3: (u32, u32), x$l2: u32) -> u32 {
+        let middle$l27 = {
+            let closure_variable$l26 = {
+                let env$l20 = (env$l3.0, x$l2, env$l3.1);
+                ((env$l20, lambda$f8), (env$l20, lambda$f8))
+            };
+            closure_variable$l26
+        };
+        ({
+            let tmp$l28 = middle$l27.1;
+            tmp$l28.1(tmp$l28.0, 2)
+        } + env$l3.0)
+    }
+    unconstrained fn lambda$f8(mut env$l20: (u32, u32, u32), y$l19: u32) -> u32 {
+        let inner$l24 = {
+            let closure_variable$l23 = {
+                let env$l22 = (env$l20.0, env$l20.1, y$l19);
+                ((env$l22, lambda$f9), (env$l22, lambda$f9))
+            };
+            closure_variable$l23
+        };
+        ({
+            let tmp$l25 = inner$l24.1;
+            tmp$l25.1(tmp$l25.0, 1)
+        } + env$l20.2)
+    }
+    unconstrained fn lambda$f9(mut env$l22: (u32, u32, u32), z$l21: u32) -> u32 {
+        (((env$l22.0 + env$l22.1) + env$l22.2) + z$l21)
     }
     ");
 }
@@ -1950,4 +2133,259 @@ fn output_is_labeled_with_the_configured_field() {
         assert_eq!(output.field_id, field);
         assert!(output.program.to_string().contains("main"));
     }
+}
+
+#[test]
+fn constrained_fn_value_nested_in_unconstrained_fn_target_keeps_mixed_pair() {
+    // A `let` whose declared type is `unconstrained fn(..)` forces every function value in its
+    // initializer to be built as an `(unconstrained, unconstrained)` pair, so that a constrained
+    // caller dispatching through slot `.0` still runs Brillig. That is correct for the value that
+    // occupies the slot -- here `dummy`.
+    //
+    // It must not extend to `g`, which is a separate binding with its own, constrained, `fn` type
+    // and never flows into that slot. `g` must stay a mixed `(constrained, unconstrained)` pair so
+    // that `g(x)` -- a call from constrained code with no `unsafe` -- selects the constrained
+    // specialization of `compute` and its `x * x` becomes an ACIR constraint.
+    let src = r#"
+    fn compute(x: u32) -> u32 { x * x }
+    unconstrained fn dummy(x: u32) -> u32 { x }
+
+    fn main(x: u32) -> pub u32 {
+        let mut r: u32 = 0;
+        let _f: unconstrained fn(u32) -> u32 = {
+            let g: fn(u32) -> u32 = compute;
+            r = g(x);
+            dummy
+        };
+        r
+    }
+    "#;
+    let program = get_monomorphized(src).unwrap();
+    // `g$l2` is a mixed pair and slot `.0` -- the one `g$l2.0(x$l0)` selects from constrained
+    // code -- is the constrained `compute$f1`, so `x * x` becomes an ACIR constraint. `dummy`,
+    // which does occupy the `unconstrained fn` slot, is still forced to a
+    // `(unconstrained, unconstrained)` pair.
+    insta::assert_snapshot!(program, @r"
+    fn main$f0(x$l0: u32) -> pub u32 {
+        let mut r$l1 = 0;
+        let _f$l3 = {
+            let g$l2 = (compute$f1, compute$f2);
+            r$l1 = g$l2.0(x$l0);
+            (dummy$f3, dummy$f3)
+        };
+        r$l1
+    }
+    fn compute$f1(x$l4: u32) -> u32 {
+        (x$l4 * x$l4)
+    }
+    unconstrained fn compute$f2(x$l5: u32) -> u32 {
+        (x$l5 * x$l5)
+    }
+    unconstrained fn dummy$f3(x$l6: u32) -> u32 {
+        x$l6
+    }
+    ");
+}
+
+#[test]
+fn lambda_in_if_condition_of_unconstrained_fn_target_is_not_forced() {
+    // An `if` condition does not produce the value that lands in the enclosing `unconstrained fn`
+    // slot -- only the branches do. A lambda built in the condition is therefore an ordinary
+    // constrained function value, and `(|y| y * y)(x)` must be constrained.
+    //
+    // If it is forced, the comparison feeding the `if` becomes a free witness, so every assertion
+    // inside a branch is predicated on a value the prover chooses and can be made vacuous.
+    let src = r#"
+    unconstrained fn dummy(y: u32) -> u32 { y }
+
+    fn main(x: u32) -> pub u32 {
+        let _f: unconstrained fn(u32) -> u32 =
+            if (|y: u32| y * y)(x) == 9 { dummy } else { dummy };
+        x
+    }
+    "#;
+    let program = get_monomorphized(src).unwrap();
+    // The condition calls the constrained `lambda$f1` directly, with no `unsafe` wrapper, so
+    // `y * y` is constrained. The branches, which do produce the value occupying the
+    // `unconstrained fn` slot, are still forced to `(dummy$f3, dummy$f3)`.
+    insta::assert_snapshot!(program, @r"
+    fn main$f0(x$l0: u32) -> pub u32 {
+        let _f$l3 = if (lambda$f1(x$l0) == 9) {
+            (dummy$f3, dummy$f3)
+        } else {
+            (dummy$f3, dummy$f3)
+        };
+        x$l0
+    }
+    fn lambda$f1(y$l1: u32) -> u32 {
+        (y$l1 * y$l1)
+    }
+    unconstrained fn lambda$f2(y$l2: u32) -> u32 {
+        (y$l2 * y$l2)
+    }
+    unconstrained fn dummy$f3(y$l4: u32) -> u32 {
+        y$l4
+    }
+    ");
+}
+
+#[test]
+fn constrained_fn_value_in_unconstrained_fn_target_control() {
+    // Control for `constrained_fn_value_nested_in_unconstrained_fn_target_keeps_mixed_pair`:
+    // the identical program with the `unconstrained fn` ascription removed. `g` is bound to a
+    // mixed pair whose slot `.0` is the constrained `compute$f1`, so `x * x` is constrained.
+    // This is the shape the forced case must also produce for its nested `g` binding.
+    let src = r#"
+    fn compute(x: u32) -> u32 { x * x }
+
+    fn main(x: u32) -> pub u32 {
+        let mut r: u32 = 0;
+        let _f: u32 = {
+            let g: fn(u32) -> u32 = compute;
+            r = g(x);
+            0
+        };
+        r
+    }
+    "#;
+    let program = get_monomorphized(src).unwrap();
+    insta::assert_snapshot!(program, @r"
+    fn main$f0(x$l0: u32) -> pub u32 {
+        let mut r$l1 = 0;
+        let _f$l3 = {
+            let g$l2 = (compute$f1, compute$f2);
+            r$l1 = g$l2.0(x$l0);
+            0
+        };
+        r$l1
+    }
+    fn compute$f1(x$l4: u32) -> u32 {
+        (x$l4 * x$l4)
+    }
+    unconstrained fn compute$f2(x$l5: u32) -> u32 {
+        (x$l5 * x$l5)
+    }
+    ");
+}
+
+#[test]
+fn errors_on_unknown_builtin_name() {
+    // The name in a `#[builtin]`/`#[foreign]` attribute is free-form at parse time;
+    // it is resolved to `shared::Builtin` when a call to it is monomorphized. A name
+    // the compiler does not implement must produce a diagnostic here rather than
+    // surviving to SSA generation and panicking there.
+    let src = r#"
+    #[builtin(not_a_real_builtin)]
+    pub fn not_a_real_builtin() {}
+
+    fn main() {
+        not_a_real_builtin();
+    }
+    "#;
+    let err = get_monomorphized_with_options(
+        src,
+        GetProgramOptions { root_and_stdlib: true, ..Default::default() },
+    )
+    .unwrap_err();
+    assert!(
+        matches!(&err, MonomorphizationError::UnknownBuiltin { name, .. } if name == "not_a_real_builtin"),
+        "expected UnknownBuiltin, got: {err:?}"
+    );
+}
+
+/// The monomorphization function cache is a `HashMap` keyed on `Type`, and `Type::eq` looks
+/// through `Type::CheckedCast` — so `Type::hash` has to look through it too, or two keys the
+/// cache considers equal land in different buckets and the same instantiation is monomorphized
+/// twice.
+///
+/// `take` is reached at `N = 4` from a plain `[Field; 4]` and from `[Field; (M - 1) + 1]`, whose
+/// length still carries the `CheckedCast` wrapper the elaborator builds for arithmetic generics
+/// (`follow_bindings` preserves it, so normalizing the key does not strip it). One specialization
+/// must serve both call sites.
+#[test]
+fn checked_cast_and_plain_array_lengths_share_one_specialization() {
+    let src = r#"
+    fn take<let N: u32>(x: [Field; N]) -> u32 { N }
+
+    fn via_checked_cast<let M: u32>(x: [Field; (M - 1) + 1]) -> u32 { take(x) }
+
+    pub fn main() -> pub u32 {
+        let arr: [Field; 4] = [0; 4];
+        via_checked_cast::<4>(arr) + take(arr)
+    }
+    "#;
+    let program = get_monomorphized(src).unwrap();
+    insta::assert_snapshot!(program, @r"
+    fn main$f0() -> pub u32 {
+        let arr$l0 = [0; 4];
+        (via_checked_cast$f1(arr$l0) + take$f2(arr$l0))
+    }
+    fn via_checked_cast$f1(x$l1: [Field; 4]) -> u32 {
+        take$f2(x$l1)
+    }
+    fn take$f2(x$l2: [Field; 4]) -> u32 {
+        4
+    }
+    ");
+}
+
+/// Control for `checked_cast_and_plain_array_lengths_share_one_specialization`: two call sites
+/// whose lengths are *different* arithmetic expressions over `M` share one specialization,
+/// because both `Type::eq` and `Type::hash` ignore a `CheckedCast`'s `from` side and compare its
+/// `to`. A regression that splits the cache on `from` fails here and not in the mixed case.
+#[test]
+fn distinct_checked_cast_array_lengths_share_one_specialization() {
+    let src = r#"
+    fn take<let N: u32>(x: [Field; N]) -> u32 { N }
+
+    fn minus_then_plus<let M: u32>(x: [Field; (M - 1) + 1]) -> u32 { take(x) }
+    fn plus_then_minus<let M: u32>(x: [Field; (M + 2) - 2]) -> u32 { take(x) }
+
+    pub fn main() -> pub u32 {
+        let arr: [Field; 4] = [0; 4];
+        minus_then_plus::<4>(arr) + plus_then_minus::<4>(arr)
+    }
+    "#;
+    let program = get_monomorphized(src).unwrap();
+    insta::assert_snapshot!(program, @r"
+    fn main$f0() -> pub u32 {
+        let arr$l0 = [0; 4];
+        (minus_then_plus$f1(arr$l0) + plus_then_minus$f2(arr$l0))
+    }
+    fn minus_then_plus$f1(x$l1: [Field; 4]) -> u32 {
+        take$f3(x$l1)
+    }
+    fn plus_then_minus$f2(x$l2: [Field; 4]) -> u32 {
+        take$f3(x$l2)
+    }
+    fn take$f3(x$l3: [Field; 4]) -> u32 {
+        4
+    }
+    ");
+}
+
+#[test]
+fn locals_reports_the_most_recently_monomorphized_function() {
+    use crate::monomorphization::debug_types::DebugTypeTracker;
+    use crate::test_utils::get_program;
+
+    let src = r#"
+    fn main(x: Field) {
+        foo(x, x);
+    }
+
+    fn foo(a: Field, b: Field) {
+        assert_eq(a, b);
+    }
+    "#;
+    let (_, context, _) = get_program(src);
+    let main = context.get_main_function(context.root_crate_id()).expect("program has a main");
+    let mut monomorphizer =
+        Monomorphizer::new(&context.def_interner, DebugTypeTracker::default(), None, false);
+
+    monomorphizer.compile_main(main).unwrap();
+    assert_eq!(monomorphizer.locals().len(), 1, "expected the locals of `main`: `x`");
+
+    assert!(monomorphizer.process_next_job().unwrap(), "expected `foo` to be queued");
+    assert_eq!(monomorphizer.locals().len(), 2, "expected the locals of `foo`: `a` and `b`");
 }

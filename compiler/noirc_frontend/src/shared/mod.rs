@@ -3,11 +3,13 @@
 //! This is done to avoid each IR from needing to have its own definition of elementary types
 //! while avoiding one IR being embedded within another.
 
+mod builtin;
 mod foreign_calls;
 mod integer_width;
 mod signedness;
 mod visibility;
 
+pub use builtin::Builtin;
 pub use foreign_calls::ForeignCall;
 pub use integer_width::{
     LOWERABLE_INTEGER_TYPES, MAX_INTEGER_WIDTH, MIN_INTEGER_WIDTH, UnlowerableInteger,

@@ -1,0 +1,16 @@
+---
+source: tooling/nargo_cli/tests/execute.rs
+expression: expanded_code
+---
+use std::convert::UnsafeFrom;
+
+fn main(x: u8, j: u32, k: u32, m: u32) -> pub u8 {
+    let x: Field = <Field as From<u8>>::from(x);
+    let cells: [(Field, [Field; 0]); 2] = [(x, []), (x + 1_Field, [])];
+    let mut d: [(Field, [Field; 0]); 2] = cells;
+    d[j].1 = [];
+    let t: [Field; 0] = d[k].1;
+    let mut e: [(Field, [Field; 0]); 2] = cells;
+    e[m].1 = t;
+    u8::unsafe_from(e[m].0)
+}

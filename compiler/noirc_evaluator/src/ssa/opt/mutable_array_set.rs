@@ -4,6 +4,10 @@
 //! is the last time we use this version of the array, we can mutate it in place, and avoid
 //! having to make a copy of it.
 //!
+//! The analysis is per function, and parameters are treated like any other array. That is
+//! sound because by the time this pass runs every ACIR function is `main` or an entry point
+//! (`#[fold]`), which is compiled to its own circuit and so owns its inputs.
+//!
 //! This optimization only applies to ACIR. In Brillig we use ref-counting to decide when
 //! there are no other references to an array.
 //! This pass assumes that Load and Store instructions have been previously removed.
@@ -22,8 +26,8 @@ use crate::ssa::{
         basic_block::BasicBlockId,
         dfg::DataFlowGraph,
         function::Function,
-        instruction::{Instruction, InstructionId, TerminatorInstruction},
-        value::ValueId,
+        instruction::{Hint, Instruction, InstructionId, Intrinsic, TerminatorInstruction},
+        value::{Value, ValueId},
     },
     ssa_gen::Ssa,
 };
@@ -64,11 +68,11 @@ fn mutable_array_set_optimization_pre_check(func: &Function) {
 
     // flatten_cfg must have run
     super::checks::assert_cfg_is_flattened(func);
-    super::checks::for_each_instruction(func, |instruction, _dfg| {
+    super::checks::for_each_instruction(func, |instruction, dfg| {
         // remove_if_else must have run
         super::checks::assert_not_if_else(instruction);
         // mem2reg must have run (no Load/Store remaining)
-        super::checks::assert_not_load_or_store(instruction);
+        super::checks::assert_not_load_or_store(func, instruction, dfg);
         // No mutable array sets should exist yet (they are created by this pass)
         super::checks::assert_not_mutable_array_set(instruction);
     });
@@ -124,7 +128,7 @@ impl<'f> Context<'f> {
 
     /// Remember this instruction as the last time the array has been read or written to.
     ///
-    /// Any previous instruction marked to be made mutable needs to be cancelled,
+    /// Any previous instruction marked to be made mutable needs to be canceled,
     /// as it turned out not to be the last use.
     fn set_last_use(&mut self, array: ValueId, instruction_id: InstructionId) {
         if let Some(existing) = self.array_to_last_use.insert(array, instruction_id) {
@@ -170,6 +174,8 @@ impl<'f> Context<'f> {
                     self.set_last_use(*array, *instruction_id);
 
                     if self.dfg.type_of_value(*value).is_array() {
+                        // Setting an array inside another array makes it an array element
+                        element_arrays.insert(*value);
                         self.set_last_use(*value, *instruction_id);
                     }
 
@@ -181,7 +187,8 @@ impl<'f> Context<'f> {
                         }
                     });
 
-                    // Block mutation when the input array is actually nested as a MakeArray element
+                    // Block mutation when the input array has been nested inside another array,
+                    // either as a `make_array` element or as an `array_set` value operand.
                     let is_nested = element_arrays.contains(array);
                     let can_mutate = !is_array_in_terminator && !is_nested;
 
@@ -189,10 +196,15 @@ impl<'f> Context<'f> {
                         self.instructions_that_can_be_made_mutable.insert(*instruction_id);
                     }
                 }
-                // Array arguments passed in calls constitute a use.
-                Instruction::Call { arguments, .. } => {
+                // Array arguments passed in calls constitute a use. An argument that the call's
+                // result can still read from is shared like an array element.
+                Instruction::Call { func, arguments } => {
+                    let keeps_arguments = call_result_keeps_array_arguments(&self.dfg[*func]);
                     for argument in arguments {
                         if self.dfg.type_of_value(*argument).is_array() {
+                            if keeps_arguments {
+                                element_arrays.insert(*argument);
+                            }
                             self.set_last_use(*argument, *instruction_id);
                         }
                     }
@@ -241,6 +253,42 @@ impl<'f> Context<'f> {
                 | Instruction::Noop => (),
             }
         }
+    }
+}
+
+/// Returns true if ACIR generation can place an array argument of a call to `func` into the
+/// call's results as a handle to the argument's memory block, so that the results observe later
+/// writes to that block.
+fn call_result_keeps_array_arguments(func: &Value) -> bool {
+    let Value::Intrinsic(intrinsic) = func else {
+        // Calls to other functions pass their arguments by value.
+        return false;
+    };
+    match intrinsic {
+        // A pushed element is placed in the result vector as-is.
+        Intrinsic::VectorPushBack | Intrinsic::VectorPushFront => true,
+        // The identity hint returns its arguments as-is.
+        Intrinsic::Hint(Hint::BlackBox) => true,
+        // These read their array arguments while the call is generated.
+        Intrinsic::VectorInsert
+        | Intrinsic::VectorRemove
+        | Intrinsic::VectorPopBack
+        | Intrinsic::VectorPopFront
+        | Intrinsic::AsVector
+        | Intrinsic::BlackBox(_)
+        | Intrinsic::ToBits(_)
+        | Intrinsic::ToRadix(_)
+        | Intrinsic::AsWitness => false,
+        // These are removed or rejected before ACIR generation.
+        Intrinsic::ArrayLen
+        | Intrinsic::ArrayAsStrUnchecked
+        | Intrinsic::StrAsBytes
+        | Intrinsic::AssertConstant
+        | Intrinsic::StaticAssert
+        | Intrinsic::ApplyRangeConstraint
+        | Intrinsic::IsUnconstrained
+        | Intrinsic::DerivePedersenGenerators
+        | Intrinsic::FieldLessThan => false,
     }
 }
 
@@ -509,6 +557,180 @@ mod tests {
             v2 = make_array [v1] : [[Field; 2]; 1]
             v5 = array_set v1, index u32 0, value Field 7
             return v2, v5
+        }
+        ");
+    }
+
+    #[test]
+    fn does_not_mutate_array_nested_via_array_set() {
+        let src = "
+            acir(inline) fn main f0 {
+              b0():
+                v1 = make_array [Field 0, Field 0, Field 0, Field 0] : [Field; 4]
+                v2 = make_array [Field 1, Field 1, Field 1, Field 1] : [Field; 4]
+                v3 = make_array [v2, v2] : [[Field; 4]; 2]
+                v4 = array_set v1, index u32 1, value Field 7
+                v5 = array_set v3, index u32 0, value v4
+
+                // This array_set must not be mut: v4 was nested inside v3
+                v6 = array_set v4, index u32 2, value Field 9
+
+                v7 = array_get v5, index u32 0 -> [Field; 4]
+                v8 = array_get v7, index u32 2 -> Field
+                return v8, v6
+            }
+            ";
+        let ssa = Ssa::from_str(src).unwrap();
+
+        let (ssa, value) =
+            assert_pass_does_not_affect_execution(ssa, vec![], Ssa::mutable_array_set_optimization);
+        assert_eq!(value.unwrap()[0], Value::field(0_u32.into()));
+
+        assert_ssa_snapshot!(ssa, @r"
+        acir(inline) fn main f0 {
+          b0():
+            v1 = make_array [Field 0, Field 0, Field 0, Field 0] : [Field; 4]
+            v3 = make_array [Field 1, Field 1, Field 1, Field 1] : [Field; 4]
+            v4 = make_array [v3, v3] : [[Field; 4]; 2]
+            v7 = array_set mut v1, index u32 1, value Field 7
+            v9 = array_set v4, index u32 0, value v7
+            v12 = array_set v7, index u32 2, value Field 9
+            v13 = array_get v9, index u32 0 -> [Field; 4]
+            v14 = array_get v13, index u32 2 -> Field
+            return v14, v12
+        }
+        ");
+    }
+
+    #[test]
+    fn does_not_mutate_array_pushed_front_into_vector() {
+        // ACIR generation keeps an array pushed into a vector as a handle to the array's memory
+        // block, so a later in-place write to that array would be observed through the vector.
+        let src = "
+            acir(inline) fn main f0 {
+              b0():
+                v0 = make_array [Field 1, Field 2] : [Field; 2]
+                v1 = make_array [Field 3, Field 4] : [Field; 2]
+                v2 = make_array [v1] : [[Field; 2]; 1]
+                v3 = array_set v0, index u32 1, value Field 7
+                v4, v5 = call as_vector(v2) -> (u32, [[Field; 2]])
+                v6, v7 = call vector_push_front(u32 1, v5, v3) -> (u32, [[Field; 2]])
+                v8 = array_set v3, index u32 0, value Field 99
+                v9 = array_get v7, index u32 0 -> [Field; 2]
+                v10 = array_get v9, index u32 0 -> Field
+                return v10, v8
+            }
+            ";
+        let ssa = Ssa::from_str(src).unwrap();
+
+        let (ssa, value) =
+            assert_pass_does_not_affect_execution(ssa, vec![], Ssa::mutable_array_set_optimization);
+        assert_eq!(value.unwrap()[0], Value::field(1_u32.into()));
+
+        assert_ssa_snapshot!(ssa, @r"
+        acir(inline) fn main f0 {
+          b0():
+            v2 = make_array [Field 1, Field 2] : [Field; 2]
+            v5 = make_array [Field 3, Field 4] : [Field; 2]
+            v6 = make_array [v5] : [[Field; 2]; 1]
+            v9 = array_set mut v2, index u32 1, value Field 7
+            v11, v12 = call as_vector(v6) -> (u32, [[Field; 2]])
+            v14, v15 = call vector_push_front(u32 1, v12, v9) -> (u32, [[Field; 2]])
+            v18 = array_set v9, index u32 0, value Field 99
+            v19 = array_get v15, index u32 0 -> [Field; 2]
+            v20 = array_get v19, index u32 0 -> Field
+            return v20, v18
+        }
+        ");
+    }
+
+    #[test]
+    fn does_not_mutate_array_pushed_back_into_vector() {
+        let src = "
+            acir(inline) fn main f0 {
+              b0():
+                v0 = make_array [Field 1, Field 2] : [Field; 2]
+                v1 = make_array [Field 3, Field 4] : [Field; 2]
+                v2 = make_array [v1] : [[Field; 2]; 1]
+                v3 = array_set v0, index u32 1, value Field 7
+                v4, v5 = call as_vector(v2) -> (u32, [[Field; 2]])
+                v6, v7 = call vector_push_back(u32 1, v5, v3) -> (u32, [[Field; 2]])
+                v8 = array_set v3, index u32 0, value Field 99
+                v9 = array_get v7, index u32 1 -> [Field; 2]
+                v10 = array_get v9, index u32 0 -> Field
+                return v10, v8
+            }
+            ";
+        let ssa = Ssa::from_str(src).unwrap();
+
+        let (ssa, value) =
+            assert_pass_does_not_affect_execution(ssa, vec![], Ssa::mutable_array_set_optimization);
+        assert_eq!(value.unwrap()[0], Value::field(1_u32.into()));
+
+        assert_ssa_snapshot!(ssa, @r"
+        acir(inline) fn main f0 {
+          b0():
+            v2 = make_array [Field 1, Field 2] : [Field; 2]
+            v5 = make_array [Field 3, Field 4] : [Field; 2]
+            v6 = make_array [v5] : [[Field; 2]; 1]
+            v9 = array_set mut v2, index u32 1, value Field 7
+            v11, v12 = call as_vector(v6) -> (u32, [[Field; 2]])
+            v14, v15 = call vector_push_back(u32 1, v12, v9) -> (u32, [[Field; 2]])
+            v18 = array_set v9, index u32 0, value Field 99
+            v19 = array_get v15, index u32 1 -> [Field; 2]
+            v20 = array_get v19, index u32 0 -> Field
+            return v20, v18
+        }
+        ");
+    }
+
+    // A fold function is a separate circuit that owns its parameters, so the write to `v0` in
+    // `f1` may be marked mutable even though `main` reads the array it passed in afterwards.
+    #[test]
+    fn mutates_fold_parameter_without_affecting_caller() {
+        let src = "
+            acir(inline) fn main f0 {
+              b0(v0: u32):
+                v1 = make_array [Field 1, Field 2, Field 3] : [Field; 3]
+                v2 = call f1(v1, v0) -> Field
+                v3 = call f1(v1, v0) -> Field
+                return v2, v3, v1
+            }
+            acir(fold) fn g f1 {
+              b0(v0: [Field; 3], v1: u32):
+                v2 = array_get v0, index v1 -> Field
+                v3 = add v2, Field 5
+                v4 = array_set v0, index v1, value v3
+                v5 = array_get v4, index u32 0 -> Field
+                return v5
+            }
+            ";
+        let ssa = Ssa::from_str(src).unwrap();
+
+        let (ssa, value) = assert_pass_does_not_affect_execution(
+            ssa,
+            vec![Value::u32(0)],
+            Ssa::mutable_array_set_optimization,
+        );
+        let value = value.unwrap();
+        assert_eq!(value[0], Value::field(6_u32.into()));
+        assert_eq!(value[1], Value::field(6_u32.into()));
+
+        assert_ssa_snapshot!(ssa, @r"
+        acir(inline) fn main f0 {
+          b0(v0: u32):
+            v4 = make_array [Field 1, Field 2, Field 3] : [Field; 3]
+            v6 = call f1(v4, v0) -> Field
+            v7 = call f1(v4, v0) -> Field
+            return v6, v7, v4
+        }
+        acir(fold) fn g f1 {
+          b0(v0: [Field; 3], v1: u32):
+            v2 = array_get v0, index v1 -> Field
+            v4 = add v2, Field 5
+            v5 = array_set mut v0, index v1, value v4
+            v7 = array_get v5, index u32 0 -> Field
+            return v7
         }
         ");
     }

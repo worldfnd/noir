@@ -19,12 +19,16 @@
 <h1><a href="../../index.html">noir_stdlib</a></h1>
 <div><a href="../../all.html">All items</a></div>
 <h2 id="crate-name"><a href="../index.html">std</a></h2>
-<div id="crate-version">1.0.0-beta.26</div>
+<div id="crate-version">1.0.0</div>
 <h2>In module meta</h2>
 <h3>Modules</h3><ul class="item-list">
 <li><a href="ctstring/index.html">ctstring</a></div></li>
+<li><a href="expr/index.html">expr</a></div></li>
+<li><a href="function_def/index.html">function_def</a></div></li>
+<li><a href="item_visibility/index.html">item_visibility</a></div></li>
 <li><a href="op/index.html">op</a></div></li>
 <li><a href="typ/index.html">typ</a></div></li>
+<li><a href="type_def/index.html">type_def</a></div></li>
 </ul>
 <h3>Type aliases</h3><ul class="item-list">
 <li><a href="type.DeriveFunction.html">DeriveFunction</a></div></li>
@@ -50,6 +54,21 @@
 <div id="page-content">
 <pre><code>pub comptime type DeriveFunction = fn(<a href="../../std/primitive.TypeDefinition.html" class="primitive">TypeDefinition</a>) -> <a href="../../std/primitive.Quoted.html" class="primitive">Quoted</a>;</code></pre>
 
+<div class="comments">
+<p>A derive function: given a type definition, it returns a quoted trait impl for that type.</p>
+<p>Register one for a trait with <a href="../../std/meta/fn.derive_via.html"><code>derive_via</code></a>, then use the trait in <a href="../../std/meta/fn.derive.html"><code>derive</code></a>.</p>
+<p>Example:</p>
+<pre><code><span class="kw">use</span> std::meta::DeriveFunction;
+
+<span class="kw">comptime</span> <span class="kw">fn</span> derive_nothing(_s: TypeDefinition) -&gt; Quoted {
+    <span class="kw">quote</span> {}
+}
+
+<span class="kw">fn</span> main() {
+    <span class="kw">comptime</span> {
+        <span class="kw">let</span> _handler: DeriveFunction = derive_nothing;
+    }
+}</code></pre></div>
 </div>
 </main>
 </span>

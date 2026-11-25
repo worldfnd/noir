@@ -16,9 +16,11 @@
 //! arrays can also be shared by value and we want to avoid clones when possible. This pass
 //! clones arrays (increments their reference counts) in the following situations which roughly
 //! correspond to where a `Copy` variable in Rust would be copied:
-//! - Variables are copied on each use, except for the last use where they are moved.
-//!   - If a variable's last use is in a loop that it was not defined in, it is copied instead of moved,
-//!     except if the last use is also reassigning the variable, killing the reference to its previous value.
+//! - Variables are copied on each use, except where the variable is dead immediately after
+//!   that use, in which case it is moved.
+//!   - A use inside a loop is reached again by the loop's back edge, so it is copied unless the
+//!     loop reassigns the variable between that use and every later one — including the use at
+//!     the top of the next iteration, and the one the loop's exit edge leads to.
 //!   - The last use analysis isn't sophisticated on struct fields. It will count `a.b` and `a.c`
 //!     both as uses of `a`. Even if both could conceptually be moved, only the last usage will be
 //!     moved and the first (say `a.b`) will still be cloned.
@@ -32,23 +34,26 @@
 //!     - E.g. `self.b.c` is compiled as `self.b.c.clone()` over `self.clone().b.c`
 //!   - Array indexing `a[i]` will avoid cloning `a`. The extracted element is always cloned.
 //!
-//! Most of this logic is contained in this file except for the last use analysis which is in the
-//! `last_uses` module. That module contains a separate pass run on each function before this pass
-//! to find the last use of each local variable to identify where moves can occur.
+//! Most of this logic is contained in this file except for the liveness analysis which is in the
+//! `liveness` module. That module contains a separate pass run on each function before this pass
+//! to find which uses of each local variable can be moves.
 use crate::{
     ast::UnaryOp,
     hir_def::expr::Constructor,
     monomorphization::ast::{
-        Definition, Expression, Function, Ident, IdentId, LValue, Literal, LocalId, Program, Type,
-        Unary,
+        Definition, Expression, FuncId, Function, Ident, IdentId, LValue, Literal, LocalId,
+        Program, Type, Unary,
     },
 };
 
-use rustc_hash::FxHashMap as HashMap;
+use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
-mod last_uses;
+mod clone_elision;
+mod liveness;
 mod suboptimal_cloning_tests;
 mod tests;
+
+pub use clone_elision::{builtin_supports_clone_elision, find_oracle_wrappers};
 
 impl Program {
     /// Perform "ownership analysis".
@@ -57,8 +62,9 @@ impl Program {
     ///
     /// This should only be called once, before converting to SSA.
     pub fn handle_ownership(mut self) -> Self {
+        let oracle_wrappers = find_oracle_wrappers(&self);
         for function in &mut self.functions {
-            function.handle_ownership();
+            function.handle_ownership(&oracle_wrappers);
         }
         self
     }
@@ -70,18 +76,27 @@ impl Function {
     /// See [ownership](crate::ownership) for details.
     ///
     /// This should only be called on a function once.
-    pub fn handle_ownership(&mut self) {
-        let mut context = Context { variables_to_move: Default::default() };
+    ///
+    /// `oracle_wrappers` is the set of thin oracle-wrapper functions computed by
+    /// [`clone_elision::find_oracle_wrappers`]. When whole-program information is not
+    /// available, passing an empty set is always sound: it only disables the clone
+    /// elision for calls to those wrappers, keeping more clones than strictly needed.
+    pub fn handle_ownership(&mut self, oracle_wrappers: &HashSet<FuncId>) {
+        let mut context = Context { variables_to_move: Default::default(), oracle_wrappers };
         context.handle_ownership_in_function(self);
     }
 }
 
-struct Context {
+struct Context<'a> {
     /// This contains each instance of a variable we should move instead of cloning.
     variables_to_move: HashMap<LocalId, Vec<IdentId>>,
+
+    /// Functions that only forward their arguments to an oracle; calls to these
+    /// qualify for clone elision. See [`clone_elision`].
+    oracle_wrappers: &'a HashSet<FuncId>,
 }
 
-impl Context {
+impl Context<'_> {
     fn should_move(&self, definition: LocalId, variable: IdentId) -> bool {
         self.variables_to_move
             .get(&definition)
@@ -93,7 +108,7 @@ impl Context {
             return;
         }
 
-        self.variables_to_move = Self::find_last_uses_of_variables(function);
+        self.variables_to_move = liveness::find_variables_to_move(function);
         self.handle_expression(&mut function.body);
     }
 
@@ -386,6 +401,10 @@ impl Context {
         for arg in &mut call.arguments {
             self.handle_expression(arg);
         }
+
+        // If the callee is known not to modify its array arguments, the clones inserted
+        // around them above may be unnecessary. See [`clone_elision`] for the conditions.
+        clone_elision::elide_clones_in_call_arguments(call, self.oracle_wrappers);
     }
 
     fn handle_let(&mut self, let_expr: &mut crate::monomorphization::ast::Let) {

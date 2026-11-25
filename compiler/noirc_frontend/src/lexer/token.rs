@@ -522,37 +522,6 @@ impl Token {
     pub(super) fn into_span(self, start: Position, end: Position) -> SpannedToken {
         SpannedToken(Spanned::from_position(start, end, self))
     }
-
-    /// These are all the operators allowed as part of
-    /// a short-hand assignment: `a <op>= b`
-    pub fn assign_shorthand_operators() -> [Token; 10] {
-        use Token::*;
-        [Plus, Minus, Star, Slash, Percent, Ampersand, Caret, ShiftLeft, ShiftRight, Pipe]
-    }
-
-    pub fn try_into_binary_op(self, span: Span) -> Option<Spanned<crate::ast::BinaryOpKind>> {
-        use crate::ast::BinaryOpKind::*;
-        let binary_op = match self {
-            Token::Plus => Add,
-            Token::Ampersand => And,
-            Token::Caret => Xor,
-            Token::ShiftLeft => ShiftLeft,
-            Token::ShiftRight => ShiftRight,
-            Token::Pipe => Or,
-            Token::Minus => Subtract,
-            Token::Star => Multiply,
-            Token::Slash => Divide,
-            Token::Equal => Equal,
-            Token::NotEqual => NotEqual,
-            Token::Less => Less,
-            Token::LessEqual => LessEqual,
-            Token::Greater => Greater,
-            Token::GreaterEqual => GreaterEqual,
-            Token::Percent => Modulo,
-            _ => return None,
-        };
-        Some(Spanned::from(span, binary_op))
-    }
 }
 
 #[derive(PartialEq, Eq, Hash, Debug, Clone, PartialOrd, Ord)]
@@ -676,11 +645,6 @@ impl Attributes {
 
     pub fn function(&self) -> Option<&FunctionAttribute> {
         self.function.as_ref().map(|(attr, _)| attr)
-    }
-
-    pub fn set_function(&mut self, function: FunctionAttribute) {
-        // Assume the index in the list doesn't matter anymore at this point
-        self.function = Some((function, 0));
     }
 
     /// Returns true if one of the secondary attributes is `contract_library_method`
@@ -1090,12 +1054,10 @@ pub enum Keyword {
     Break,
     CallData,
     Comptime,
-    Constrain,
     Constrained,
     Continue,
     Contract,
     Crate,
-    Dep,
     Dual,
     Else,
     Enum,
@@ -1134,12 +1096,10 @@ impl Display for Keyword {
             Keyword::Break => write!(f, "break"),
             Keyword::CallData => write!(f, "call_data"),
             Keyword::Comptime => write!(f, "comptime"),
-            Keyword::Constrain => write!(f, "constrain"),
             Keyword::Constrained => write!(f, "constrained"),
             Keyword::Continue => write!(f, "continue"),
             Keyword::Contract => write!(f, "contract"),
             Keyword::Crate => write!(f, "crate"),
-            Keyword::Dep => write!(f, "dep"),
             Keyword::Dual => write!(f, "dual"),
             Keyword::Else => write!(f, "else"),
             Keyword::Enum => write!(f, "enum"),
@@ -1181,12 +1141,10 @@ impl Keyword {
             "break" => Keyword::Break,
             "call_data" => Keyword::CallData,
             "comptime" => Keyword::Comptime,
-            "constrain" => Keyword::Constrain,
             "constrained" => Keyword::Constrained,
             "continue" => Keyword::Continue,
             "contract" => Keyword::Contract,
             "crate" => Keyword::Crate,
-            "dep" => Keyword::Dep,
             "dual" => Keyword::Dual,
             "else" => Keyword::Else,
             "enum" => Keyword::Enum,

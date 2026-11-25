@@ -1,7 +1,9 @@
 //! Tests for `nargo expand` output (via the HIR printer), focusing on faithfully
 //! reconstructing impls: their generics and where clauses.
 
-use crate::tests::{assert_no_errors, assert_no_errors_and_to_string};
+use crate::tests::{
+    assert_no_errors, assert_no_errors_and_to_string, assert_no_errors_and_to_string_using_features,
+};
 
 #[test]
 fn expands_inherent_impl_with_where_clause() {
@@ -592,4 +594,679 @@ fn expands_closure_whose_body_starts_with_a_trait_path() {
     let expanded = assert_no_errors_and_to_string(src);
     assert!(expanded.contains("-> Field {<Field as Wrap<u8>>::wrap(x)}"), "{expanded}");
     assert_no_errors(&expanded);
+}
+
+#[test]
+fn expands_self_static_trait_method_call_in_default_method() {
+    let src = r#"
+    trait ATrait {
+        fn static_method() -> Field {
+            Self::static_method_2()
+        }
+
+        fn static_method_2() -> Field {
+            100
+        }
+    }
+
+    struct Foo {}
+
+    impl ATrait for Foo {
+        fn static_method_2() -> Field {
+            200
+        }
+    }
+
+    fn main() {
+        let _ = Foo::static_method();
+    }
+    "#;
+    let expanded = assert_no_errors_and_to_string(src);
+    insta::assert_snapshot!(expanded, @r"
+    trait ATrait {
+        fn static_method() -> Field {
+            Self::static_method_2()
+        }
+
+        fn static_method_2() -> Field {
+            100_Field
+        }
+    }
+
+    struct Foo {
+    }
+
+    impl ATrait for Foo {
+        fn static_method_2() -> Field {
+            200_Field
+        }
+    }
+
+    fn main() {
+        let _: Field = <Foo as ATrait>::static_method();
+    }
+    ");
+}
+
+#[test]
+fn expands_impl_trait_parameter_without_where_clause() {
+    let src = r#"
+    trait SomeTrait {
+        fn get_value(self) -> Field;
+    }
+
+    struct AType {}
+
+    impl SomeTrait for AType {
+        fn get_value(self) -> Field {
+            1
+        }
+    }
+
+    fn take(x: impl SomeTrait) -> Field {
+        x.get_value()
+    }
+
+    fn main() {
+        let _ = take(AType {});
+    }
+    "#;
+    let expanded = assert_no_errors_and_to_string_using_features(
+        src,
+        &[crate::elaborator::UnstableFeature::TraitAsType],
+    );
+    insta::assert_snapshot!(expanded, @r"
+    trait SomeTrait {
+        fn get_value(self) -> Field;
+    }
+
+    struct AType {
+    }
+
+    impl SomeTrait for AType {
+        fn get_value(self) -> Field {
+            1_Field
+        }
+    }
+
+    fn take(x: impl SomeTrait) -> Field {
+        x.get_value()
+    }
+
+    fn main() {
+        let _: Field = take(AType { });
+    }
+    ");
+}
+
+#[test]
+fn expands_impl_trait_parameter_with_generics() {
+    let src = r#"
+    trait Foo<let N: u32> {}
+
+    impl<let N: u32> Foo<N> for [Field; N] {}
+
+    fn my_fn<let N: u32>(_input: impl Foo<N>) {}
+
+    fn main() {
+        my_fn::<0>([]);
+    }
+    "#;
+    let expanded = assert_no_errors_and_to_string_using_features(
+        src,
+        &[crate::elaborator::UnstableFeature::TraitAsType],
+    );
+    insta::assert_snapshot!(expanded, @r"
+    trait Foo<let N: u32> {
+
+    }
+
+    impl<let N: u32> Foo<N> for [Field; N] {
+
+    }
+
+    fn my_fn<let N: u32>(_input: impl Foo<N>) {
+    }
+
+    fn main() {
+        my_fn::<0>([]);
+    }
+    ");
+}
+
+#[test]
+fn expands_global_whose_value_has_private_fields_as_its_initializer_expression() {
+    let src = r#"
+    mod foo {
+        pub struct Bar {
+            value: Field,
+        }
+
+        pub fn make_bar() -> Bar {
+            Bar { value: 1 }
+        }
+    }
+
+    global B: foo::Bar = foo::make_bar();
+
+    fn main() {
+        let _ = B;
+    }
+    "#;
+    let expanded = assert_no_errors_and_to_string(src);
+    insta::assert_snapshot!(expanded, @r"
+    mod foo {
+        pub struct Bar {
+            value: Field,
+        }
+
+        pub fn make_bar() -> Bar {
+            Bar { value: 1_Field}
+        }
+    }
+
+    global B: foo::Bar = foo::make_bar();
+
+    fn main() {
+        let _: foo::Bar = B;
+    }
+    ");
+}
+
+#[test]
+fn expands_associated_constant_reference_in_impl_method() {
+    let src = r#"
+    trait Trait {
+        let N: u32;
+
+        fn foo() -> u32;
+    }
+
+    struct Foo {}
+
+    impl Trait for Foo {
+        let N: u32 = 30;
+
+        fn foo() -> u32 {
+            Self::N
+        }
+    }
+
+    fn main() {
+        let _ = Foo::foo();
+    }
+    "#;
+    let expanded = assert_no_errors_and_to_string(src);
+    insta::assert_snapshot!(expanded, @r"
+    trait Trait {
+        let N: u32;
+
+        fn foo() -> u32;
+    }
+
+    struct Foo {
+    }
+
+    impl Trait for Foo {
+        let N: u32 = 30_u32;
+
+        fn foo() -> u32 {
+            Self::N
+        }
+    }
+
+    fn main() {
+        let _: u32 = Foo::foo();
+    }
+    ");
+}
+
+#[test]
+fn expands_numeric_type_alias_with_its_numeric_type() {
+    let src = r#"
+    type Double<let N: u32>: u32 = N * 2;
+
+    fn main() {
+        let arr: [Field; Double::<2>] = [0; 4];
+        let _ = arr;
+    }
+    "#;
+    let expanded = assert_no_errors_and_to_string(src);
+    insta::assert_snapshot!(expanded, @r"
+    type Double<let N: u32>: u32 = N * 2;
+
+    fn main() {
+        let arr: [Field; 4] = [0_Field; 4];
+        let _: [Field; 4] = arr;
+    }
+    ");
+}
+
+#[test]
+fn expands_numeric_type_alias_used_as_value_with_turbofish() {
+    let src = r#"
+    type AliasN<let N: u32>: u32 = N;
+
+    global N: u32 = 100;
+
+    fn main() {
+        let a: u32 = AliasN::<1>;
+        assert(a == 1);
+        assert(N == 100);
+    }
+    "#;
+    let expanded = assert_no_errors_and_to_string(src);
+    insta::assert_snapshot!(expanded, @r"
+    type AliasN<let N: u32>: u32 = N;
+
+    global N: u32 = 100;
+
+    fn main() {
+        let a: u32 = 1_u32;
+        assert(a == 1_u32);
+        assert(N == 100_u32);
+    }
+    ");
+}
+
+#[test]
+fn expands_generic_numeric_type_alias_used_as_value_as_operand() {
+    // In a generic function the alias's value is a type-level expression. It is printed in
+    // parentheses so it keeps its meaning as an operand, with suffixed literals. A value that
+    // doesn't depend on generics is folded to a single suffixed literal.
+    let src = r#"
+    type Sum<let A: u32, let B: u32>: u32 = A + B;
+
+    fn foo<let N: u32, let M: u32>(x: u32) -> u32 {
+        x - Sum::<N, M> + Sum::<M, 1>
+    }
+
+    fn main() {
+        let _ = foo::<1, 2>(10);
+        let _ = Sum::<3, 4>;
+    }
+    "#;
+    let expanded = assert_no_errors_and_to_string(src);
+    insta::assert_snapshot!(expanded, @r"
+    type Sum<let A: u32, let B: u32>: u32 = A + B;
+
+    fn foo<let N: u32, let M: u32>(x: u32) -> u32 {
+        (x - (N + M)) + (M + 1_u32)
+    }
+
+    fn main() {
+        let _: u32 = foo::<1, 2>(10_u32);
+        let _: u32 = 7_u32;
+    }
+    ");
+}
+
+#[test]
+fn expands_associated_constant_over_self_type_with_concrete_annotation() {
+    let src = r#"
+    trait Foo {
+        let N: i32;
+
+        fn n() -> i32 {
+            Self::N
+        }
+    }
+
+    impl Foo for i32 {
+        let N: i32 = -12345i32;
+    }
+
+    fn main() {
+        let _ = i32::n();
+    }
+    "#;
+    let expanded = assert_no_errors_and_to_string(src);
+    insta::assert_snapshot!(expanded, @r"
+    trait Foo {
+        let N: i32;
+
+        fn n() -> i32 {
+            Self::N
+        }
+    }
+
+    impl Foo for i32 {
+        let N: i32 = -12345_i32;
+    }
+
+    fn main() {
+        let _: i32 = <i32 as Foo>::n();
+    }
+    ");
+}
+
+#[test]
+fn expands_global_capturing_closure_as_its_initializer_expression() {
+    let src = r#"
+    fn make() -> fn[(Field,)](Field) -> Field {
+        let x: Field = 3;
+        |y: Field| -> Field { y + x }
+    }
+
+    global F: fn[(Field,)](Field) -> Field = make();
+
+    fn main() {
+        let _ = F;
+    }
+    "#;
+    let expanded = assert_no_errors_and_to_string(src);
+    insta::assert_snapshot!(expanded, @r"
+    fn make() -> fn[(Field,)](Field) -> Field {
+        let x: Field = 3_Field;
+        |y: Field| -> Field {
+            y + x
+        }
+    }
+
+    global F: fn[(Field,)](Field) -> Field = make();
+
+    fn main() {
+        let _: fn[(Field,)](Field) -> Field = F;
+    }
+    ");
+}
+
+#[test]
+fn expands_string_literal_with_noir_escapes() {
+    let src = r#"
+    global S: str<6> = "\r\n\t\0\"\\";
+
+    fn main() {
+        let _ = S;
+    }
+    "#;
+    let expanded = assert_no_errors_and_to_string(src);
+    insta::assert_snapshot!(expanded, @r#"
+    global S: str<6> = "\r\n\t\0\"\\";
+
+    fn main() {
+        let _: str<6> = S;
+    }
+    "#);
+}
+
+#[test]
+fn expands_string_literal_with_control_character() {
+    // Noir's lexer accepts a raw control character inside a string literal, and has no
+    // numeric escape to write one with, so it has to be printed back raw.
+    let src = "fn main() { let _ = \"a\u{7}b\"; }";
+    let expanded = assert_no_errors_and_to_string(src);
+    assert!(expanded.contains("let _: str<3> = \"a\u{7}b\";"), "{expanded}");
+}
+
+#[test]
+fn expands_string_literal_with_combining_mark() {
+    let src = "fn main() { let _ = \"e\u{301}\"; }";
+    let expanded = assert_no_errors_and_to_string(src);
+    assert!(expanded.contains("let _: str<3> = \"e\u{301}\";"), "{expanded}");
+}
+
+#[test]
+fn expands_global_string_with_control_character_as_its_initializer_expression() {
+    // The value prints as a literal holding a raw control character, so the initializer is
+    // preferred - which is that same literal, and must still round-trip.
+    let src = "global S: str<3> = \"a\u{7}b\";\n\nfn main() { let _ = S; }";
+    let expanded = assert_no_errors_and_to_string(src);
+    assert!(expanded.contains("global S: str<3> = \"a\u{7}b\";"), "{expanded}");
+}
+
+#[test]
+fn expands_format_string_with_quote_and_escapes() {
+    let src = r#"
+    fn main() {
+        let _ = f"a\"b{{c}}d\\e\nf";
+    }
+    "#;
+    let expanded = assert_no_errors_and_to_string(src);
+    insta::assert_snapshot!(expanded, @r#"
+    fn main() {
+        let _: fmtstr<13, ()> = f"a\"b{{c}}d\\e\nf";
+    }
+    "#);
+}
+
+#[test]
+fn expands_global_format_string_value_with_quote_and_escapes() {
+    let src = r#"
+    global S: fmtstr<13, ()> = f"a\"b{{c}}d\\e\nf";
+
+    fn main() {
+        let _ = S;
+    }
+    "#;
+    let expanded = assert_no_errors_and_to_string(src);
+    insta::assert_snapshot!(expanded, @r#"
+    global S: fmtstr<13, ()> = f"a\"b{{c}}d\\e\nf";
+
+    fn main() {
+        let _: fmtstr<13, ()> = S;
+    }
+    "#);
+}
+
+/// `T: Checked` with `trait Checked: Source` implies `T: Source`, which the function assumes but
+/// which isn't part of what was written, so it isn't printed.
+#[test]
+fn expands_function_where_clause_without_implied_parent_bounds() {
+    let src = r#"
+    pub trait Source {
+        type Out;
+    }
+    pub trait Checked: Source {}
+    pub struct S {}
+    impl Source for S {
+        type Out = Field;
+    }
+    impl Checked for S {}
+
+    pub fn f<T>(x: <T as Source>::Out) -> <T as Source>::Out
+    where
+        T: Checked,
+    {
+        x
+    }
+
+    fn main() {
+        let _ = f::<S>(1);
+    }
+    "#;
+    let expanded = assert_no_errors_and_to_string(src);
+    insta::assert_snapshot!(expanded, @r"
+    pub trait Source {
+        type Out;
+    }
+
+    pub trait Checked: Source {
+
+    }
+
+    pub struct S {
+    }
+
+    impl Source for S {
+        type Out = Field;
+    }
+
+    impl Checked for S {
+
+    }
+
+    pub fn f<T>(x: <T as Source>::Out) -> <T as Source>::Out where T: Checked {
+        x
+    }
+
+    fn main() {
+        let _: Field = f::<S>(1_Field);
+    }
+    ");
+}
+
+// `<T as Serialize>::N * M` is built while `T`'s `N` is still unknown, so once everything is
+// bound the inferred types are `10 * 1` and `(16 * 20) + 1`. The type checker treats those as
+// `10` and `321` (the concrete return types below unify with them), and expand prints them the
+// same way.
+#[test]
+fn expands_associated_constant_arithmetic_as_folded_constant() {
+    let src = r#"
+    trait Serialize {
+        let N: u32;
+
+        fn serialize(self) -> [u32; Self::N];
+    }
+
+    impl Serialize for u8 {
+        let N: u32 = 1;
+
+        fn serialize(self) -> [u32; Self::N] {
+            [self as u32]
+        }
+    }
+
+    struct Msg {
+        a: [u32; 20],
+    }
+
+    impl Serialize for Msg {
+        let N: u32 = 20;
+
+        fn serialize(self) -> [u32; Self::N] {
+            self.a
+        }
+    }
+
+    impl<T, let M: u32> Serialize for [T; M]
+    where
+        T: Serialize,
+    {
+        let N: u32 = <T as Serialize>::N * M;
+
+        fn serialize(self) -> [u32; Self::N] {
+            [0; Self::N]
+        }
+    }
+
+    struct Bounded<T, let M: u32> {
+        items: [T; M],
+        len: u32,
+    }
+
+    impl<T, let M: u32> Serialize for Bounded<T, M>
+    where
+        T: Serialize,
+    {
+        let N: u32 = <T as Serialize>::N * M + 1;
+
+        fn serialize(self) -> [u32; Self::N] {
+            [0; Self::N]
+        }
+    }
+
+    struct Call<let N: u32> {
+        params: [u32; N],
+    }
+
+    impl<let N: u32> Call<N> {
+        fn new(params: [u32; N]) -> Self {
+            Call { params }
+        }
+    }
+
+    fn bytes_call(data: [u8; 10]) -> Call<10> {
+        let serialized_params = Serialize::serialize(data);
+        Call::new(serialized_params)
+    }
+
+    fn msgs_call(msgs: Bounded<Msg, 16>) -> Call<321> {
+        let serialized_params = Serialize::serialize(msgs);
+        Call::new(serialized_params)
+    }
+
+    fn main(data: [u8; 10], msgs: Bounded<Msg, 16>) {
+        let bytes: [u32; 10] = data.serialize();
+        let messages: [u32; 321] = msgs.serialize();
+        assert(bytes_call(data).params[0] == msgs_call(msgs).params[0]);
+        assert(bytes[0] == messages[0]);
+    }
+    "#;
+    let expanded = assert_no_errors_and_to_string(src);
+    insta::assert_snapshot!(expanded, @r"
+    trait Serialize {
+        let N: u32;
+
+        fn serialize(self) -> [u32; Self::N];
+    }
+
+    impl Serialize for u8 {
+        let N: u32 = 1_u32;
+
+        fn serialize(self) -> [u32; 1] {
+            [self as u32]
+        }
+    }
+
+    impl<let M: u32, T> Serialize for [T; M] where T: Serialize {
+        let N: u32 = M * <T as Serialize>::N;
+
+        fn serialize(self) -> [u32; M * <T as Serialize>::N] {
+            [0_u32; M * <T as Serialize>::N]
+        }
+    }
+
+    struct Msg {
+        a: [u32; 20],
+    }
+
+    impl Serialize for Msg {
+        let N: u32 = 20_u32;
+
+        fn serialize(self) -> [u32; 20] {
+            self.a
+        }
+    }
+
+    struct Bounded<T, let M: u32> {
+        items: [T; M],
+        len: u32,
+    }
+
+    impl<let M: u32, T> Serialize for Bounded<T, M> where T: Serialize {
+        let N: u32 = (M * <T as Serialize>::N) + 1;
+
+        fn serialize(self) -> [u32; (M * <T as Serialize>::N) + 1] {
+            [0_u32; (M * <T as Serialize>::N) + 1]
+        }
+    }
+
+    struct Call<let N: u32> {
+        params: [u32; N],
+    }
+
+    impl<let N: u32> Call<N> {
+        fn new(params: [u32; N]) -> Self {
+            Self { params: params}
+        }
+    }
+
+    fn bytes_call(data: [u8; 10]) -> Call<10> {
+        let serialized_params: [u32; 10] = data.serialize();
+        Call::<10>::new(serialized_params)
+    }
+
+    fn msgs_call(msgs: Bounded<Msg, 16>) -> Call<321> {
+        let serialized_params: [u32; 321] = msgs.serialize();
+        Call::<321>::new(serialized_params)
+    }
+
+    fn main(data: [u8; 10], msgs: Bounded<Msg, 16>) {
+        let bytes: [u32; 10] = data.serialize();
+        let messages: [u32; 321] = msgs.serialize();
+        assert(bytes_call(data).params[0_u32] == msgs_call(msgs).params[0_u32]);
+        assert(bytes[0_u32] == messages[0_u32]);
+    }
+    ");
 }

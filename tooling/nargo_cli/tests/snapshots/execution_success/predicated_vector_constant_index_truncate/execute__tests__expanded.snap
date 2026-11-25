@@ -1,0 +1,23 @@
+---
+source: tooling/nargo_cli/tests/execute.rs
+expression: expanded_code
+---
+struct S {
+    a: Field,
+    b: [u8; 2],
+}
+
+struct InputS {
+    a: u32,
+    b: [u8; 2],
+}
+
+fn main(x: [InputS; 3], i: u32, c: bool, v: u8) -> pub u8 {
+    let x: [S; 3] = x.map(|s: InputS| -> S S { a: <Field as From<u32>>::from(s.a), b: s.b });
+    let v: Field = <Field as From<u8>>::from(v);
+    let mut s: [S] = x.as_vector();
+    s[i] = S { a: v, b: [0_u8, 0_u8] };
+    let mut r: u8 = 0_u8;
+    if c { r = s[1_u32].b[1_u32] & 15_u8; };
+    r
+}

@@ -291,7 +291,7 @@ pub(super) fn simplify_call(
                 let start = index.to_u128() as usize * elements.len();
 
                 // Do not simplify if the index is greater than the vector capacity
-                // or else we will panic inside of the im::Vector insert method
+                // or else we will panic inside of the imbl::Vector insert method
                 // Constraints should be generated during SSA gen to tell the user
                 // they are attempting to insert at too large of an index
                 if start > vector.len() {
@@ -333,7 +333,7 @@ pub(super) fn simplify_call(
                 let index = index.to_u128() as usize * element_count;
 
                 // Do not simplify if the index is not less than the vector capacity
-                // or else we will panic inside of the im::Vector remove method.
+                // or else we will panic inside of the imbl::Vector remove method.
                 // Constraints should be generated during SSA gen to tell the user
                 // they are attempting to remove at too large of an index.
                 if index >= vector.len() {
@@ -468,7 +468,7 @@ fn simplify_as_vector_for_zero_sized_vector(
     let element_types = element_types.clone();
     let vector_length = dfg.make_constant(length.0.into(), NumericType::length_type());
     let new_vector =
-        make_array(dfg, im::Vector::new(), Type::Vector(element_types), block, call_stack);
+        make_array(dfg, imbl::Vector::new(), Type::Vector(element_types), block, call_stack);
     Some(SimplifyResult::SimplifiedToMultiple(vec![vector_length, new_vector]))
 }
 
@@ -646,12 +646,17 @@ pub(crate) fn constant_to_radix(
     radix: u32,
     limb_count: u32,
 ) -> Option<Vec<FieldElement>> {
-    let bit_size = u32::BITS - (radix - 1).leading_zeros();
+    // The range check comes first: `radix - 1` underflows for a radix of `0`, which is a radix the
+    // check is there to decline.
     let radix_big = BigUint::from(radix);
     let radix_range = BigUint::from(2u128)..=BigUint::from(256u128);
-    if !radix_range.contains(&radix_big) || BigUint::from(2u128).pow(bit_size) != radix_big {
+    if !radix_range.contains(&radix_big) {
         // NOTE: expect an error to be thrown later in
         // acir::generated_acir::radix_le_decompose
+        return None;
+    }
+    let bit_size = u32::BITS - (radix - 1).leading_zeros();
+    if BigUint::from(2u128).pow(bit_size) != radix_big {
         return None;
     }
     // `BigUint::to_radix_le` represents zero as a single zero limb (`[0]`), which would make a
@@ -687,7 +692,7 @@ fn make_constant_array(
     block: BasicBlockId,
     call_stack: CallStackId,
 ) -> ValueId {
-    let result_constants: im::Vector<_> =
+    let result_constants: imbl::Vector<_> =
         results.map(|element| dfg.make_constant(element, typ)).collect();
 
     let typ = Type::Array(
@@ -699,7 +704,7 @@ fn make_constant_array(
 
 fn make_array(
     dfg: &mut DataFlowGraph,
-    elements: im::Vector<ValueId>,
+    elements: imbl::Vector<ValueId>,
     typ: Type,
     block: BasicBlockId,
     call_stack: CallStackId,
@@ -760,7 +765,7 @@ fn decrement_vector_length(
 /// There result is that the vector will physically always be extended by 1, with the pushed
 /// item appearing at the end, and potentially in the middle of the vector if we weren't at capacity.
 fn simplify_vector_push_back(
-    mut vector: im::Vector<ValueId>,
+    mut vector: imbl::Vector<ValueId>,
     element_type: Type,
     arguments: &[ValueId],
     dfg: &mut DataFlowGraph,
@@ -805,7 +810,7 @@ fn simplify_vector_push_back(
 /// array, returning `[new_length, new_vector, popped_elements..]`. A vector of tuples pops several
 /// flattened slots per element, so the elements are read in reverse from the tail.
 fn simplify_vector_pop_back(
-    mut vector: im::Vector<ValueId>,
+    mut vector: imbl::Vector<ValueId>,
     vector_type: Type,
     arguments: &[ValueId],
     dfg: &mut DataFlowGraph,
@@ -960,7 +965,7 @@ fn simplify_black_box_func(
     }
 }
 
-fn to_u8_vec(dfg: &DataFlowGraph, values: im::Vector<ValueId>) -> Vec<u8> {
+fn to_u8_vec(dfg: &DataFlowGraph, values: imbl::Vector<ValueId>) -> Vec<u8> {
     values
         .iter()
         .map(|id| {
@@ -972,7 +977,7 @@ fn to_u8_vec(dfg: &DataFlowGraph, values: im::Vector<ValueId>) -> Vec<u8> {
         .collect()
 }
 
-fn array_is_constant(dfg: &DataFlowGraph, values: &im::Vector<ValueId>) -> bool {
+fn array_is_constant(dfg: &DataFlowGraph, values: &imbl::Vector<ValueId>) -> bool {
     values.iter().all(|value| dfg.get_numeric_constant(*value).is_some())
 }
 
@@ -1080,6 +1085,34 @@ mod tests {
         assert_eq!(limbs, None);
     }
 
+    /// A radix outside `2..=256` is declined rather than decomposed. `0` is the interesting one:
+    /// the power-of-two check needs `radix - 1`, which underflows there.
+    #[test]
+    fn constant_to_radix_rejects_out_of_range_radix() {
+        for radix in [0, 1, 257] {
+            let limbs = constant_to_radix(Endian::Little, FieldElement::from(5u128), radix, 4);
+            assert_eq!(limbs, None, "radix {radix} should be declined");
+        }
+    }
+
+    /// `to_le_radix` with a radix of `0` reaches the interpreter as validator-accepted SSA, so the
+    /// interpreter has to report it rather than abort.
+    #[test]
+    fn interpret_to_radix_with_zero_radix_fails_gracefully() {
+        let src = "
+        brillig(inline) fn main f0 {
+          b0():
+            v0 = call to_le_radix(Field 5, u32 0) -> [u8; 4]
+            return v0
+        }
+        ";
+
+        let ssa = Ssa::from_str(src).unwrap();
+        let result = ssa.interpret(Vec::new());
+
+        assert!(result.is_err(), "expected an interpreter error, got {result:?}");
+    }
+
     #[test]
     fn simplify_derive_generators_has_correct_type() {
         let src = r#"
@@ -1123,7 +1156,7 @@ mod tests {
         let _ = Ssa::from_str_simplifying(&src);
     }
 
-    // With `allow_malformed_simplify` enabled (as the `ssa_fuzzer` does), the same malformed call is
+    // With `allow_malformed_simplify` enabled, the same malformed call is
     // left intact rather than panicking. Validation is skipped because it would reject the length too.
     #[test]
     fn wrong_sized_keccakf1600_is_left_intact_when_malformed_allowed() {

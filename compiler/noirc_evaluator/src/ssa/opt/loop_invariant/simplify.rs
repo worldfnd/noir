@@ -262,11 +262,11 @@ impl LoopInvariantContext<'_> {
             loop_context
                 .get_current_induction_variable_bounds(*lhs)
                 .filter(|_| !only_outer_induction)
-                .or(self.outer_induction_variables.get(lhs).copied()),
+                .or(self.get_outer_induction_variable_bounds(loop_context, *lhs)),
             loop_context
                 .get_current_induction_variable_bounds(*rhs)
                 .filter(|_| !only_outer_induction)
-                .or(self.outer_induction_variables.get(rhs).copied()),
+                .or(self.get_outer_induction_variable_bounds(loop_context, *rhs)),
         ) {
             // LHS is a constant, RHS is the induction variable with a known lower and upper bound.
             (Some(lhs), None, None, Some(bounds)) => Some((false, lhs, bounds)),
@@ -329,10 +329,11 @@ impl LoopInvariantContext<'_> {
             _ => None,
         } {
             // Evaluate the operation at both bound extremes to check whether it will ever overflow.
+            let is_brillig = self.inserter.function.dfg.runtime().is_brillig();
             for (lhs, rhs) in checks {
                 let lhs = lhs.into_numeric_constant().0;
                 let rhs = rhs.into_numeric_constant().0;
-                match eval_constant_binary_op(lhs, rhs, binary.operator, operand_type) {
+                match eval_constant_binary_op(lhs, rhs, binary.operator, operand_type, is_brillig) {
                     BinaryEvaluationResult::Success(..) => {}
                     BinaryEvaluationResult::CouldNotEvaluate
                     | BinaryEvaluationResult::Failure(..) => {

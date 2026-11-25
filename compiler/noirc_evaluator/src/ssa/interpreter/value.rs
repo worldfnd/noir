@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
+use super::shared_cell::SharedCell;
 use acvm::{AcirField, FieldElement, acir::brillig::lengths::SemanticLength};
 use iter_extended::{try_vecmap, vecmap};
-use noirc_frontend::Shared;
+use rustc_hash::FxHashSet as HashSet;
 
 use crate::{
     brillig::{assert_u32, assert_usize},
@@ -18,7 +19,7 @@ use crate::{
 use super::IResult;
 
 /// Be careful when using `Clone`: `ArrayValue` and `ReferenceValue`
-/// are backed by a `Shared` data structure, and for example modifying
+/// are backed by a `SharedCell` data structure, and for example modifying
 /// an array element would be reflected in the original and the clone
 /// as well. Use `Value::snapshot` to make independent clones.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,7 +67,7 @@ pub struct ReferenceValue {
     pub original_id: ValueId,
 
     /// A value of `None` here means this allocation is currently uninitialized
-    pub element: Shared<Option<Value>>,
+    pub element: SharedCell<Option<Value>>,
 
     pub element_type: Arc<Type>,
 
@@ -76,12 +77,12 @@ pub struct ReferenceValue {
 
 #[derive(Debug, Clone)]
 pub struct ArrayValue {
-    pub elements: Shared<Vec<Value>>,
+    pub elements: SharedCell<Vec<Value>>,
 
-    /// The `Shared` type contains its own reference count but we need to track
+    /// The `SharedCell` type contains its own reference count but we need to track
     /// the reference count separate to ensure it is only changed by `IncrementRc` and
     /// `DecrementRc` instructions.
-    pub rc: Shared<u32>,
+    pub rc: SharedCell<u32>,
 
     pub element_types: Arc<CompositeType>,
     /// Some length, if this is an array, otherwise None.
@@ -101,8 +102,46 @@ impl ArrayValue {
     }
 }
 
+/// An address identifying a `SharedCell` storage cell (an array's elements or a
+/// reference's pointee), used purely for identity comparisons: an in-place write to
+/// a cell is observable through every handle whose storage identity is equal.
+pub(crate) type StorageIdentity = *const ();
+
 impl Value {
-    #[allow(unused)]
+    /// Collects the [StorageIdentity] of every storage cell reachable from this value,
+    /// recursing through array elements and reference contents.
+    ///
+    /// The set answers "which memory could an in-place write make visible through
+    /// this value": it is captured from a call's arguments on entry to a function
+    /// whose recorded purity forbids mutating caller-visible memory, and checked
+    /// against on every in-place write. The caller must keep the value (or a clone
+    /// of it) alive for as long as the set is used, so that none of the collected
+    /// allocations can be freed and their addresses reused.
+    pub(crate) fn collect_storage_identities(&self, identities: &mut HashSet<StorageIdentity>) {
+        match self {
+            Value::Numeric(_)
+            | Value::Function(_)
+            | Value::Intrinsic(_)
+            | Value::ForeignFunction(_) => (),
+            Value::Reference(reference) => {
+                // The insertion check also breaks cycles (a reference stored inside
+                // an array it points to).
+                if identities.insert(reference.element.as_ptr() as StorageIdentity)
+                    && let Some(element) = reference.element.borrow().as_ref()
+                {
+                    element.collect_storage_identities(identities);
+                }
+            }
+            Value::ArrayOrVector(array) => {
+                if identities.insert(array.elements.as_ptr() as StorageIdentity) {
+                    for element in array.elements.borrow().iter() {
+                        element.collect_storage_identities(identities);
+                    }
+                }
+            }
+        }
+    }
+
     pub(crate) fn get_type(&self) -> Type {
         match self {
             Value::Numeric(numeric_value) => Type::Numeric(numeric_value.get_type()),
@@ -119,7 +158,7 @@ impl Value {
         Value::Reference(ReferenceValue {
             original_id,
             element_type,
-            element: Shared::new(None),
+            element: SharedCell::new(None),
             mutable,
         })
     }
@@ -240,15 +279,15 @@ impl Value {
     /// Unlike [`Value::array`], this supports zero-sized element types (empty `element_types`),
     /// where the length cannot be recovered by dividing the flattened element count by the number
     /// of element types.
-    pub(crate) fn array_with_length(
+    pub fn array_with_length(
         elements: Vec<Value>,
         element_types: Vec<Type>,
         length: SemanticLength,
     ) -> Self {
         assert_eq!(length.0 as usize * element_types.len(), elements.len());
         Self::ArrayOrVector(ArrayValue {
-            elements: Shared::new(elements),
-            rc: Shared::new(1),
+            elements: SharedCell::new(elements),
+            rc: SharedCell::new(1),
             element_types: Arc::new(element_types),
             length: Some(length),
         })
@@ -256,8 +295,8 @@ impl Value {
 
     pub(crate) fn vector(elements: Vec<Value>, element_types: Arc<Vec<Type>>) -> Self {
         Self::ArrayOrVector(ArrayValue {
-            elements: Shared::new(elements),
-            rc: Shared::new(1),
+            elements: SharedCell::new(elements),
+            rc: SharedCell::new(1),
             element_types,
             length: None,
         })
@@ -277,7 +316,7 @@ impl Value {
                 Self::Reference(ReferenceValue {
                     original_id: id,
                     element_type: element_type.clone(),
-                    element: Shared::new(Some(value)),
+                    element: SharedCell::new(Some(value)),
                     mutable: *mutable,
                 })
             }
@@ -325,7 +364,7 @@ impl Value {
                 let element = r.element.borrow().as_ref().map(|v| v.snapshot());
                 Value::Reference(ReferenceValue {
                     original_id: r.original_id,
-                    element: Shared::new(element),
+                    element: SharedCell::new(element),
                     element_type: r.element_type.clone(),
                     mutable: r.mutable,
                 })
@@ -333,8 +372,8 @@ impl Value {
             Value::ArrayOrVector(a) => {
                 let elements = a.elements.borrow().iter().map(|v| v.snapshot()).collect();
                 Value::ArrayOrVector(ArrayValue {
-                    elements: Shared::new(elements),
-                    rc: Shared::new(*a.rc.borrow()),
+                    elements: SharedCell::new(elements),
+                    rc: SharedCell::new(*a.rc.borrow()),
                     element_types: a.element_types.clone(),
                     length: a.length,
                 })

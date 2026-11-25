@@ -132,7 +132,10 @@ impl ChunkFormatter<'_, '_> {
                 }));
             }
             Literal::Integer(..) => group.text(self.chunk(|formatter| {
-                if formatter.is_at(Token::Minus) {
+                // A `-` in front of an integer literal is folded into the literal itself, and
+                // because negating zero yields zero every `-` in front of a literal zero folds
+                // into the same literal.
+                while formatter.is_at(Token::Minus) {
                     formatter.write_token(Token::Minus);
                     formatter.skip_comments_and_whitespace();
                 }
@@ -456,7 +459,7 @@ impl ChunkFormatter<'_, '_> {
     pub(super) fn format_type_path(&mut self, type_path: TypePath) -> ChunkGroup {
         let mut group = ChunkGroup::new();
         group.text(self.chunk(|formatter| {
-            let nameless = formatter.is_at(Token::Less);
+            let nameless = formatter.is_at_less();
             if nameless {
                 formatter.write_token(Token::Less);
             }
@@ -781,17 +784,35 @@ impl ChunkFormatter<'_, '_> {
 
     fn format_prefix(&mut self, prefix: PrefixExpression) -> ChunkGroup {
         let mut group = ChunkGroup::new();
-        group.text(self.chunk(|formatter| {
-            if let UnaryOp::Reference { mutable: true } = prefix.operator {
+
+        // `&&x` lexes as a single `LogicalAnd`, which the parser reads back as two nested
+        // reference prefixes (`parse_unary`). That one token carries both ampersands, so
+        // write it once and continue with the inner prefix, whose own ampersand it covered.
+        let (prefix, operator_written) = if matches!(prefix.operator, UnaryOp::Reference { .. })
+            && self.is_at(Token::LogicalAnd)
+        {
+            group.text(self.chunk(|formatter| {
                 formatter.write_current_token();
                 formatter.bump();
+            }));
+            let ExpressionKind::Prefix(inner) = prefix.rhs.kind else {
+                unreachable!("`&&` parses as two nested reference prefixes")
+            };
+            (*inner, true)
+        } else {
+            (prefix, false)
+        };
+
+        group.text(self.chunk(|formatter| {
+            if !operator_written {
+                formatter.write_current_token();
+                formatter.bump();
+            }
+            if let UnaryOp::Reference { mutable: true } = prefix.operator {
                 formatter.skip_comments_and_whitespace();
                 formatter.write_current_token();
                 formatter.bump();
                 formatter.write_space();
-            } else {
-                formatter.write_current_token();
-                formatter.bump();
             }
         }));
         self.format_expression(prefix.rhs, &mut group);
@@ -863,15 +884,14 @@ impl ChunkFormatter<'_, '_> {
 
         group.space_or_line();
         group.text(self.chunk(|formatter| {
-            let tokens_count = if matches!(
-                infix.operator.contents,
-                BinaryOpKind::ShiftRight | BinaryOpKind::ShiftLeft
-            ) {
-                2
-            } else {
-                1
-            };
-            for _ in 0..tokens_count {
+            let tokens_count =
+                if infix.operator.contents == BinaryOpKind::ShiftRight { 2 } else { 1 };
+            for index in 0..tokens_count {
+                // `>>` is lexed as two separate tokens so that nested generic types are easier
+                // to parse, which means whitespace or a comment can sit between its two halves.
+                if index > 0 {
+                    formatter.skip_comments_and_whitespace();
+                }
                 formatter.write_current_token();
                 formatter.bump();
             }
@@ -1240,11 +1260,6 @@ impl ChunkFormatter<'_, '_> {
         let keyword = match constrain_statement.kind {
             ConstrainKind::Assert => Keyword::Assert,
             ConstrainKind::AssertEq => Keyword::AssertEq,
-            ConstrainKind::Constrain => {
-                unreachable!(
-                    "constrain always produces an error, and the formatter doesn't run when there are errors"
-                )
-            }
         };
 
         group.text(self.chunk(|formatter| {
@@ -1526,6 +1541,20 @@ mod tests {
     }
 
     #[test]
+    fn format_repeated_negative_zero() {
+        let src = "global x =  - - - 0 ;";
+        let expected = "global x = ---0;\n";
+        assert_format(src, expected);
+    }
+
+    #[test]
+    fn format_negative_zero_with_comment_before_it() {
+        let src = "global x = - // negate\n-0;";
+        let expected = "global x = - // negate\n-0;\n";
+        assert_format(src, expected);
+    }
+
+    #[test]
     fn format_ref_mut_integer() {
         let src = "global x = & mut 42 ;";
         let expected = "global x = &mut 42;\n";
@@ -1783,9 +1812,61 @@ global y = 1;
     }
 
     #[test]
+    fn format_double_reference_prefix() {
+        let src = "global x = & & a ;";
+        let expected = "global x = &&a;\n";
+        assert_format(src, expected);
+    }
+
+    #[test]
+    fn format_double_reference_prefix_written_as_one_token() {
+        let src = "global x = &&a ;";
+        let expected = "global x = &&a;\n";
+        assert_format(src, expected);
+    }
+
+    #[test]
+    fn format_reference_to_mutable_reference_prefix() {
+        let src = "global x = &&  mut  a ;";
+        let expected = "global x = &&mut a;\n";
+        assert_format(src, expected);
+    }
+
+    #[test]
     fn format_infix() {
         let src = "global x =  a  +  b  ;";
         let expected = "global x = a + b;\n";
+        assert_format(src, expected);
+    }
+
+    #[test]
+    fn format_shift_written_as_two_separate_tokens() {
+        let src = "global x =  a  >  >  b  ;";
+        let expected = "global x = a >> b;\n";
+        assert_format(src, expected);
+    }
+
+    #[test]
+    fn format_less_than_as_trait_path() {
+        let src = "global x =  1  <  <U as Tr>::f(x) ;";
+        let expected = "global x = 1 < <U as Tr>::f(x);\n";
+        assert_format(src, expected);
+    }
+
+    #[test]
+    fn format_as_trait_path_whose_type_is_as_trait_path() {
+        let src = "global x =  <<A as B>::C as D>::e ;";
+        let expected = "global x = <<A as B>::C as D>::e;\n";
+        assert_format(src, expected);
+    }
+
+    #[test]
+    fn format_shift_with_a_comment_between_its_two_tokens() {
+        let src = "global x = a > // shift\n> b;";
+        let expected = "global x = a
+    > // shift
+    > b;
+";
         assert_format(src, expected);
     }
 
@@ -1873,8 +1954,8 @@ global y = 1;
     }
 
     #[test]
-    fn format_dep_call() {
-        let src = "global x =  dep :: foo :: bar ( 1, 2 )  ;";
+    fn format_absolute_call() {
+        let src = "global x =   :: foo :: bar ( 1, 2 )  ;";
         let expected = "global x = ::foo::bar(1, 2);\n";
         assert_format(src, expected);
     }
@@ -2724,6 +2805,47 @@ let     x   =    1   +    2 ;
     1;
     2
 };
+";
+        assert_format(src, expected);
+    }
+
+    #[test]
+    fn format_lambda_with_comment_between_parameters_and_body() {
+        // Regression test for https://github.com/noir-lang/noir-claude/issues/1646:
+        // the comment's terminating newline was dropped, so the lambda body was
+        // swallowed into the comment while the program still compiled.
+        let src = "fn main(x: Field, y: Field) {
+    let check = |v| // every checked value must equal y
+{ assert(v == y); };
+    check(x);
+}
+";
+        let expected = "fn main(x: Field, y: Field) {
+    let check = |v| // every checked value must equal y
+    { assert(v == y); };
+    check(x);
+}
+";
+        assert_format(src, expected);
+    }
+
+    #[test]
+    fn format_lambda_as_last_call_argument_with_comment_between_parameters_and_body() {
+        // Regression test for https://github.com/noir-lang/noir-claude/issues/1646.
+        // A lambda as the last call argument is formatted through a fast path that
+        // writes the group in one line, which is a separate way for the comment's
+        // terminating newline to be lost.
+        let src = "fn main() {
+    foo(1, |x| // doubles the input
+    {
+        x * 2
+    });
+}
+";
+        let expected = "fn main() {
+    foo(1, |x| // doubles the input
+    x * 2);
+}
 ";
         assert_format(src, expected);
     }
