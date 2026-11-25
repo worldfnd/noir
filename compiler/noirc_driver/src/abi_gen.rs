@@ -4,7 +4,8 @@ use acvm::FieldConfig;
 use acvm::acir::circuit::ErrorSelector;
 use iter_extended::vecmap;
 use noirc_abi::{
-    Abi, AbiErrorType, AbiParameter, AbiReturnType, AbiType, AbiValue, AbiVisibility, Sign,
+    ABI_VERSION, Abi, AbiErrorType, AbiParameter, AbiReturnType, AbiType, AbiValue, AbiVisibility,
+    Sign,
 };
 use noirc_errors::Location;
 use noirc_evaluator::ErrorType;
@@ -12,7 +13,7 @@ use noirc_frontend::TypeBinding;
 use noirc_frontend::hir::comptime::{Integer, Value};
 use noirc_frontend::shared::{Signedness, Visibility};
 use noirc_frontend::{
-    hir::Context,
+    hir::{CheckedContext, Context},
     hir_def::{function::Param, stmt::HirPattern, types::Type},
     node_interner::{FuncId, NodeInterner},
 };
@@ -20,25 +21,49 @@ use noirc_frontend::{
 /// Arranges a function signature and a generated circuit's return witnesses into a
 /// `noirc_abi::Abi`.
 pub fn gen_abi(
-    context: &Context,
+    context: &CheckedContext,
     func_id: &FuncId,
     return_visibility: Visibility,
     error_types: BTreeMap<ErrorSelector, ErrorType>,
 ) -> Abi {
     let (parameters, return_type) = compute_function_abi(context, func_id);
+    assemble_abi(
+        context,
+        get_main_function_location(context),
+        parameters,
+        return_type,
+        return_visibility,
+        error_types,
+    )
+}
+
+/// Builds an `Abi` from a function's already computed parameters and return type, converting the
+/// circuit's error types.
+///
+/// Converting the error types reads only the crate graph and def maps from `context`, never its
+/// `NodeInterner`, so this can run after the interner has been freed. `main_location` is the
+/// location reported if a type in the ABI fails to evaluate.
+pub(super) fn assemble_abi(
+    context: &Context,
+    main_location: Location,
+    parameters: Vec<AbiParameter>,
+    return_type: Option<AbiType>,
+    return_visibility: Visibility,
+    error_types: BTreeMap<ErrorSelector, ErrorType>,
+) -> Abi {
     let return_type = return_type.map(|typ| AbiReturnType {
         abi_type: typ,
         visibility: to_abi_visibility(return_visibility),
     });
     let error_types = error_types
         .into_iter()
-        .map(|(selector, typ)| (selector, build_abi_error_type(context, typ)))
+        .map(|(selector, typ)| (selector, build_abi_error_type(context, typ, main_location)))
         .collect();
-    Abi { parameters, return_type, error_types }
+    Abi { abi_version: ABI_VERSION, parameters, return_type, error_types }
 }
 
 // Get the Span of the root crate's main function, or else a dummy span if that fails
-fn get_main_function_location(context: &Context) -> Location {
+pub(super) fn get_main_function_location(context: &CheckedContext) -> Location {
     if let Some(func_id) = context.get_main_function(context.root_crate_id()) {
         context.function_meta(&func_id).location
     } else {
@@ -46,22 +71,26 @@ fn get_main_function_location(context: &Context) -> Location {
     }
 }
 
-fn build_abi_error_type(context: &Context, typ: ErrorType) -> AbiErrorType {
+fn build_abi_error_type(
+    context: &Context,
+    typ: ErrorType,
+    main_location: Location,
+) -> AbiErrorType {
     match typ {
         ErrorType::Dynamic(typ) => {
             if let Type::FmtString(len, item_types) = typ {
-                let span = get_main_function_location(context);
-                let length = len.evaluate_to_u32(span).expect("Cannot evaluate fmt length");
+                let length =
+                    len.evaluate_to_u32(main_location).expect("Cannot evaluate fmt length");
                 let item_types = match item_types.as_ref() {
                     Type::Tuple(item_types) => {
-                        vecmap(item_types, |typ| abi_type_from_hir_type(context, typ, false))
+                        vecmap(item_types, |typ| abi_type_at(context, typ, main_location, false))
                     }
                     Type::Unit => Vec::new(),
                     _ => unreachable!("FmtString items must be a tuple or unit"),
                 };
                 AbiErrorType::FmtString { length, item_types }
             } else {
-                AbiErrorType::Custom(abi_type_from_hir_type(context, &typ, false))
+                AbiErrorType::Custom(abi_type_at(context, &typ, main_location, false))
             }
         }
         ErrorType::String(string) => AbiErrorType::String { string },
@@ -71,18 +100,34 @@ fn build_abi_error_type(context: &Context, typ: ErrorType) -> AbiErrorType {
 /// The ABI type of `typ`. In the signature of an entry point (`main` or a contract function) every
 /// type is already known: the elaborator refuses an unbound type there. Elsewhere, as in an error
 /// payload, an integer literal whose type was never pinned down reads as the default.
-pub(super) fn abi_type_from_hir_type(context: &Context, typ: &Type, entry_point: bool) -> AbiType {
+pub(super) fn abi_type_from_hir_type(
+    context: &CheckedContext,
+    typ: &Type,
+    entry_point: bool,
+) -> AbiType {
+    abi_type_at(context, typ, get_main_function_location(context), entry_point)
+}
+
+/// Converts `typ` into an `AbiType`, reporting `main_location` if a length fails to evaluate.
+/// See [`abi_type_from_hir_type`] for `entry_point`.
+///
+/// Reads only the crate graph and def maps from `context`, not its `NodeInterner`.
+fn abi_type_at(
+    context: &Context,
+    typ: &Type,
+    main_location: Location,
+    entry_point: bool,
+) -> AbiType {
     match typ {
         Type::FieldElement => AbiType::Field,
         Type::Array(typ, size) => {
-            let span = get_main_function_location(context);
             let length = size
-                .evaluate_to_u32(span)
+                .evaluate_to_u32(main_location)
                 .expect("Cannot have variable sized arrays as a parameter to main");
             let typ = typ.as_ref();
             AbiType::Array {
                 length,
-                typ: Box::new(abi_type_from_hir_type(context, typ, entry_point)),
+                typ: Box::new(abi_type_at(context, typ, main_location, entry_point)),
             }
         }
         Type::Integer(sign, width) => {
@@ -90,23 +135,25 @@ pub(super) fn abi_type_from_hir_type(context: &Context, typ: &Type, entry_point:
                 Signedness::Unsigned => Sign::Unsigned,
                 Signedness::Signed => Sign::Signed,
             };
-            let span = get_main_function_location(context);
             let width = width
-                .evaluate_to_u32(span)
+                .evaluate_to_u32(main_location)
                 .expect("Cannot have an integer of generic width as a parameter to main");
 
             AbiType::Integer { sign, width }
         }
         Type::TypeVariable(binding) => {
             if binding.is_integer() || binding.is_integer_or_field() {
-                match &*binding.borrow() {
-                    TypeBinding::Bound(typ) => abi_type_from_hir_type(context, typ, entry_point),
+                match binding.binding() {
+                    TypeBinding::Bound(typ) => {
+                        abi_type_at(context, typ, main_location, entry_point)
+                    }
                     TypeBinding::Unbound(..) if entry_point => {
                         unreachable!("an entry point's types are bound before its ABI is built")
                     }
-                    TypeBinding::Unbound(_id, _kind) => abi_type_from_hir_type(
+                    TypeBinding::Unbound(_id, _kind) => abi_type_at(
                         context,
                         &Type::default_int_or_field_type(),
+                        main_location,
                         entry_point,
                     ),
                 }
@@ -116,9 +163,8 @@ pub(super) fn abi_type_from_hir_type(context: &Context, typ: &Type, entry_point:
         }
         Type::Bool => AbiType::Boolean,
         Type::String(size) => {
-            let span = get_main_function_location(context);
             let size = size
-                .evaluate_to_u32(span)
+                .evaluate_to_u32(main_location)
                 .expect("Cannot have variable sized strings as a parameter to main");
             AbiType::String { length: size }
         }
@@ -127,18 +173,19 @@ pub(super) fn abi_type_from_hir_type(context: &Context, typ: &Type, entry_point:
             let struct_type = def.borrow();
             let fields = struct_type.get_fields(args).unwrap_or_default();
             let fields = vecmap(fields, |(name, typ, _)| {
-                (name, abi_type_from_hir_type(context, &typ, entry_point))
+                (name, abi_type_at(context, &typ, main_location, entry_point))
             });
             // For the ABI, we always want to resolve the struct paths from the root crate
             let path = context.fully_qualified_struct_path(context.root_crate_id(), struct_type.id);
             AbiType::Struct { fields, path }
         }
         Type::Alias(def, args) => {
-            abi_type_from_hir_type(context, &def.borrow().get_type(args), entry_point)
+            abi_type_at(context, &def.borrow().get_type(args), main_location, entry_point)
         }
-        Type::CheckedCast { to, .. } => abi_type_from_hir_type(context, to, entry_point),
+        Type::CheckedCast { to, .. } => abi_type_at(context, to, main_location, entry_point),
         Type::Tuple(fields) => {
-            let fields = vecmap(fields, |typ| abi_type_from_hir_type(context, typ, entry_point));
+            let fields =
+                vecmap(fields, |typ| abi_type_at(context, typ, main_location, entry_point));
             AbiType::Tuple { fields }
         }
         Type::Error
@@ -165,7 +212,7 @@ fn to_abi_visibility(value: Visibility) -> AbiVisibility {
 }
 
 pub(super) fn compute_function_abi(
-    context: &Context,
+    context: &CheckedContext,
     func_id: &FuncId,
 ) -> (Vec<AbiParameter>, Option<AbiType>) {
     let func_meta = context.def_interner.function_meta(func_id);
@@ -195,7 +242,11 @@ fn get_param_name<'a>(pattern: &HirPattern, interner: &'a NodeInterner) -> &'a s
     }
 }
 
-fn into_abi_params(context: &Context, params: Vec<Param>, entry_point: bool) -> Vec<AbiParameter> {
+fn into_abi_params(
+    context: &CheckedContext,
+    params: Vec<Param>,
+    entry_point: bool,
+) -> Vec<AbiParameter> {
     vecmap(params, |(pattern, typ, vis)| {
         let param_name = get_param_name(&pattern, &context.def_interner).to_owned();
         let as_abi = abi_type_from_hir_type(context, &typ, entry_point);

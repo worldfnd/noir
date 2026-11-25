@@ -1,7 +1,7 @@
 //! Tests for trait method resolution and scope rules.
 //! Validates that trait methods are correctly resolved based on imports, handles ambiguity, and suggests missing imports.
 
-use crate::test_utils::stdlib_src;
+use crate::test_utils::{get_monomorphized, stdlib_src};
 use crate::tests::{
     assert_no_errors, check_errors, check_errors_with_stdlib, check_monomorphization_error,
 };
@@ -1178,4 +1178,448 @@ fn no_eq_impl_for_struct_in_assert_eq() {
     }
     "#;
     check_errors_with_stdlib(src, [stdlib_src::EQ]);
+}
+
+#[test]
+fn inherited_static_default_method_on_generic_impl_uses_the_type_arguments() {
+    let src = r#"
+    pub trait Lim { fn limit() -> u32; fn make() -> u32 { Self::limit() } }
+    pub struct G<let N: u32> {}
+    impl<let N: u32> Lim for G<N> { fn limit() -> u32 { N } }
+    pub struct H<T> {}
+    impl<T> Lim for H<T> { fn limit() -> u32 { 5 } }
+    fn main() -> pub (u32, u32) { (G::<7>::make(), H::<u8>::make()) }
+    "#;
+    let program = get_monomorphized(src).unwrap();
+    insta::assert_snapshot!(program, @r"
+    fn main$f0() -> pub (u32, u32) {
+        (make$f1(), make$f2())
+    }
+    fn make$f1() -> u32 {
+        limit$f3()
+    }
+    fn make$f2() -> u32 {
+        limit$f4()
+    }
+    fn limit$f3() -> u32 {
+        7
+    }
+    fn limit$f4() -> u32 {
+        5
+    }
+    ");
+}
+
+#[test]
+fn inherited_static_default_method_on_generic_impl_is_ambiguous_with_another_trait() {
+    let src = r#"
+    pub trait A { fn limit() -> u32; fn make() -> u32 { Self::limit() } }
+    pub trait B { fn make() -> u32; }
+    pub struct G<let N: u32> {}
+    impl<let N: u32> A for G<N> { fn limit() -> u32 { N } }
+    impl<let N: u32> B for G<N> { fn make() -> u32 { 1000 } }
+    fn main() -> pub u32 { G::<7>::make() }
+                                   ^^^^ Multiple applicable items in scope
+                                   ~~~~ Multiple traits which provide `make` are implemented and in scope: `A`, `B`
+    "#;
+    check_errors(src);
+}
+
+#[test]
+fn inherited_self_default_method_on_generic_impl_keeps_the_receiver_generic() {
+    let src = r#"
+    pub trait Lim { fn limit(self) -> u32; fn me(self) -> u32 { self.limit() } }
+    pub struct G<let N: u32> {}
+    impl<let N: u32> Lim for G<N> { fn limit(self) -> u32 { N } }
+    fn main() -> pub u32 {
+        let g = G {};
+        let r = g.me();
+        let _h: G<7> = g;
+        r
+    }
+    "#;
+    let program = get_monomorphized(src).unwrap();
+    insta::assert_snapshot!(program, @r"
+    fn main$f0() -> pub u32 {
+        let g$l0 = {
+            ()
+        };
+        let r$l1 = me$f1(g$l0);
+        let _h$l2 = g$l0;
+        r$l1
+    }
+    fn me$f1(self$l3: ()) -> u32 {
+        limit$f2(self$l3)
+    }
+    fn limit$f2(self$l4: ()) -> u32 {
+        7
+    }
+    ");
+}
+
+#[test]
+fn inherited_self_default_method_on_type_generic_impl_keeps_the_receiver_generic() {
+    let src = r#"
+    pub trait Lim { fn limit(self) -> u32; fn me(self) -> u32 { self.limit() } }
+    pub struct H<T> { x: [T; 0] }
+    impl<T> Lim for H<T> { fn limit(self) -> u32 { 5 } }
+    fn main() -> pub u32 {
+        let h = H { x: [] };
+        let r = h.me();
+        let _k: H<u8> = h;
+        r
+    }
+    "#;
+    assert_no_errors(src);
+}
+
+#[test]
+fn inherited_self_default_method_on_generic_impl_needs_the_receiver_type_known() {
+    let src = r#"
+    pub trait Lim { fn limit(self) -> u32; fn me(self) -> u32 { self.limit() } }
+    pub struct G<let N: u32> {}
+    impl<let N: u32> Lim for G<N> { fn limit(self) -> u32 { N } }
+    fn main() -> pub u32 {
+        let g = G {};
+                ^ Type annotation needed
+                ~ Could not determine the value of the generic argument `N` declared on the struct `G`
+        g.me()
+    }
+    "#;
+    check_errors(src);
+}
+
+#[test]
+fn inherited_self_default_method_inside_generic_impl_does_not_infer_the_receiver_from_self() {
+    let src = r#"
+    pub trait Lim { fn limit(self) -> u32; fn me(self) -> u32 { self.limit() } fn two(self) -> u32; }
+    pub struct G<let N: u32> {}
+    impl<let N: u32> Lim for G<N> {
+        fn limit(self) -> u32 { N }
+        fn two(self) -> u32 { let g = G {}; g.me() }
+                                      ^ Type annotation needed
+                                      ~ Could not determine the value of the generic argument `N` declared on the struct `G`
+    }
+    fn main() -> pub u32 { G::<3> {}.two() * 100 + G::<9> {}.two() }
+    "#;
+    check_errors(src);
+}
+
+#[test]
+fn method_call_that_a_blanket_impl_with_a_default_body_also_serves_is_ambiguous() {
+    let src = r#"
+    trait Marker {}
+    trait Foo {
+        fn value(self) -> Field {
+            let _ = self;
+            1
+        }
+    }
+    struct S<U> { x: U }
+    impl<T> Foo for T where T: Marker {}
+    impl<U> Foo for S<U> {
+        fn value(self) -> Field { 2 }
+    }
+
+    pub fn value_of<U>(x: U) -> Field where S<U>: Marker {
+        S { x }.value()
+        ^^^^^^^^^^^^^ Multiple trait impls match the object type `S<U>`
+        ~~~~~~~~~~~~~ Ambiguous impl
+    }
+
+    fn main() {}
+    "#;
+    check_errors(src);
+}
+
+#[test]
+fn method_call_that_a_blanket_impl_also_serves_under_a_where_clause_is_ambiguous() {
+    let src = r#"
+    trait Marker {}
+    trait Foo {
+        fn value(self) -> Field;
+    }
+    struct S<U> { x: U }
+    impl<T> Foo for T where T: Marker {
+        fn value(self) -> Field { 1 }
+    }
+    impl<U> Foo for S<U> {
+        fn value(self) -> Field { 2 }
+    }
+
+    pub fn value_of<U>(x: U) -> Field where S<U>: Marker {
+        S { x }.value()
+        ^^^^^^^^^^^^^ Multiple trait impls match the object type `S<U>`
+        ~~~~~~~~~~~~~ Ambiguous impl
+    }
+
+    fn main() {}
+    "#;
+    check_errors(src);
+}
+
+#[test]
+fn type_path_call_that_a_blanket_impl_also_serves_under_a_where_clause_is_ambiguous() {
+    let src = r#"
+    trait Marker {}
+    trait Foo {
+        fn value(self) -> Field;
+    }
+    struct S<U> { x: U }
+    impl<T> Foo for T where T: Marker {
+        fn value(self) -> Field { 1 }
+    }
+    impl<U> Foo for S<U> {
+        fn value(self) -> Field { 2 }
+    }
+
+    pub fn value_of<U>(x: U) -> Field where S<U>: Marker {
+        S::value(S { x })
+        ^^^^^^^^ Multiple trait impls match the object type `S<U>`
+        ~~~~~~~~ Ambiguous impl
+    }
+
+    fn main() {}
+    "#;
+    check_errors(src);
+}
+
+#[test]
+fn turbofish_path_call_that_a_blanket_impl_also_serves_under_a_where_clause_is_ambiguous() {
+    let src = r#"
+    trait Marker {}
+    trait Foo {
+        fn value(self) -> Field;
+    }
+    struct S<U> { x: U }
+    impl<T> Foo for T where T: Marker {
+        fn value(self) -> Field { 1 }
+    }
+    impl<U> Foo for S<U> {
+        fn value(self) -> Field { 2 }
+    }
+
+    pub fn value_of<U>(x: U) -> Field where S<U>: Marker {
+        S::<U>::value(S { x })
+        ^^^^^^^^^^^^^ Multiple trait impls match the object type `S<U>`
+        ~~~~~~~~~~~~~ Ambiguous impl
+    }
+
+    fn main() {}
+    "#;
+    check_errors(src);
+}
+
+#[test]
+fn method_call_selects_a_types_own_impl_over_a_blanket_impl_with_an_undecided_where_clause() {
+    let src = r#"
+    trait From<T> {
+        fn from(input: T) -> Self;
+    }
+    trait Into<T> {
+        fn into(self) -> T;
+    }
+    impl<T, U> Into<T> for U where T: From<U> {
+        fn into(self) -> T { T::from(self) }
+    }
+    impl<T> From<T> for T {
+        fn from(input: T) -> T { input }
+    }
+
+    struct S {}
+    impl Into<Field> for S {
+        fn into(self) -> Field { 2 }
+    }
+
+    fn main() {
+        let _ = S {}.into();
+    }
+    "#;
+    let program = get_monomorphized(src).unwrap();
+    insta::assert_snapshot!(program, @r"
+    fn main$f0() -> () {
+        let _$l0 = into$f1({
+            ()
+        })
+    }
+    fn into$f1(self$l1: ()) -> Field {
+        2
+    }
+    ");
+}
+
+#[test]
+fn calls_select_a_types_own_impl_over_a_blanket_impl_whose_where_clause_fails() {
+    let src = r#"
+    trait Marker {}
+    trait Foo {
+        fn value(self) -> u32;
+    }
+    struct S {}
+    struct G<T> {}
+    impl<T> Foo for T where T: Marker {
+        fn value(self) -> u32 { 1 }
+    }
+    impl Foo for S {
+        fn value(self) -> u32 { 2 }
+    }
+    impl Foo for G<u8> {
+        fn value(self) -> u32 { 3 }
+    }
+
+    fn main() -> pub u32 {
+        S {}.value() + S::value(S {}) + G::<u8>::value(G {})
+    }
+    "#;
+    let program = get_monomorphized(src).unwrap();
+    insta::assert_snapshot!(program, @r"
+    fn main$f0() -> pub u32 {
+        ((value$f1({
+            ()
+        }) + value$f1({
+            ()
+        })) + value$f2({
+            ()
+        }))
+    }
+    fn value$f1(self$l0: ()) -> u32 {
+        2
+    }
+    fn value$f2(self$l1: ()) -> u32 {
+        3
+    }
+    ");
+}
+
+#[test]
+fn type_path_call_selects_a_types_own_impl_over_a_blanket_impl_of_another_trait() {
+    let src = r#"
+    trait From<T> {
+        fn from(input: T) -> Self;
+    }
+    impl<T> From<T> for T {
+        fn from(input: T) -> T { input }
+    }
+
+    trait Parse {
+        fn from(x: u32) -> Self;
+    }
+    struct S { x: u32 }
+    impl Parse for S {
+        fn from(x: u32) -> Self { S { x } }
+    }
+
+    fn main() -> pub u32 {
+        S::from(1).x
+    }
+    "#;
+    let program = get_monomorphized(src).unwrap();
+    insta::assert_snapshot!(program, @r"
+    fn main$f0() -> pub u32 {
+        from$f1(1).0
+    }
+    fn from$f1(x$l0: u32) -> (u32,) {
+        {
+            let x$l1 = x$l0;
+            (x$l1)
+        }
+    }
+    ");
+}
+
+#[test]
+fn method_call_selects_a_types_own_impl_over_a_blanket_impl_at_other_trait_arguments() {
+    let src = r#"
+    struct W { v: u32 }
+    trait Scale<X> {
+        fn scale(self, k: X) -> u32;
+    }
+    impl<T> Scale<Field> for T {
+        fn scale(self, _k: Field) -> u32 { 0 }
+    }
+    impl Scale<u32> for W {
+        fn scale(self, k: u32) -> u32 { self.v * k }
+    }
+
+    fn main(x: u32) -> pub u32 {
+        let w = W { v: x };
+        w.scale(5)
+    }
+    "#;
+    let program = get_monomorphized(src).unwrap();
+    insta::assert_snapshot!(program, @r"
+    fn main$f0(x$l0: u32) -> pub u32 {
+        let w$l2 = {
+            let v$l1 = x$l0;
+            (v$l1)
+        };
+        scale$f1(w$l2, 5)
+    }
+    fn scale$f1(self$l3: (u32,), k$l4: u32) -> u32 {
+        (self$l3.0 * k$l4)
+    }
+    ");
+}
+
+#[test]
+fn type_path_call_selects_a_types_own_impl_over_an_identity_blanket_impl() {
+    let src = r#"
+    trait Conv<X> {
+        fn conv(x: X) -> Self;
+    }
+    impl<T> Conv<T> for T {
+        fn conv(x: T) -> T { x }
+    }
+    impl Conv<u8> for u64 {
+        fn conv(x: u8) -> u64 { x as u64 + 100 }
+    }
+
+    fn main() -> pub u64 {
+        u64::conv(3)
+    }
+    "#;
+    let program = get_monomorphized(src).unwrap();
+    insta::assert_snapshot!(program, @r"
+    fn main$f0() -> pub u64 {
+        conv$f1(3)
+    }
+    fn conv$f1(x$l0: u8) -> u64 {
+        ((x$l0 as u64) + 100)
+    }
+    ");
+}
+
+#[test]
+fn method_call_selects_a_blanket_impl_when_a_types_own_impl_has_a_failing_where_clause() {
+    let src = r#"
+    trait Marker {}
+    trait Other {}
+    trait Foo {
+        fn value(self) -> u32;
+    }
+    struct S<A> { x: A }
+    impl<A> Foo for S<A> where A: Marker {
+        fn value(self) -> u32 { 1 }
+    }
+    impl<T> Foo for T where T: Other {
+        fn value(self) -> u32 { 2 }
+    }
+    impl Other for S<u32> {}
+
+    fn main() -> pub u32 {
+        S { x: 1 as u32 }.value()
+    }
+    "#;
+    let program = get_monomorphized(src).unwrap();
+    insta::assert_snapshot!(program, @r"
+    fn main$f0() -> pub u32 {
+        value$f1({
+            let x$l0 = (1 as u32);
+            (x$l0)
+        })
+    }
+    fn value$f1(self$l1: (u32,)) -> u32 {
+        2
+    }
+    ");
 }

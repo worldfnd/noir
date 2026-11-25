@@ -50,7 +50,7 @@ use crate::{
 };
 
 use super::{
-    Elaborator, LambdaContext, UnsafeBlockStatus, UnstableFeature,
+    Elaborator, UnstableFeature,
     function_context::BindableTypeVariableKind,
     path_resolution::{TypedPath, TypedPathSegment},
 };
@@ -67,13 +67,35 @@ impl Elaborator<'_> {
         expr: Expression,
         target_type: Option<&Type>,
     ) -> (ExprId, Type) {
+        let unconstrained_argument = false;
+        self.elaborate_expression_with_target_type_and_runtime(
+            expr,
+            target_type,
+            unconstrained_argument,
+        )
+    }
+
+    /// [`Self::elaborate_expression_with_target_type`] for an expression that may itself be an
+    /// argument of a call to an unconstrained function.
+    ///
+    /// `unconstrained_argument` describes `expr` alone: it reaches a lambda written directly as the
+    /// argument (possibly parenthesized) and nothing nested inside it. A lambda in a block, a
+    /// tuple, or another lambda's body is not the value being passed, so it is elaborated with the
+    /// runtime its own target type asks for.
+    fn elaborate_expression_with_target_type_and_runtime(
+        &mut self,
+        expr: Expression,
+        target_type: Option<&Type>,
+        unconstrained_argument: bool,
+    ) -> (ExprId, Type) {
         if !self.inc_recursion_depth(expr.location) {
             let id = self.interner.push_expr_full(HirExpression::Error, expr.location, Type::Error);
             return (id, Type::Error);
         }
 
-        let ((id, typ), has_errors) =
-            self.with_error_guard(|this| this.elaborate_expression_inner(expr, target_type));
+        let ((id, typ), has_errors) = self.with_error_guard(|this| {
+            this.elaborate_expression_inner(expr, target_type, unconstrained_argument)
+        });
 
         self.dec_recursion_depth();
 
@@ -97,18 +119,31 @@ impl Elaborator<'_> {
     ///
     /// The resulting type is then unified against the expected type so that a potential
     /// lambda following this argument can have more concrete types.
+    ///
+    /// `callee_unconstrained` is whether the function being called is unconstrained, in which case
+    /// a lambda written as this argument will run inside it and is elaborated as unconstrained (see
+    /// `elaborate_lambda_with_target_type`).
     fn elaborate_call_argument(
         &mut self,
         arg: Expression,
         expected_type: Option<&Type>,
+        callee_unconstrained: bool,
         is_macro_call: bool,
     ) -> (ExprId, Type) {
         let (arg, typ) = if is_macro_call {
             self.elaborate_in_comptime_context(|this| {
-                this.elaborate_expression_with_target_type(arg, expected_type)
+                this.elaborate_expression_with_target_type_and_runtime(
+                    arg,
+                    expected_type,
+                    callee_unconstrained,
+                )
             })
         } else {
-            self.elaborate_expression_with_target_type(arg, expected_type)
+            self.elaborate_expression_with_target_type_and_runtime(
+                arg,
+                expected_type,
+                callee_unconstrained,
+            )
         };
 
         if let Some(expected_type) = expected_type {
@@ -123,6 +158,7 @@ impl Elaborator<'_> {
         &mut self,
         expr: Expression,
         target_type: Option<&Type>,
+        unconstrained_argument: bool,
     ) -> (ExprId, Type) {
         let is_integer_literal = matches!(expr.kind, ExpressionKind::Literal(Literal::Integer(..)));
 
@@ -146,14 +182,18 @@ impl Elaborator<'_> {
             ExpressionKind::Variable(variable) => return self.elaborate_variable(variable),
             ExpressionKind::Tuple(tuple) => self.elaborate_tuple(tuple, target_type),
             ExpressionKind::Lambda(lambda) => {
-                self.elaborate_lambda_with_target_type(*lambda, target_type)
+                self.elaborate_lambda_with_target_type(*lambda, target_type, unconstrained_argument)
             }
             ExpressionKind::Parenthesized(expr) => {
-                return self.elaborate_expression_with_target_type(*expr, target_type);
+                return self.elaborate_expression_with_target_type_and_runtime(
+                    *expr,
+                    target_type,
+                    unconstrained_argument,
+                );
             }
             ExpressionKind::Quote(quote) => self.elaborate_quote(quote, expr.location),
             ExpressionKind::Comptime(block, _) => {
-                if self.in_comptime_context {
+                if self.item.in_comptime_context {
                     // Treat a nested comptime block as a regular block. Nested comptime blocks
                     // can happen as a result of macro expansion so it wouldn't be good to produce
                     // a warning in that case.
@@ -357,36 +397,23 @@ impl Elaborator<'_> {
         unsafe_expression: UnsafeExpression,
         target_type: Option<&Type>,
     ) -> (HirExpression, Type) {
-        use UnsafeBlockStatus::*;
-        // Before entering the block we cache the old value of the unsafe block status, so it can be restored.
-        let old_in_unsafe_block = self.unsafe_block_status;
-        let is_nested_unsafe_block = !matches!(old_in_unsafe_block, NotInUnsafeBlock);
+        let enclosing_status = self.item.body.enter_unsafe_block();
 
-        if is_nested_unsafe_block {
+        if enclosing_status.is_nested() {
             self.push_err(TypeCheckError::NestedUnsafeBlock {
                 location: unsafe_expression.unsafe_keyword_location,
             });
         }
 
-        self.unsafe_block_status = InUnsafeBlockWithoutUnconstrainedCalls;
-
         let (hir_block_expression, typ) =
             self.elaborate_block_expression(unsafe_expression.block, target_type);
 
-        let has_unconstrained_call =
-            matches!(self.unsafe_block_status, InUnsafeBlockWithUnconstrainedCalls);
+        let has_unconstrained_call = self.item.body.exit_unsafe_block(enclosing_status);
 
         if !has_unconstrained_call {
             self.push_err(TypeCheckError::UnnecessaryUnsafeBlock {
                 location: unsafe_expression.unsafe_keyword_location,
             });
-        }
-
-        // Finally, we restore the original value of the unsafe block status,
-        // unless we are in a nested block and we have found an unconstrained call,
-        // in which case we should consider the outer block as having that call as well.
-        if !is_nested_unsafe_block || !has_unconstrained_call {
-            self.unsafe_block_status = old_in_unsafe_block;
         }
 
         (HirExpression::Unsafe(hir_block_expression), typ)
@@ -591,7 +618,7 @@ impl Elaborator<'_> {
             && let UnaryOp::Dereference { .. } = deref.operator
         {
             let inner_type = self.interner.id_type(deref.rhs);
-            if matches!(inner_type.follow_bindings(), Type::Reference(_, inner_mutable) if inner_mutable == mutable)
+            if matches!(inner_type.follow_bindings_shallow().as_ref(), Type::Reference(_, inner_mutable) if *inner_mutable == mutable)
             {
                 return (deref.rhs, inner_type);
             }
@@ -662,6 +689,17 @@ impl Elaborator<'_> {
             HirExpression::MemberAccess(member_access) => {
                 self.check_can_mutate(member_access.lhs, location);
             }
+            HirExpression::Prefix(prefix)
+                if matches!(prefix.operator, UnaryOp::Dereference { .. }) =>
+            {
+                // &ref cannot be mutated
+                let typ = self.interner.id_type(prefix.rhs).follow_bindings();
+                if matches!(typ, Type::Reference(_, false)) {
+                    self.push_err(TypeCheckError::MutableReferenceBehindImmutableReference {
+                        location,
+                    });
+                }
+            }
             _ => (),
         }
     }
@@ -679,7 +717,7 @@ impl Elaborator<'_> {
         name: String,
         location: Location,
     ) {
-        if let Some(lambda_context) = self.lambda_stack.last() {
+        if let Some(lambda_context) = self.item.body.current_lambda() {
             let typ = self.interner.definition_type(id);
             if !typ.is_mutable_ref() && lambda_context.captures.iter().any(|var| var.ident.id == id)
             {
@@ -742,7 +780,7 @@ impl Elaborator<'_> {
         let (lhs, lhs_type) = self.elaborate_expression(index_expr.collection);
         let (collection, lhs_type) = self.insert_auto_dereferences(lhs, lhs_type);
 
-        let typ = match lhs_type.follow_bindings() {
+        let typ = match self.structurally_resolve_type(&lhs_type) {
             Type::Array(ref base_type, ref size) => {
                 self.check_array_index_out_of_bounds(size, &index, location);
                 *base_type.clone()
@@ -841,16 +879,13 @@ impl Elaborator<'_> {
                 (None, false)
             };
 
-        // When calling an unconstrained function, we can elaborate lambda arguments to be unconstrained.
-        let was_in_unconstrained_args =
-            std::mem::replace(&mut self.in_unconstrained_args, unconstrained);
-
         let mut arguments = Vec::with_capacity(call.arguments.len());
         let args = vecmap(call.arguments.into_iter().enumerate(), |(arg_index, arg)| {
             let location = arg.location;
             let expected_type = func_arg_types.and_then(|args| args.get(arg_index));
 
-            let (arg, typ) = self.elaborate_call_argument(arg, expected_type, is_macro_call);
+            let (arg, typ) =
+                self.elaborate_call_argument(arg, expected_type, unconstrained, is_macro_call);
 
             arguments.push(arg);
             (typ, arg, location)
@@ -858,9 +893,6 @@ impl Elaborator<'_> {
 
         let hir_call = HirCallExpression { func, arguments, location, is_macro_call };
         let typ = self.type_check_call(&hir_call, func_type, args, location);
-
-        // Restore the old one after type checking.
-        self.in_unconstrained_args = was_in_unconstrained_args;
 
         (hir_call, typ)
     }
@@ -912,7 +944,7 @@ impl Elaborator<'_> {
 
         let method_ref = self.lookup_method(
             &object_type,
-            method_name,
+            &method_call.method_name,
             location,
             object_location,
             check_self_param,
@@ -972,13 +1004,16 @@ impl Elaborator<'_> {
             self.interner,
         );
 
-        let trait_constraints_checkpoint = self.pending_trait_constraint_checkpoint();
         let func_type = self.type_check_variable(function_name, &function_id, generics.clone());
 
         let function_id = self.intern_expr_type(function_id, func_type.clone());
 
-        let func_arg_types =
-            if let Type::Function(args, _, _, _) = &func_type { Some(args) } else { None };
+        let (func_arg_types, unconstrained) =
+            if let Type::Function(args, _, _, unconstrained) = &func_type {
+                (Some(args), *unconstrained)
+            } else {
+                (None, false)
+            };
 
         // Try to unify the object type with the first argument of the function.
         // The reason to do this is that many methods that take a lambda will yield `self` or part of `self`
@@ -1022,7 +1057,8 @@ impl Elaborator<'_> {
             // Thus, we need to add one when indexing the argument types to match them up with method arguments.
             let expected_type = func_arg_types.and_then(|args| args.get(arg_index + 1));
 
-            let (arg, typ) = self.elaborate_call_argument(arg, expected_type, is_macro_call);
+            let (arg, typ) =
+                self.elaborate_call_argument(arg, expected_type, unconstrained, is_macro_call);
 
             arguments.push(arg);
             function_args.push((typ, arg, location));
@@ -1043,12 +1079,10 @@ impl Elaborator<'_> {
         // to a function call. This way we avoid duplicating code.
         let typ = self.type_check_call(&function_call, func_type, function_args, location);
 
-        // Argument unification may have made some constraints pushed by `type_check_variable`
-        // concrete. Resolve those now so any associated-type variables they bind are
-        // available before the caller unifies `typ` against an outer annotation. We bound
-        // the scan to constraints introduced by *this* call so per-call cost stays O(1)
-        // in the size of the surrounding function's accumulated constraint queue.
-        self.try_resolve_trait_constraints_since(trait_constraints_checkpoint);
+        // Argument unification may have decided the impl of some queued constraints, so the
+        // associated types they bind are known before the caller unifies `typ` against an outer
+        // annotation.
+        self.select_where_possible();
 
         (function_call, typ)
     }
@@ -1099,7 +1133,7 @@ impl Elaborator<'_> {
         } else {
             let message = has_optional_msg.then(|| expr.arguments.pop().unwrap());
             let expr = match expr.kind {
-                ConstrainKind::Assert | ConstrainKind::Constrain => expr.arguments.pop().unwrap(),
+                ConstrainKind::Assert => expr.arguments.pop().unwrap(),
                 ConstrainKind::AssertEq => {
                     let rhs = expr.arguments.pop().unwrap();
                     let lhs = expr.arguments.pop().unwrap();
@@ -1238,24 +1272,13 @@ impl Elaborator<'_> {
         self.mark_struct_as_constructed(&struct_type);
 
         // `last_segment` is optional if this constructor was resolved from a quoted type
-        let mut generics = generics.clone();
+        let generics = generics.clone();
         let mut is_self_type = false;
         let mut constructor_type_location = location;
 
         if let Some(last_segment) = last_segment {
-            let turbofish_location = last_segment.turbofish_location();
             is_self_type = last_segment.ident.is_self_type_name();
             constructor_type_location = last_segment.ident.location();
-
-            let mut errors = Vec::new();
-            generics = self.resolve_struct_turbofish_generics(
-                &struct_type.borrow(),
-                generics,
-                last_segment.generics,
-                turbofish_location,
-                &mut errors,
-            );
-            self.push_errors(errors);
         }
 
         // Each of the struct generics must be bound at the end of the function
@@ -1447,7 +1470,7 @@ impl Elaborator<'_> {
 
     /// Push a [`HirExpression`] with its [Location], with the [Type] to be followed up later.
     #[tracing::instrument(level = "trace", skip_all)]
-    pub fn intern_expr(
+    pub(crate) fn intern_expr(
         &mut self,
         expr: HirExpression,
         location: Location,
@@ -1457,7 +1480,11 @@ impl Elaborator<'_> {
 
     /// Follow up [`Self::intern_expr`] with the [Type].
     #[tracing::instrument(level = "trace", skip_all)]
-    pub fn intern_expr_type(&mut self, expr_id: PushedExpr<HasLocation>, typ: Type) -> ExprId {
+    pub(crate) fn intern_expr_type(
+        &mut self,
+        expr_id: PushedExpr<HasLocation>,
+        typ: Type,
+    ) -> ExprId {
         expr_id.push_type(self.interner, typ)
     }
 
@@ -1513,6 +1540,10 @@ impl Elaborator<'_> {
 
         let expr_id = self.intern_expr(expr, location);
 
+        // Which rules apply depends on the operand types, so a queued constraint that decides one
+        // of them (a call returning an associated type) is solved before they are inspected.
+        let lhs_type = &self.structurally_resolve_type(lhs_type);
+        let rhs_type = &self.structurally_resolve_type(rhs_type);
         let result = self.infix_operand_type_rules(lhs_type, &operator, rhs_type, location);
         let typ = self.handle_operand_type_rules_result(
             result,
@@ -1701,11 +1732,19 @@ impl Elaborator<'_> {
         (HirExpression::Tuple(element_ids), Type::Tuple(element_types))
     }
 
+    /// Elaborates a lambda against the type of the slot it is written into.
+    ///
+    /// A lambda written directly as an argument of a call to an unconstrained function
+    /// (`unconstrained_argument`) runs inside that function, so it is elaborated as unconstrained
+    /// even when the parameter is spelled `fn(..)`. The resulting `unconstrained fn` to `fn`
+    /// mismatch against the parameter is exempted by `unify_call_argument_with_coercions`, which
+    /// covers exactly that argument position.
     #[tracing::instrument(level = "trace", skip_all)]
     fn elaborate_lambda_with_target_type(
         &mut self,
         lambda: Lambda,
         target_type: Option<&Type>,
+        unconstrained_argument: bool,
     ) -> (HirExpression, Type) {
         let target_type = target_type.map(|typ| typ.follow_bindings());
 
@@ -1713,7 +1752,7 @@ impl Elaborator<'_> {
             self.elaborate_lambda_with_parameter_type_hints(
                 lambda,
                 Some(&args),
-                unconstrained || self.in_unconstrained_args,
+                unconstrained || unconstrained_argument,
             )
         } else {
             self.elaborate_lambda_with_parameter_type_hints(lambda, None, false)
@@ -1736,7 +1775,7 @@ impl Elaborator<'_> {
         self.push_scope();
         let scope_index = self.scopes.current_scope_index();
 
-        self.lambda_stack.push(LambdaContext { captures: Vec::new(), scope_index, unconstrained });
+        self.item.body.enter_lambda(scope_index, unconstrained);
 
         let mut arg_types = Vec::with_capacity(lambda.parameters.len());
         let mut parameter_names_in_list = HashMap::default();
@@ -1778,7 +1817,7 @@ impl Elaborator<'_> {
         let body_location = lambda.body.location;
         let (body, body_type) = self.elaborate_expression(lambda.body);
 
-        let lambda_context = self.lambda_stack.pop().unwrap();
+        let lambda_context = self.item.body.exit_lambda();
         self.pop_scope();
 
         self.unify_or_type_mismatch(&body_type, &return_type, body_location);
@@ -1835,7 +1874,8 @@ impl Elaborator<'_> {
         });
 
         let mut interpreter = self.setup_interpreter();
-        let value = interpreter.evaluate_block(block);
+        let value =
+            interpreter.evaluate_block(block).map(|value| interpreter.apply_runtime_solves(value));
 
         let from_macro_call = false;
         let (id, typ) = self.inline_comptime_value(value, location, from_macro_call);
@@ -1849,7 +1889,7 @@ impl Elaborator<'_> {
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    pub fn inline_comptime_value(
+    pub(crate) fn inline_comptime_value(
         &mut self,
         value: Result<comptime::Value, InterpreterError>,
         location: Location,
@@ -1877,11 +1917,11 @@ impl Elaborator<'_> {
                 // here (they could if we have `Foo { inner: 5 }` and `inner` is not
                 // accessible from where this expression is being elaborated).
                 if !from_macro_call {
-                    self.silence_field_visibility_errors += 1;
+                    self.item.body.silence_field_visibility_errors();
                 }
                 let value = self.elaborate_expression(new_expr);
                 if !from_macro_call {
-                    self.silence_field_visibility_errors -= 1;
+                    self.item.body.unsilence_field_visibility_errors();
                 }
                 value
             }
@@ -1997,8 +2037,7 @@ impl Elaborator<'_> {
         let constraint = TraitConstraint { typ, trait_bound };
 
         let the_trait = self.interner.get_trait(constraint.trait_bound.trait_id);
-        let self_type = the_trait.self_type_typevar.clone();
-        let kind = the_trait.self_type_typevar.kind();
+        let self_param = the_trait.self_param.clone();
 
         let Some(definition) =
             the_trait.find_method_or_constant(path.impl_item.as_str(), self.interner)
@@ -2040,7 +2079,7 @@ impl Elaborator<'_> {
         let mut bindings = TypeBindings::default();
 
         // In `<Type as Trait>::method` we know `Self` is `Type` so we bind that now
-        bindings.insert(self_type.id(), (self_type, kind, constraint.typ));
+        self_param.bind(&constraint.typ, &mut bindings);
 
         let typ = self.type_check_variable_with_bindings(ident, &id, generics, bindings);
         let id = self.intern_expr_type(id, typ.clone());
@@ -2111,11 +2150,9 @@ impl Elaborator<'_> {
                 // Mirror `elaborate_unsafe_block`: an unconstrained call inside the block crosses
                 // the runtime boundary legally, so the boundary check must see that we are inside an
                 // unsafe block rather than reporting a spurious error.
-                let old_status = self.unsafe_block_status;
-                self.unsafe_block_status =
-                    UnsafeBlockStatus::InUnsafeBlockWithoutUnconstrainedCalls;
+                let enclosing_status = self.item.body.enter_unsafe_block();
                 self.revalidate_resolved_block(&block);
-                self.unsafe_block_status = old_status;
+                self.item.body.exit_unsafe_block(enclosing_status);
             }
             HirExpression::Prefix(prefix) => {
                 self.revalidate_resolved_expression(prefix.rhs);
@@ -2165,13 +2202,10 @@ impl Elaborator<'_> {
             HirExpression::Lambda(lambda) => {
                 // A lambda body has its own runtime mode, so re-run the checks with that mode in
                 // effect rather than the enclosing function's.
-                self.lambda_stack.push(LambdaContext {
-                    captures: Vec::new(),
-                    scope_index: 0,
-                    unconstrained: lambda.unconstrained,
-                });
+                let scope_index = 0;
+                self.item.body.enter_lambda(scope_index, lambda.unconstrained);
                 self.revalidate_resolved_expression(lambda.body);
-                self.lambda_stack.pop();
+                let _ = self.item.body.exit_lambda();
             }
             HirExpression::Match(match_expr) => {
                 self.revalidate_resolved_match(&match_expr);

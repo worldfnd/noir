@@ -1,0 +1,18 @@
+---
+source: tooling/nargo_cli/tests/execute.rs
+expression: expanded_code
+---
+use std::convert::UnsafeFrom;
+
+unconstrained fn pairs_helper(x: Field) -> [(Field, Field); 2] {
+    [(x, x), (x, x)]
+}
+
+fn main(x: u8) -> pub u8 {
+    let x: Field = <Field as From<u8>>::from(x);
+    // Safety: comment added by `nargo expand`
+    let pairs: [(Field, Field); 2] = unsafe { pairs_helper(x) };
+    assert(pairs[0_u32].0 == x);
+    assert(pairs[0_u32].1 == x);
+    u8::unsafe_from(pairs[1_u32].0 + pairs[1_u32].1)
+}

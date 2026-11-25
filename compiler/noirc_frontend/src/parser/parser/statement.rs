@@ -235,14 +235,12 @@ impl Parser<'_> {
                 Token::Ampersand => Some(AssignOpKind::And),
                 Token::Caret => Some(AssignOpKind::Xor),
                 Token::Pipe => Some(AssignOpKind::Or),
+                Token::ShiftLeft => Some(AssignOpKind::ShiftLeft),
                 _ => None,
             }
         } else if self.at(&Token::Greater) && self.next_is(&Token::GreaterEqual) {
             // >>=
             Some(AssignOpKind::ShiftRight)
-        } else if self.at(&Token::Less) && self.next_is(&Token::LessEqual) {
-            // <<=
-            Some(AssignOpKind::ShiftLeft)
         } else {
             None
         };
@@ -767,6 +765,16 @@ mod tests {
             panic!("Expected AssignOp");
         };
         assert_eq!(assign_op.to_string(), "x >>= 1");
+    }
+
+    #[test]
+    fn parses_op_assignment_with_shift_left() {
+        let src = "x <<= 1";
+        let statement = parse_statement_no_errors(src);
+        let StatementKind::AssignOp(assign_op) = statement.kind else {
+            panic!("Expected AssignOp");
+        };
+        assert_eq!(assign_op.to_string(), "x <<= 1");
     }
 
     #[test]

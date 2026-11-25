@@ -1,116 +1,8 @@
-use acir::BlackBoxFunc;
-
-use p256::{
-    AffinePoint, ProjectivePoint, PublicKey,
-    elliptic_curve::{
-        PrimeField,
-        ops::Reduce,
-        scalar::IsHigh,
-        sec1::{Coordinates, FromSec1Point, Sec1Point, ToSec1Point},
-    },
-};
-use p256::{Scalar, ecdsa::Signature};
-
-use crate::BlackBoxResolutionError;
-
-/// Verifies an ECDSA signature over the Secp256r1 elliptic curve.
-///
-/// This function implements ECDSA signature verification on the Secp256r1 curve
-///
-/// # Parameters:
-///
-/// * `hashed_msg` - The 32-byte hash of the message that was signed
-/// * `public_key_x_bytes` - The x-coordinate of the public key (32 bytes, big-endian)
-/// * `public_key_y_bytes` - The y-coordinate of the public key (32 bytes, big-endian)
-/// * `signature` - The 64-byte signature in (r, s) format, where r and s are 32 bytes each
-///
-/// Returns `true` if the signature is valid, `false` otherwise.
-///
-/// The function does not validate a signature if any of the following are true:
-/// - The signature is not "low S" normalized per BIP 0062 to prevent malleability
-/// - The signature components `r` and `s` is zero
-/// - The public key point is not on the Secp256r1 curve
-///
-/// If `hashed_msg >= p256::NistP256::ORDER`, the message hash is reduced modulo the curve
-/// order per ECDSA specification (SEC 1, section 4.1.4).
-pub(super) fn verify_signature(
-    hashed_msg: &[u8; 32],
-    public_key_x_bytes: &[u8; 32],
-    public_key_y_bytes: &[u8; 32],
-    signature: &[u8; 64],
-) -> Result<bool, BlackBoxResolutionError> {
-    // Convert the inputs into k256 data structures
-    let Ok(signature) = Signature::try_from(signature.as_slice()) else {
-        // Signature `r` and `s` are forbidden from being zero.
-        log::warn!("Signature provided for ECDSA verification is zero");
-        return Ok(false);
-    };
-
-    let point = Sec1Point::<p256::NistP256>::from_affine_coordinates(
-        public_key_x_bytes.into(),
-        public_key_y_bytes.into(),
-        false,
-    );
-
-    let pubkey = PublicKey::from_sec1_point(&point);
-    if pubkey.is_none().into() {
-        // Public key must sit on the Secp256r1 curve.
-        log::warn!("Invalid public key provided for ECDSA verification");
-        return Ok(false);
-    }
-    let pubkey = pubkey.unwrap();
-
-    // Convert the hashed message to a scalar.
-    // Per ECDSA specification (SEC 1, section 4.1.4), if `hashed_msg >= p256::NistP256::ORDER`,
-    // the message hash should be reduced modulo the curve order.
-    let z = <Scalar as Reduce<p256::U256>>::reduce(&p256::U256::from_be_slice(hashed_msg));
-
-    // Finished converting bytes into data structures
-
-    let r = signature.r();
-    let s = signature.s();
-
-    // Ensure signature is "low S" normalized ala BIP 0062
-    if s.is_high().into() {
-        log::warn!(
-            "Signature provided for ECDSA verification is not properly normalized (high S value)"
-        );
-        return Ok(false);
-    }
-
-    let s_inv = s.invert().unwrap();
-    let u1 = z * s_inv;
-    let u2 = *r * s_inv;
-
-    #[allow(non_snake_case)]
-    let R: AffinePoint = ((ProjectivePoint::GENERATOR * u1)
-        + (ProjectivePoint::from(*pubkey.as_affine()) * u2))
-        .to_affine();
-
-    match R.to_sec1_point(false).coordinates() {
-        Coordinates::Uncompressed { x, y: _ } => {
-            // The conversion from R.x to a scalar can fail if R.x >= curve_order (a possible but rare case).
-            // In this case, the signature is invalid per ECDSA specification, so we return false.
-            // The prover will handle this gracefully - it should generate a proof that fails verification.
-            Ok(Scalar::from_repr(*x).into_option().map_or_else(
-                || {
-                    log::warn!("Failed to convert R.x coordinate to scalar for ECDSA verification");
-                    false
-                },
-                |scalar| scalar == *r,
-            ))
-        }
-        Coordinates::Identity => Ok(false),
-        _ => Err(BlackBoxResolutionError::Failed(
-            BlackBoxFunc::EcdsaSecp256r1,
-            "Unexpected coordinate encoding".to_string(),
-        )),
-    }
-}
-
 #[cfg(test)]
 mod secp256r1_tests {
-    use super::verify_signature;
+    use super::super::ecdsa_secp256r1_verify as verify_signature;
+    use super::super::nonce_point_x;
+    use k256::elliptic_curve::{Curve, bigint::U256};
 
     // 0x54705ba3baafdbdfba8c5f9a70f7a89bee98d906b53e31074da7baecdc0da9ad
     const HASHED_MESSAGE: [u8; 32] = [
@@ -193,5 +85,47 @@ mod secp256r1_tests {
 
         let result = verify_signature(&curve_order, &PUB_KEY_X, &PUB_KEY_Y, &SIGNATURE).unwrap();
         assert!(!result);
+    }
+
+    #[test]
+    fn verifies_signature_whose_nonce_point_x_coordinate_exceeds_curve_order() {
+        // A signature where `R.x` lies in `[n, p)`: `R.x = n + 3`, so `r = R.x mod n = 3`.
+        // Per SEC 1 section 4.1.4 the verifier compares `R.x mod n` against `r`, so this is valid.
+        // 0xdeadbeef
+        let hashed_msg: [u8; 32] = [
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0xde, 0xad, 0xbe, 0xef,
+        ];
+        // 0x963472c465d877cef16f539910da1ea37ea00cde8f5c801aa382c0f3c4967a96
+        let pub_key_x: [u8; 32] = [
+            0x96, 0x34, 0x72, 0xc4, 0x65, 0xd8, 0x77, 0xce, 0xf1, 0x6f, 0x53, 0x99, 0x10, 0xda,
+            0x1e, 0xa3, 0x7e, 0xa0, 0x0c, 0xde, 0x8f, 0x5c, 0x80, 0x1a, 0xa3, 0x82, 0xc0, 0xf3,
+            0xc4, 0x96, 0x7a, 0x96,
+        ];
+        // 0x1ddb76709fd05c2d137b17493c90156e012673308e8fb12fdf7ff8bf638aa2ee
+        let pub_key_y: [u8; 32] = [
+            0x1d, 0xdb, 0x76, 0x70, 0x9f, 0xd0, 0x5c, 0x2d, 0x13, 0x7b, 0x17, 0x49, 0x3c, 0x90,
+            0x15, 0x6e, 0x01, 0x26, 0x73, 0x30, 0x8e, 0x8f, 0xb1, 0x2f, 0xdf, 0x7f, 0xf8, 0xbf,
+            0x63, 0x8a, 0xa2, 0xee,
+        ];
+        // r = 3, s = 0x3039
+        let mut signature = [0u8; 64];
+        signature[31] = 0x03;
+        signature[62] = 0x30;
+        signature[63] = 0x39;
+
+        let order = p256::NistP256::ORDER.get();
+        let nonce_point_x =
+            nonce_point_x::<p256::NistP256>(&hashed_msg, &pub_key_x, &pub_key_y, &signature);
+        assert_eq!(nonce_point_x, order.wrapping_add(&U256::from_u8(3)));
+
+        let valid = verify_signature(&hashed_msg, &pub_key_x, &pub_key_y, &signature).unwrap();
+        assert!(valid);
+
+        // Any other `r` must still be rejected.
+        signature[31] = 0x04;
+        let valid = verify_signature(&hashed_msg, &pub_key_x, &pub_key_y, &signature).unwrap();
+        assert!(!valid);
     }
 }

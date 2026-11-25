@@ -15,12 +15,18 @@ mod errors;
 mod hir_to_display_ast;
 mod integer;
 mod interpreter;
+mod io;
+mod scopes;
 mod tests;
 mod value;
+mod value_cell;
 
 pub use display::{tokens_to_string, tokens_to_string_with_indent};
 pub use errors::{ComptimeError, InterpreterError};
 pub use integer::Integer;
 pub use integer::{bigint_to_field, field_to_signed_bigint, try_bigint_to_field};
 pub use interpreter::{EvaluationTracker, Interpreter};
+pub use io::ComptimeIo;
+pub(crate) use scopes::ComptimeScopes;
 pub use value::{FormatStringFragment, Value};
+use value_cell::ValueCell;

@@ -5,7 +5,7 @@
 use acvm::FieldConfig;
 use num_bigint::{BigInt, BigUint};
 
-use crate::{Abi, AbiParameter, AbiReturnType, AbiType, AbiVisibility, Sign};
+use crate::{ABI_VERSION, Abi, AbiParameter, AbiReturnType, AbiType, AbiVisibility, Sign};
 
 /// One spelling of a scalar input and the element it must be carried in.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -451,6 +451,7 @@ fn le_bytes(value: &BigInt, width: u32) -> Vec<u8> {
 /// An ABI of private parameters and an optional private return value.
 fn abi(parameters: Vec<(&str, AbiType)>, return_type: Option<AbiType>) -> Abi {
     Abi {
+        abi_version: ABI_VERSION,
         parameters: parameters
             .into_iter()
             .map(|(name, typ)| AbiParameter {
@@ -518,6 +519,7 @@ mod tests {
         for field in carried_fields() {
             for vector in boundary_vectors(field) {
                 let abi = Abi {
+                    abi_version: crate::ABI_VERSION,
                     parameters: vec![AbiParameter {
                         name: "x".into(),
                         typ: vector.typ.clone(),

@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../../../styles.css">
+<script>window.docRoot = "../../../";</script>
+<script defer src="../../../search-index.js"></script>
+<script defer src="../../../nargo_doc.js"></script>
+<script defer src="../../../search.js"></script>
+<title>Struct LambdaExpression documentation</title>
+</head>
+<body>
+<div id="sidebar-toggle">
+<button id="sidebar-toggle-button"></button>
+<div id="sidebar-toggle-title">LambdaExpression</div>
+</div>
+<span id="main-contents">
+<nav class="sidebar">
+<h1><a href="../../../index.html">noir_stdlib</a></h1>
+<div><a href="../../../all.html">All items</a></div>
+<h2 id="crate-name"><a href="../../index.html">std</a></h2>
+<div id="crate-version">1.0.0</div>
+<h2><a href="#struct">Struct LambdaExpression</a></h2>
+<h3>Methods</h3>
+<ul class="sidebar-list">
+<li><a href="#body">body</a></li>
+<li><a href="#parameters">parameters</a></li>
+<li><a href="#return_type">return_type</a></li>
+</ul>
+<h2>In module expr</h2>
+<h3>Structs</h3><ul class="item-list">
+<li><a href="struct.AssertEqExpression.html">AssertEqExpression</a></div></li>
+<li><a href="struct.AssertExpression.html">AssertExpression</a></div></li>
+<li><a href="struct.AssignExpression.html">AssignExpression</a></div></li>
+<li><a href="struct.BinaryOpExpression.html">BinaryOpExpression</a></div></li>
+<li><a href="struct.CastExpression.html">CastExpression</a></div></li>
+<li><a href="struct.ConstructorExpression.html">ConstructorExpression</a></div></li>
+<li><a href="struct.ConstructorField.html">ConstructorField</a></div></li>
+<li><a href="struct.ForExpression.html">ForExpression</a></div></li>
+<li><a href="struct.ForRangeExpression.html">ForRangeExpression</a></div></li>
+<li><a href="struct.FunctionCallExpression.html">FunctionCallExpression</a></div></li>
+<li><a href="struct.IfExpression.html">IfExpression</a></div></li>
+<li><a href="struct.IndexExpression.html">IndexExpression</a></div></li>
+<li><a href="struct.IntegerLiteral.html">IntegerLiteral</a></div></li>
+<li><a href="struct.LambdaExpression.html">LambdaExpression</a></div></li>
+<li><a href="struct.LambdaParameter.html">LambdaParameter</a></div></li>
+<li><a href="struct.LetExpression.html">LetExpression</a></div></li>
+<li><a href="struct.MemberAccessExpression.html">MemberAccessExpression</a></div></li>
+<li><a href="struct.MethodCallExpression.html">MethodCallExpression</a></div></li>
+<li><a href="struct.RepeatedElementArrayExpression.html">RepeatedElementArrayExpression</a></div></li>
+<li><a href="struct.RepeatedElementVectorExpression.html">RepeatedElementVectorExpression</a></div></li>
+<li><a href="struct.UnaryOpExpression.html">UnaryOpExpression</a></div></li>
+</ul>
+</nav>
+<main>
+<div><a href="../../../index.html">noir_stdlib</a> - <a href="../../index.html">std</a>::<a href="../index.html">meta</a>::<a href="index.html">expr</a></div>
+<div class="heading-row">
+<h1 class="heading-content">Struct <span id="struct" class="struct">LambdaExpression</span></h1>
+<button id="search-toggle" type="button">Search</button>
+</div>
+<input id="search-input" type="search" placeholder="Type 's' or '/' to search" autocomplete="off" spellcheck="false" aria-label="Search" hidden>
+<div id="search-results" hidden></div>
+<div id="page-content">
+<pre><code>pub comptime struct LambdaExpression
+{ <span class="comment">/* private fields */</span> }
+</code></pre>
+<div class="comments">
+<p>A lambda expression decomposed by <a href="../../../std/primitive.Expr.html#as_lambda"><code>Expr::as_lambda</code></a>.</p>
+<p>Example:</p>
+<pre><code><span class="kw">comptime</span> {
+    <span class="kw">let</span> lambda = <span class="kw">quote</span> { |x: u32| -&gt; u32 { foo(x) } }.as_expr().unwrap().as_lambda().unwrap();
+    <span class="kw">assert_eq</span>(lambda.parameters().len(), <span class="number">1</span>);
+    <span class="kw">assert</span>(lambda.return_type().is_some());
+    <span class="kw">assert_eq</span>(lambda.body().as_block().unwrap()[<span class="number">0</span>].quoted(), <span class="kw">quote</span> { foo(x) });
+}</code></pre></div>
+<h2>Implementations</h2>
+<h3><code class="code-header">impl <a href="../../../std/meta/expr/struct.LambdaExpression.html" class="struct">LambdaExpression</a></code></h3>
+
+<div class="padded-methods"><code id="parameters" class="code-header">pub comptime fn <a href="#parameters" class="fn">parameters</a>(self) -> [<a href="../../../std/meta/expr/struct.LambdaParameter.html" class="struct">LambdaParameter</a>]</code>
+
+<div class="padded-description"><div class="comments">
+<p>The lambda parameters in source order.</p>
+<p>Example:</p>
+<pre><code><span class="kw">comptime</span> {
+    <span class="kw">let</span> lambda = <span class="kw">quote</span> { |x, y| x + y }.as_expr().unwrap().as_lambda().unwrap();
+    <span class="kw">let</span> parameters = lambda.parameters();
+    <span class="kw">assert_eq</span>(parameters.len(), <span class="number">2</span>);
+    <span class="kw">assert_eq</span>(parameters[<span class="number">1</span>].pattern().quoted(), <span class="kw">quote</span> { y });
+}</code></pre></div>
+</div><code id="return_type" class="code-header">pub comptime fn <a href="#return_type" class="fn">return_type</a>(self) -> <a href="../../../std/option/struct.Option.html" class="struct">Option</a>&lt;<a href="../../../std/primitive.UnresolvedType.html" class="primitive">UnresolvedType</a>&gt;</code>
+
+<div class="padded-description"><div class="comments">
+<p>The optional return type annotation.</p>
+<p>Example:</p>
+<pre><code><span class="kw">comptime</span> {
+    <span class="kw">let</span> lambda = <span class="kw">quote</span> { |x| -&gt; u32 { x } }.as_expr().unwrap().as_lambda().unwrap();
+    <span class="kw">let</span> typ = lambda.return_type().unwrap();
+    <span class="kw">assert_eq</span>(<span class="kw">quote</span> { $typ }, <span class="kw">quote</span> { u32 });
+
+    <span class="kw">let</span> lambda = <span class="kw">quote</span> { |x| x }.as_expr().unwrap().as_lambda().unwrap();
+    <span class="kw">assert</span>(lambda.return_type().is_none());
+}</code></pre></div>
+</div><code id="body" class="code-header">pub comptime fn <a href="#body" class="fn">body</a>(self) -> <a href="../../../std/primitive.Expr.html" class="primitive">Expr</a></code>
+
+<div class="padded-description"><div class="comments">
+<p>The lambda body.</p>
+<p>Example:</p>
+<pre><code><span class="kw">comptime</span> {
+    <span class="kw">let</span> lambda = <span class="kw">quote</span> { |x| foo(x) }.as_expr().unwrap().as_lambda().unwrap();
+    <span class="kw">assert_eq</span>(lambda.body().quoted(), <span class="kw">quote</span> { foo(x) });
+}</code></pre></div>
+</div></div></div>
+</main>
+</span>
+</body>
+</html>

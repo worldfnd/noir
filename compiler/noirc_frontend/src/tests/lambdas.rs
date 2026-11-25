@@ -262,13 +262,13 @@ fn regression_7088() {
 
 fn get_program_captures(src: &str) -> Vec<Vec<String>> {
     let (program, context, _errors) = get_program(src);
-    let interner = context.def_interner;
+    let interner = &context.def_interner;
     let mut all_captures: Vec<Vec<String>> = Vec::new();
     for func in program.into_sorted().functions {
         let func_id = interner.find_function(func.item.name()).unwrap();
         let hir_func = interner.function(&func_id);
         // Iterate over function statements and apply filtering function
-        find_lambda_captures(hir_func.block(&interner).statements(), &interner, &mut all_captures);
+        find_lambda_captures(hir_func.block(interner).statements(), interner, &mut all_captures);
     }
     all_captures
 }
@@ -412,14 +412,19 @@ fn mutate_with_reference_in_lambda() {
 
 #[test]
 fn mutate_with_mut_reference_in_lambda() {
+    // `x` itself is a `mut` binding holding a `&mut`; the lambda only writes through the
+    // reference, so capturing it is allowed. The reassignment afterwards is what makes the
+    // `mut` on `x` necessary.
     let src = r#"
     fn main() {
-        let x = &mut 3;
+        let mut x = &mut 3;
         let f = || {
             *x += 2;
         };
         f();
         assert(*x == 5);
+        x = &mut 10;
+        assert(*x == 10);
     }
     "#;
     assert_no_errors(src);
@@ -625,6 +630,23 @@ fn global_captured_closure_cannot_be_inlined() {
     }
     "#;
     check_monomorphization_error(src);
+}
+
+#[test]
+fn unused_global_captured_closure_is_not_an_error() {
+    // A global's value is lowered to runtime HIR when it is resolved, but a value that cannot be
+    // inlined is only an error at a runtime use of the global.
+    let src = r#"
+    global ADD_ONE: fn[(u32,)](u32) -> u32 = {
+        let offset = 1;
+        |x: u32| x + offset
+    };
+
+    fn main(x: u32) -> pub u32 {
+        x
+    }
+    "#;
+    crate::test_utils::get_monomorphized(src).expect("an unused global should not fail to compile");
 }
 
 #[test]

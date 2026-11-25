@@ -121,22 +121,6 @@ fn can_pass_regular_function_to_unconstrained_function() {
 }
 
 #[test]
-fn cannot_pass_unconstrained_function_to_constrained_function() {
-    let src = r#"
-    fn main() {
-        let func = foo;
-        expect_regular(func);
-                       ^^^^ Converting an unconstrained fn to a non-unconstrained fn is unsafe
-    }
-
-    unconstrained fn foo() {}
-
-    fn expect_regular(_func: fn() -> ()) {}
-    "#;
-    check_errors(src);
-}
-
-#[test]
 fn cannot_return_function_from_unconstrained_to_constrained() {
     let src = r#"
     fn main() {
@@ -642,6 +626,436 @@ fn call_unconstrained_function_in_lambda_in_global() {
     unconstrained fn bar() {}
 
     fn main() {}
+    "#;
+    assert_no_errors(src);
+}
+
+#[test]
+fn cannot_assign_unconstrained_fn_to_constrained_slot_inside_unconstrained_call_args() {
+    let src = r#"
+    fn main() {
+        let mut g: fn() -> () = foo;
+        // Safety: testing
+        unsafe { sink({ g = bar; 0 }) };
+                            ^^^ Converting an unconstrained fn to a non-unconstrained fn is unsafe
+        g();
+    }
+
+    fn foo() {}
+    unconstrained fn bar() {}
+    unconstrained fn sink<T>(_v: T) {}
+    "#;
+    check_errors(src);
+}
+
+#[test]
+fn cannot_assign_unconstrained_fn_to_constrained_struct_field_inside_unconstrained_call_args() {
+    let src = r#"
+    fn main() {
+        let mut c = Cfg { f: foo };
+        // Safety: testing
+        unsafe { sink({ c.f = bar; 0 }) };
+                              ^^^ Converting an unconstrained fn to a non-unconstrained fn is unsafe
+        (c.f)();
+    }
+
+    struct Cfg {
+        f: fn() -> (),
+    }
+
+    fn foo() {}
+    unconstrained fn bar() {}
+    unconstrained fn sink<T>(_v: T) {}
+    "#;
+    check_errors(src);
+}
+
+#[test]
+fn cannot_let_bind_unconstrained_fn_to_constrained_slot_inside_unconstrained_call_args() {
+    let src = r#"
+    fn main() {
+        // Safety: testing
+        unsafe { sink({ let _g: fn() -> () = bar; 0 }) };
+                                             ^^^ Converting an unconstrained fn to a non-unconstrained fn is unsafe
+    }
+
+    unconstrained fn bar() {}
+    unconstrained fn sink<T>(_v: T) {}
+    "#;
+    check_errors(src);
+}
+
+#[test]
+fn cannot_build_struct_with_unconstrained_fn_field_inside_unconstrained_call_args() {
+    let src = r#"
+    fn main() {
+        // Safety: testing
+        unsafe { sink(Cfg { f: bar }) };
+                               ^^^ Converting an unconstrained fn to a non-unconstrained fn is unsafe
+    }
+
+    struct Cfg {
+        f: fn() -> (),
+    }
+
+    unconstrained fn bar() {}
+    unconstrained fn sink<T>(_v: T) {}
+    "#;
+    check_errors(src);
+}
+
+#[test]
+fn cannot_return_unconstrained_fn_as_constrained_fn_inside_unconstrained_call_args() {
+    let src = r#"
+    fn main() {
+        // Safety: testing
+        unsafe { sink(make()) };
+    }
+
+    fn make() -> fn() -> () {
+        bar
+        ^^^ Converting an unconstrained fn to a non-unconstrained fn is unsafe
+    }
+
+    unconstrained fn bar() {}
+    unconstrained fn sink<T>(_v: T) {}
+    "#;
+    check_errors(src);
+}
+
+#[test]
+fn can_pass_unconstrained_fn_to_unconstrained_function_expecting_constrained_fn() {
+    let src = r#"
+    fn main() {
+        // Safety: testing
+        unsafe { expect_regular(foo) };
+    }
+
+    unconstrained fn foo() {}
+
+    unconstrained fn expect_regular(_func: fn() -> ()) {}
+    "#;
+    assert_no_errors(src);
+}
+
+/// A lambda passed to a constrained method is elaborated constrained even when the method call is
+/// itself an argument of an unconstrained call: only the lambda's own callee decides its runtime,
+/// so it matches the method's parameter with no coercion at all.
+///
+/// `noir-bignum` spells this as `batch_invert_slice(&params, x.map(|bn| bn.get_limbs()))`, where
+/// `batch_invert_slice` is unconstrained and `map` is not.
+#[test]
+fn can_pass_lambda_to_a_method_call_nested_in_unconstrained_call_args() {
+    let src = r#"
+    fn main(x: u32) {
+        let w = Wrapper { value: x };
+        // Safety: testing
+        unsafe { expect_field(w.apply(|v: u32| v + 1)) };
+    }
+
+    struct Wrapper {
+        value: u32,
+    }
+
+    impl Wrapper {
+        fn apply<Env>(self, f: fn[Env](u32) -> u32) -> u32 {
+            f(self.value)
+        }
+    }
+
+    unconstrained fn expect_field(_v: u32) {}
+    "#;
+    assert_no_errors(src);
+}
+
+/// The same lambda reached through a plain constrained call instead of a method call: the inner
+/// call is constrained, so the lambda is elaborated constrained and matches the parameter with no
+/// coercion at all. Nothing is exempted here, and nothing needs to be.
+#[test]
+fn can_pass_lambda_to_a_constrained_call_nested_in_unconstrained_call_args() {
+    let src = r#"
+    fn main(x: u32) {
+        // Safety: testing
+        unsafe { expect_field(apply(x, |v: u32| v + 1)) };
+    }
+
+    fn apply<Env>(value: u32, f: fn[Env](u32) -> u32) -> u32 {
+        f(value)
+    }
+
+    unconstrained fn expect_field(_v: u32) {}
+    "#;
+    assert_no_errors(src);
+}
+
+#[test]
+fn can_pass_lambda_calling_unconstrained_code_to_unconstrained_function_expecting_constrained_fn() {
+    let src = r#"
+    fn main() {
+        // Safety: testing
+        unsafe { expect_regular(|| foo()) };
+    }
+
+    unconstrained fn foo() {}
+
+    unconstrained fn expect_regular(_func: fn() -> ()) {}
+    "#;
+    assert_no_errors(src);
+}
+
+/// A struct in a user crate has its fields resolved lazily, so a call elaborated from inside a
+/// comptime attribute can reach one whose fields are still deferred. The boundary check resolves
+/// what it needs on the way in, in every position a value of the returned type can hide a vector.
+#[test]
+fn vector_in_deferred_struct_returned_from_unconstrained() {
+    let src = r#"
+    pub struct Wrapper {
+        vector: [Field],
+    }
+
+    unconstrained fn consume(w: Wrapper) -> Wrapper {
+        w
+    }
+
+    #[generate]
+    ~~~~~~~~~~~ While running this function attribute
+    pub fn trigger() {}
+
+    comptime fn generate(_f: FunctionDefinition) -> Quoted {
+        quote {
+            pub fn use_it(w: Wrapper) {
+                // Safety: testing
+                let _ = unsafe { consume(w) };
+                                 ^^^^^^^^^^ Vectors cannot be returned from an unconstrained runtime to a constrained runtime
+            }
+        }
+    }
+
+    fn main() {}
+    "#;
+    check_errors(src);
+}
+
+#[test]
+fn vector_in_deferred_struct_returned_through_a_bound_type_variable() {
+    let src = r#"
+    pub struct Wrapper {
+        vector: [Field],
+    }
+
+    fn id<T>(x: T) -> T {
+        x
+    }
+
+    unconstrained fn consume<U>(u: U) -> U {
+        u
+    }
+
+    #[generate]
+    ~~~~~~~~~~~ While running this function attribute
+    pub fn trigger() {}
+
+    comptime fn generate(_f: FunctionDefinition) -> Quoted {
+        quote {
+            pub fn use_it(w: Wrapper) {
+                // Safety: testing
+                let _ = unsafe { consume(id(w)) };
+                                 ^^^^^^^^^^^^^^ Vectors cannot be returned from an unconstrained runtime to a constrained runtime
+            }
+        }
+    }
+
+    fn main() {}
+    "#;
+    check_errors(src);
+}
+
+#[test]
+fn vector_in_deferred_struct_returned_in_a_format_string() {
+    let src = r#"
+    pub struct Wrapper {
+        vector: [Field],
+    }
+
+    unconstrained fn consume() -> fmtstr<3, (Wrapper,)> {
+        let w = Wrapper { vector: @[0] };
+        f"{w}"
+    }
+
+    #[generate]
+    ~~~~~~~~~~~ While running this function attribute
+    pub fn trigger() {}
+
+    comptime fn generate(_f: FunctionDefinition) -> Quoted {
+        quote {
+            pub fn use_it() {
+                // Safety: testing
+                let _ = unsafe { consume() };
+                                 ^^^^^^^^^ Vectors cannot be returned from an unconstrained runtime to a constrained runtime
+            }
+        }
+    }
+
+    fn main() {}
+    "#;
+    check_errors(src);
+}
+
+/// A method call exempts its arguments exactly as a plain call does, so passing a named
+/// unconstrained function to an unconstrained callee expecting a constrained `fn(..)` works
+/// whichever way the call is spelled.
+#[test]
+fn can_pass_unconstrained_fn_to_unconstrained_method_expecting_constrained_fn() {
+    let src = r#"
+    fn main() {
+        let s = S {};
+        // Safety: testing
+        unsafe { s.expect_regular(foo) };
+    }
+
+    struct S {}
+
+    impl S {
+        unconstrained fn expect_regular(self, _func: fn() -> ()) {
+            let _ = self;
+        }
+    }
+
+    unconstrained fn foo() {}
+    "#;
+    assert_no_errors(src);
+}
+
+/// The lambda counterpart: an unconstrained method infers its lambda argument as unconstrained, so
+/// a `&mut` reaching that lambda never crosses a runtime boundary. This is the shape
+/// `test_programs/compile_success_no_bug/regression_10631` covers for plain calls.
+#[test]
+fn can_pass_lambda_taking_mutable_reference_to_unconstrained_method() {
+    let src = r#"
+    fn main() {
+        let s = S {};
+        // Safety: testing
+        unsafe { s.expect_regular(|v| foo(v)) };
+    }
+
+    struct S {}
+
+    impl S {
+        unconstrained fn expect_regular(self, _func: fn(&mut u32)) {
+            let _ = self;
+        }
+    }
+
+    unconstrained fn foo(_x: &mut u32) {}
+    "#;
+    assert_no_errors(src);
+}
+
+/// Conversely a lambda passed to a *constrained* method is elaborated constrained even when the
+/// method call is itself nested inside an unconstrained call's arguments. Without that reset the lambda is compiled to Brillig and the constrained
+/// method dispatches into it, which `check_for_missing_brillig_constraints` reports as a `bug:`.
+#[test]
+fn lambda_passed_to_constrained_method_inside_unconstrained_call_args_stays_constrained() {
+    let src = r#"
+    fn main(x: u32) {
+        let w = Wrapper { value: x };
+        // Safety: testing
+        unsafe { expect_field(w.apply(|v: u32| v + 1)) };
+    }
+
+    struct Wrapper {
+        value: u32,
+    }
+
+    impl Wrapper {
+        fn apply<Env>(self, f: fn[Env](u32) -> u32) -> u32 {
+            f(self.value)
+        }
+    }
+
+    unconstrained fn expect_field(_v: u32) {}
+    "#;
+    assert_no_errors(src);
+}
+
+/// Only a lambda written as the argument itself runs inside the unconstrained callee. A lambda
+/// declared in that lambda's body gets the runtime its own annotation asks for, the same as it
+/// would inside an `unconstrained fn` body.
+#[test]
+fn does_not_consider_lambda_body_as_unconstrained_when_inside_unconstrained_call_argument_1() {
+    let src = r#"
+    unconstrained fn sink(f: fn() -> u32) -> u32 {
+        f()
+    }
+
+    fn main() -> pub u32 {
+        // Safety: testing
+        unsafe {
+            sink(|| {
+                let inner: fn(u32) -> u32 = |w: u32| w;
+                inner(3)
+            })
+        }
+    }
+    "#;
+    assert_no_errors(src);
+}
+
+/// A lambda in a block that computes the argument is not the argument either.
+#[test]
+fn does_not_consider_lambda_body_as_unconstrained_when_inside_unconstrained_call_argument_2() {
+    let src = r#"
+    unconstrained fn sink(f: fn() -> u32) -> u32 {
+        f()
+    }
+
+    fn main() -> pub u32 {
+        // Safety: testing
+        unsafe {
+            sink({
+                let _: fn(u32) -> u32 = |w: u32| w;
+                || 1
+            })
+        }
+    }
+    "#;
+    assert_no_errors(src);
+}
+
+/// A lambda inside a tuple argument is checked against the tuple element's type, so it is
+/// elaborated with the runtime that element asks for.
+#[test]
+fn lambda_in_tuple_argument_of_unconstrained_call_takes_the_element_runtime() {
+    let src = r#"
+    unconstrained fn sink(fs: (fn(u32) -> u32, u32)) -> u32 {
+        (fs.0)(fs.1)
+    }
+
+    fn main(x: u32) -> pub u32 {
+        // Safety: testing
+        unsafe { sink((|v: u32| v + 1, x)) }
+    }
+    "#;
+    assert_no_errors(src);
+}
+
+/// Parentheses around a lambda argument do not change what is being passed.
+#[test]
+fn parenthesized_lambda_passed_to_unconstrained_function_is_unconstrained() {
+    let src = r#"
+    fn main() {
+        // Safety: testing
+        unsafe {
+            expect_regular((|| {
+                let mut i = 0;
+                while i < 3 {
+                    i += 1;
+                }
+            }))
+        };
+    }
+
+    unconstrained fn expect_regular(_func: fn() -> ()) {}
     "#;
     assert_no_errors(src);
 }

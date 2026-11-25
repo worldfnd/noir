@@ -1,6 +1,7 @@
 //! Tests for "impl stricter than trait" validation.
 //! Ensures that trait implementations don't add constraints that aren't present in the trait definition.
 
+use crate::test_utils::get_monomorphized;
 use crate::tests::{assert_no_errors, check_errors};
 
 #[test]
@@ -320,8 +321,8 @@ fn impl_stricter_than_trait_type_alias_in_constraint_typ() {
     // so the method constraint should be recognized as covered by the impl
     // constraint (i.e. no "impl has stricter requirements than trait" error).
     //
-    // An "unnecessary trait constraint" warning is emitted at each site because
-    // the method-level constraint is semantically redundant with the impl-level
+    // An "unnecessary trait constraint" warning is emitted because the
+    // method-level constraint is semantically redundant with the impl-level
     // constraint — that is exactly the condition under which the shortcut we
     // are testing should apply.
     let src = r#"
@@ -337,8 +338,6 @@ fn impl_stricter_than_trait_type_alias_in_constraint_typ() {
                                               ^^^ Constraint for `Alias<A>: Bar` is not needed, another matching impl is already in scope
                                               ~~~ Unnecessary trait constraint in where clause
         fn foo<B>() where A: Bar {}
-           ^^^ Constraint for `Alias<A>: Bar` is not needed, another matching impl is already in scope
-           ~~~ Unnecessary trait constraint in where clause
     }
 
     fn main() {}
@@ -364,8 +363,6 @@ fn impl_stricter_than_trait_type_alias_in_trait_generics() {
                                        ^^^ Constraint for `A: Bar` is not needed, another matching impl is already in scope
                                        ~~~ Unnecessary trait constraint in where clause
         fn foo<B>() where A: Bar<A> {}
-           ^^^ Constraint for `A: Bar` is not needed, another matching impl is already in scope
-           ~~~ Unnecessary trait constraint in where clause
     }
 
     fn main() {}
@@ -463,4 +460,281 @@ fn placeholder_not_allowed_in_trait_bound_generic() {
     fn main() {}
     "#;
     check_errors(src);
+}
+
+#[test]
+fn impl_stricter_than_trait_equating_associated_constants_of_two_bounds() {
+    // The trait leaves `B::N` and `C::N` independent; the override requires them to be equal.
+    let src = r#"
+    trait Bar {
+        let N: u32;
+    }
+
+    trait Foo {
+        fn foo<B, C>() where B: Bar, C: Bar;
+           ~~~ definition of `foo` from trait
+    }
+
+    impl Foo for Field {
+        fn foo<B, C>() where B: Bar, C: Bar<N = <B as Bar>::N> {}
+                                        ^^^ impl has stricter requirements than trait
+                                        ~~~ impl has extra requirement `C: Bar<N = <B as Bar>::N>`
+    }
+
+    fn main() {}
+    "#;
+    check_errors(src);
+}
+
+#[test]
+fn impl_stricter_than_trait_equating_associated_types_of_two_bounds() {
+    let src = r#"
+    trait Bar {
+        type T;
+    }
+
+    trait Foo {
+        fn foo<B, C>(b: B, c: C) where B: Bar, C: Bar;
+           ~~~ definition of `foo` from trait
+    }
+
+    impl Foo for Field {
+        fn foo<B, C>(_: B, _: C) where B: Bar, C: Bar<T = <B as Bar>::T> {}
+                                                  ^^^ impl has stricter requirements than trait
+                                                  ~~~ impl has extra requirement `C: Bar<T = <B as Bar>::T>`
+    }
+
+    fn main() {}
+    "#;
+    check_errors(src);
+}
+
+#[test]
+fn impl_equating_associated_constants_the_trait_also_equates_is_not_stricter() {
+    let src = r#"
+    trait Bar {
+        let N: u32;
+    }
+
+    trait Foo {
+        fn foo<B, C>() where B: Bar, C: Bar<N = <B as Bar>::N>;
+    }
+
+    impl Foo for Field {
+        fn foo<B, C>() where B: Bar, C: Bar<N = <B as Bar>::N> {}
+    }
+
+    fn main() {}
+    "#;
+    assert_no_errors(src);
+}
+
+#[test]
+fn impl_with_two_independent_associated_constant_bounds_is_not_stricter() {
+    let src = r#"
+    trait Bar {
+        let N: u32;
+    }
+
+    trait Foo {
+        fn foo<B, C>() where B: Bar, C: Bar;
+    }
+
+    impl Foo for Field {
+        fn foo<B, C>() where B: Bar, C: Bar {}
+    }
+
+    fn main() {}
+    "#;
+    assert_no_errors(src);
+}
+
+#[test]
+fn impl_stricter_than_trait_equating_associated_constants_with_bounds_reordered() {
+    // The trait lists its bounds in the opposite order to the override; the error still lands
+    // on the bound that adds the equation, not on the one it borrows its placeholder from.
+    let src = r#"
+    trait Bar {
+        let N: u32;
+    }
+
+    trait Foo {
+        fn foo<B, C>() where C: Bar, B: Bar;
+           ~~~ definition of `foo` from trait
+    }
+
+    impl Foo for Field {
+        fn foo<B, C>() where B: Bar, C: Bar<N = <B as Bar>::N> {}
+                                        ^^^ impl has stricter requirements than trait
+                                        ~~~ impl has extra requirement `C: Bar<N = <B as Bar>::N>`
+    }
+
+    fn main() {}
+    "#;
+    check_errors(src);
+}
+
+/// `impl<T> Foo for W<T> where T: Checked` with `trait Checked: Source` implies `T: Source` for the
+/// whole impl, so the impl's methods don't add a requirement the trait method lacks.
+#[test]
+fn impl_where_clause_with_parent_associated_type_is_not_stricter_than_trait() {
+    let src = r#"
+    pub trait Source {
+        type Out;
+    }
+    pub trait Checked: Source {}
+    pub struct S {}
+    impl Source for S {
+        type Out = Field;
+    }
+    impl Checked for S {}
+
+    pub trait Foo {
+        fn f(self) -> Field;
+    }
+    pub struct W<T> {}
+    impl<T> Foo for W<T> where T: Checked {
+        fn f(self) -> Field {
+            1
+        }
+    }
+
+    fn main() {
+        let _ = W::<S> {}.f();
+    }
+    "#;
+    assert_no_errors(src);
+}
+
+/// A parent bound implied by the impl's where clause is matched by its trait arguments too:
+/// with `trait Child: Parent<u8>`, a method requiring `T: Parent<u16>` is still stricter.
+#[test]
+fn impl_method_bound_on_parent_with_other_arguments_is_stricter_than_trait() {
+    let src = r#"
+    pub trait Parent<A> {
+        type Out;
+    }
+    pub trait Child: Parent<u8> {}
+
+    pub trait Foo {
+        fn f<T>(x: T) -> Field;
+           ~ definition of `f` from trait
+    }
+    pub struct W<T> {}
+    impl<U> Foo for W<U> where U: Child {
+        fn f<T>(_x: T) -> Field where T: Parent<u16> {
+                                         ^^^^^^ impl has stricter requirements than trait
+                                         ~~~~~~ impl has extra requirement `T: Parent<u16, Out = <T as Parent<u16>>::Out>`
+            1
+        }
+    }
+
+    fn main() {}
+    "#;
+    check_errors(src);
+}
+
+#[test]
+fn trait_impl_method_body_resolves_parent_associated_type_on_self() {
+    let src = r#"
+    trait Parent { type Out; }
+    trait Child: Parent { fn go(x: Self::Out) -> Self::Out; }
+    pub struct Foo {}
+    impl Parent for Foo { type Out = u8; }
+    impl Child for Foo { fn go(x: Self::Out) -> Self::Out { let y: Self::Out = x; y } }
+    fn main() { let _ = Foo::go(1); }
+    "#;
+    assert_no_errors(src);
+}
+
+#[test]
+fn trait_impl_method_body_resolves_parent_associated_type_named_like_a_primitive() {
+    let src = r#"
+    trait Parent { type Field; }
+    trait Child: Parent { fn go(x: Self::Field) -> Field; }
+    pub struct Foo {}
+    impl Parent for Foo { type Field = u8; }
+    impl Child for Foo {
+        fn go(x: Self::Field) -> Field {
+            let y: Self::Field = (x as Self::Field) + 250;
+            if y == 250 { 1 } else { 0 }
+        }
+    }
+    fn main(x: u8) -> pub bool { Foo::go(x) == 1 }
+    "#;
+    let program = get_monomorphized(src).unwrap();
+    insta::assert_snapshot!(program, @r"
+    fn main$f0(x$l0: u8) -> pub bool {
+        (go$f1(x$l0) == 1)
+    }
+    fn go$f1(x$l1: u8) -> Field {
+        let y$l2 = ((x$l1 as u8) + 250);
+        if (y$l2 == 250) {
+            1
+        } else {
+            0
+        }
+    }
+    ");
+}
+
+#[test]
+fn trait_impl_method_body_does_not_assume_the_trait_with_its_own_generics() {
+    let src = r#"
+    trait Get<T> { fn get(self) -> T; fn touch(self); }
+    pub struct S {}
+    impl Get<u8> for S {
+        fn get(self) -> u8 { 1 }
+        fn touch(self) { let _ = Get::get(self); }
+    }
+    fn main() { S {}.touch(); }
+    "#;
+    assert_no_errors(src);
+}
+
+#[test]
+fn trait_impl_method_body_resolves_parent_associated_type_in_code_from_a_macro() {
+    let src = r#"
+    trait Parent { type Out; }
+    trait Child: Parent { fn go(x: Self::Out) -> Self::Out; }
+    pub struct Foo {}
+    impl Parent for Foo { type Out = u8; }
+    comptime fn copy() -> Quoted { quote { let y: Self::Out = x; y } }
+    impl Child for Foo { fn go(x: Self::Out) -> Self::Out { copy!() } }
+    fn main() { let _ = Foo::go(1); }
+    "#;
+    assert_no_errors(src);
+}
+
+/// https://github.com/noir-lang/noir-claude/issues/2237: `U: Source` follows from `U: Checked`
+/// with `trait Checked: Source`, so restating it asks for nothing more than the trait method.
+#[test]
+fn impl_method_restating_an_implied_parent_bound_is_not_stricter() {
+    let src = r#"
+    trait Source { type Out; fn get(self) -> Self::Out; }
+    trait Checked: Source {}
+    trait Foo { fn f<T>(x: T) -> Field where T: Checked; }
+    struct S {}
+    impl Source for u32 { type Out = u8; fn get(self) -> u8 { self as u8 } }
+    impl Checked for u32 {}
+    impl Foo for S { fn f<U>(x: U) -> Field where U: Checked, U: Source { let _ = x; 3 } }
+    fn main(x: u32) { assert(S::f(x) == 3); }
+    "#;
+    assert_no_errors(src);
+}
+
+/// https://github.com/noir-lang/noir-claude/issues/2761: the impl method restates the trait
+/// method's bound on an associated type of `Self`.
+#[test]
+fn impl_method_restating_a_bound_on_an_associated_type_of_self_is_not_stricter() {
+    let src = r#"
+    trait Eq { fn eq(self, other: Self) -> bool; }
+    trait C { type N; }
+    pub struct V<T> { t: T }
+    impl<T> C for V<T> { type N = T; }
+    trait D { fn d(_self: Self) -> Field where Self: C, <Self as C>::N: Eq; }
+    impl<T> D for V<T> { fn d(_self: Self) -> Field where Self: C, <Self as C>::N: Eq { 1 } }
+    fn main() {}
+    "#;
+    assert_no_errors(src);
 }

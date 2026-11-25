@@ -154,7 +154,7 @@ fn unary_not_on_field_type_variable() {
     fn main() {
         let num: Field = 0;
         assert_eq(!0, num);
-                  ^^^^^^^ Types in a binary operation should match, but found Field and u32
+                  ^^^^^^^ Types in a binary operation should match, but found u32 and Field
     }
     "#;
     check_errors(src);
@@ -235,18 +235,6 @@ fn negate_bool() {
     fn main() {
         let _var = -true;
                    ^^^^^ Cannot apply unary operator `-` to type `bool`
-    }
-    "#;
-    check_errors(src);
-}
-
-#[test]
-fn tuple_mismatch() {
-    let src = r#"
-    fn main() {
-        let (_x, _y) = (1, 2, 3);
-            ^^^^^^^^ Expected a tuple with 3 elements, found one with 2 elements
-            ~~~~~~~~ The expression the tuple is assigned to has type `(Field,Field,Field)`
     }
     "#;
     check_errors(src);

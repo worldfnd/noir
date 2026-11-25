@@ -118,13 +118,12 @@ fn monomorphize_snippet(source: String) -> Result<Program, Vec<CustomDiagnostic>
         ..Default::default()
     };
 
-    let _ = noirc_driver::check_crate(&mut context, crate_id, &options)?;
+    let (context, result) = noirc_driver::check_crate(context, crate_id, &options);
+    let _ = result?;
 
     let main_id = context.get_main_function(&crate_id).expect("get_main_function");
 
-    let program =
-        monomorphize(main_id, &mut context.def_interner, context.file_manager.as_file_map(), false)
-            .expect("monomorphize");
+    let program = monomorphize(main_id, &context.def_interner, false).expect("monomorphize");
 
     Ok(program)
 }

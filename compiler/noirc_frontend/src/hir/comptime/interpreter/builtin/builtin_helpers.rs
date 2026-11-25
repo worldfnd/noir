@@ -12,10 +12,10 @@ use noirc_errors::Location;
 use num_bigint::BigUint;
 use siphasher::sip::SipHasher13;
 
-use crate::Shared;
 use crate::ast::{BinaryOp, ItemVisibility, UnaryOp};
 use crate::elaborator::Elaborator;
 use crate::hir::comptime::Integer;
+use crate::hir::comptime::ValueCell;
 use crate::hir::comptime::display::{tokens_to_string, value_to_bytes};
 use crate::hir::comptime::value::unwrap_rc;
 use crate::hir::comptime::value::{FormatStringFragment, StructFields};
@@ -26,9 +26,7 @@ use crate::parser::{Parser, ParserError};
 use crate::token::{Keyword, LocatedToken, SecondaryAttributeKind};
 use crate::{
     QuotedType, Type,
-    ast::{
-        BlockExpression, ExpressionKind, Ident, LValue, Pattern, StatementKind, UnresolvedTypeData,
-    },
+    ast::{BlockExpression, ExpressionKind, Ident, LValue, Pattern, StatementKind},
     hir::{
         comptime::{
             Interpreter, InterpreterError, Value,
@@ -147,34 +145,6 @@ pub(crate) fn check_argument_count(
     }
 }
 
-pub(crate) fn check_one_argument(
-    arguments: Vec<(Value, Location)>,
-    location: Location,
-) -> IResult<(Value, Location)> {
-    let [arg1] = check_arguments(arguments, location)?;
-
-    Ok(arg1)
-}
-
-pub(crate) fn check_two_arguments(
-    arguments: Vec<(Value, Location)>,
-    location: Location,
-) -> IResult<((Value, Location), (Value, Location))> {
-    let [arg1, arg2] = check_arguments(arguments, location)?;
-
-    Ok((arg1, arg2))
-}
-
-#[allow(clippy::type_complexity)]
-pub(crate) fn check_three_arguments(
-    arguments: Vec<(Value, Location)>,
-    location: Location,
-) -> IResult<((Value, Location), (Value, Location), (Value, Location))> {
-    let [arg1, arg2, arg3] = check_arguments(arguments, location)?;
-
-    Ok((arg1, arg2, arg3))
-}
-
 #[allow(clippy::type_complexity)]
 pub(crate) fn check_arguments<const N: usize>(
     arguments: Vec<(Value, Location)>,
@@ -186,7 +156,7 @@ pub(crate) fn check_arguments<const N: usize>(
 
 pub(crate) fn get_array(
     (value, location): (Value, Location),
-) -> IResult<(im::Vector<Value>, Type)> {
+) -> IResult<(imbl::Vector<Value>, Type)> {
     match value {
         Value::Array(values, typ) => Ok((values, typ)),
         value => {
@@ -214,7 +184,7 @@ pub(crate) fn get_struct_fields(
 /// Get a specific field of a struct and apply a decoder function on it.
 pub(crate) fn get_struct_field<T>(
     field_name: &str,
-    struct_fields: &HashMap<Rc<String>, Shared<Value>>,
+    struct_fields: &HashMap<Rc<String>, ValueCell>,
     struct_type: &Type,
     location: Location,
     f: impl Fn((Value, Location)) -> IResult<T>,
@@ -239,7 +209,7 @@ pub(crate) fn get_bool((value, location): (Value, Location)) -> IResult<bool> {
 
 pub(crate) fn get_vector(
     (value, location): (Value, Location),
-) -> IResult<(im::Vector<Value>, Type)> {
+) -> IResult<(imbl::Vector<Value>, Type)> {
     match value {
         Value::Vector(values, typ) => Ok((values, typ)),
         value => {
@@ -439,23 +409,6 @@ pub(crate) fn get_quoted((value, location): (Value, Location)) -> IResult<Rc<Vec
     match value {
         Value::Quoted(tokens) => Ok(tokens),
         value => type_mismatch(value, Type::Quoted(QuotedType::Quoted), location),
-    }
-}
-
-pub(crate) fn get_unresolved_type(
-    interner: &NodeInterner,
-    (value, location): (Value, Location),
-) -> IResult<UnresolvedTypeData> {
-    match value {
-        Value::UnresolvedType(typ) => {
-            if let UnresolvedTypeData::Interned(id) = typ {
-                let typ = interner.get_unresolved_type_data(id).clone();
-                Ok(typ)
-            } else {
-                Ok(typ)
-            }
-        }
-        value => type_mismatch(value, Type::Quoted(QuotedType::UnresolvedType), location),
     }
 }
 
@@ -828,7 +781,7 @@ pub(super) fn hash_item<T: Hash>(
     field: FieldId,
     get_item: impl FnOnce((Value, Location)) -> IResult<T>,
 ) -> IResult<Value> {
-    let argument = check_one_argument(arguments, location)?;
+    let [argument] = check_arguments(arguments, location)?;
     let item = get_item(argument)?;
 
     let mut hasher = DeterministicHasher::new();
@@ -848,7 +801,7 @@ pub(super) fn eq_item<T: Eq>(
     location: Location,
     mut get_item: impl FnMut((Value, Location)) -> IResult<T>,
 ) -> IResult<Value> {
-    let (self_arg, other_arg) = check_two_arguments(arguments, location)?;
+    let [self_arg, other_arg] = check_arguments(arguments, location)?;
     let self_arg = get_item(self_arg)?;
     let other_arg = get_item(other_arg)?;
     Ok(Value::Bool(self_arg == other_arg))
@@ -871,7 +824,7 @@ pub(crate) fn to_struct(
     typ: Type,
 ) -> Value {
     let fields =
-        fields.into_iter().map(|(k, v)| (Rc::new(k.to_string()), Shared::new(v))).collect();
+        fields.into_iter().map(|(k, v)| (Rc::new(k.to_string()), ValueCell::new(v))).collect();
     Value::Struct(fields, typ)
 }
 
@@ -891,7 +844,7 @@ pub(crate) fn new_unary_op(operator: UnaryOp, typ: Type, field: FieldId) -> Opti
     let mut fields = HashMap::default();
     let op = FieldValue::try_from_biguint(BigUint::from(unary_op_value), field)
         .expect("an operator index is below every modulus");
-    fields.insert(Rc::new("op".to_string()), Shared::new(Value::field(op)));
+    fields.insert(Rc::new("op".to_string()), ValueCell::new(Value::field(op)));
 
     Some(Value::Struct(fields, typ))
 }
@@ -903,7 +856,7 @@ pub(crate) fn new_binary_op(operator: &BinaryOp, typ: Type, field: FieldId) -> V
     let mut fields = HashMap::default();
     let op = FieldValue::try_from_biguint(BigUint::from(binary_op_value), field)
         .expect("an operator index is below every modulus");
-    fields.insert(Rc::new("op".to_string()), Shared::new(Value::field(op)));
+    fields.insert(Rc::new("op".to_string()), ValueCell::new(Value::field(op)));
 
     Value::Struct(fields, typ)
 }
@@ -993,13 +946,13 @@ mod tests {
 
     use siphasher::sip::SipHasher13;
 
-    use im::Vector;
+    use imbl::Vector;
     use noirc_errors::Location;
 
     use super::DeterministicHasher;
     use super::{check_return_type_shape, type_shape};
-    use crate::Shared;
     use crate::Type;
+    use crate::hir::comptime::ValueCell;
     use crate::hir::comptime::value::Value;
     #[test]
     fn matching_shapes_pass() {
@@ -1037,8 +990,10 @@ mod tests {
         let u8_value = Value::u8(0);
         assert!(check_return_type_shape(&u8_value, type_shape(&u32), loc).is_err());
 
-        let pair =
-            Value::Tuple(vec![Shared::new(Value::Bool(true)), Shared::new(Value::Bool(true))]);
+        let pair = Value::Tuple(vec![
+            ValueCell::new(Value::Bool(true)),
+            ValueCell::new(Value::Bool(true)),
+        ]);
         let triple = Type::Tuple(vec![Type::Bool, Type::Bool, Type::Bool]);
         assert!(check_return_type_shape(&pair, type_shape(&triple), loc).is_err());
     }

@@ -46,6 +46,19 @@ impl Function {
     /// Simplify a function's cfg by going through each block to check for any simple blocks that can
     /// be inlined into their predecessor.
     pub(crate) fn simplify_function(&mut self) {
+        // A single sweep is not a fixed point. `values_to_replace` keeps growing while the
+        // worklist drains, and a block is only revisited while it is still reachable from a
+        // block that simplified, so an entry recorded after a block was last visited reaches
+        // that block's terminator only in the final replacement sweep. A condition that becomes
+        // constant there is past the fold that turns a constant `jmpif` into a `jmp`. Repeat
+        // until no constant-condition branch is left; each extra round folds at least one
+        // branch away, so this terminates.
+        while self.simplify_function_once() {}
+    }
+
+    /// One simplification sweep. Returns whether it left a constant-condition `jmpif` behind,
+    /// meaning another round can simplify further.
+    fn simplify_function_once(&mut self) -> bool {
         let mut cfg = ControlFlowGraph::with_function(self);
         let mut values_to_replace = ValueMapping::default();
         let mut stack = vec![self.entry_block()];
@@ -117,6 +130,19 @@ impl Function {
             }
             self.dfg.data_bus.replace_values(&values_to_replace);
         }
+
+        self.has_constant_jmpif()
+    }
+
+    /// Whether any reachable block branches on a condition that is now a known constant.
+    fn has_constant_jmpif(&self) -> bool {
+        self.reachable_blocks().into_iter().any(|block| {
+            matches!(
+                self.dfg[block].terminator(),
+                Some(TerminatorInstruction::JmpIf { condition, .. })
+                    if self.dfg.get_numeric_constant(*condition).is_some()
+            )
+        })
     }
 }
 
@@ -573,6 +599,13 @@ fn try_inline_into_predecessor(
     block: BasicBlockId,
     predecessor: BasicBlockId,
 ) -> bool {
+    // A block whose only predecessor is itself satisfies the checks below, but `inline_block(b, b)`
+    // takes that block's instructions and terminator out and puts them straight back, so it changes
+    // nothing. Reporting that as progress makes `simplify_current_block` loop forever.
+    if block == predecessor {
+        return false;
+    }
+
     let mut successors = cfg.successors(predecessor);
     if successors.len() == 1 && successors.next() == Some(block) {
         drop(successors);
@@ -594,6 +627,53 @@ mod tests {
         assert_ssa_snapshot,
         ssa::{Ssa, opt::assert_ssa_does_not_change},
     };
+
+    /// `values_to_replace` keeps growing while the worklist drains, and the sweep that applies
+    /// it to every terminator only runs once the worklist is empty. Here `b3` folds its constant
+    /// `jmpif` to `b5`, which strands `b4` and with it `b6`, the only back-edge into the header;
+    /// `b1` then has a single predecessor so its parameters are replaced by `b0`'s arguments,
+    /// recording `v2 -> u1 1`. `b2` branches on `v2` but was already visited by then, so a single
+    /// sweep leaves it branching on a constant.
+    #[test]
+    fn folds_jmpif_whose_condition_becomes_constant_after_the_block_was_visited() {
+        let src = "
+        brillig(inline) fn main f0 {
+          b0(v0: u1):
+            jmp b1(v0, u1 1)
+          b1(v1: u1, v2: u1):
+            jmpif v1 then: b3(), else: b2()
+          b2():
+            jmpif v2 then: b8(), else: b9()
+          b3():
+            jmpif u1 0 then: b4(), else: b5()
+          b4():
+            jmp b6()
+          b5():
+            jmp b7(u1 0)
+          b6():
+            jmp b1(u1 0, v1)
+          b8():
+            jmp b7(u1 1)
+          b9():
+            jmp b7(u1 0)
+          b7(v3: u1):
+            return v3
+        }
+        ";
+        let ssa = Ssa::from_str(src).unwrap().simplify_cfg();
+        assert_ssa_snapshot!(ssa, @r"
+        brillig(inline) fn main f0 {
+          b0(v0: u1):
+            jmpif v0 then: b2(), else: b1()
+          b1():
+            jmp b3(u1 1)
+          b2():
+            jmp b3(u1 0)
+          b3(v1: u1):
+            return v1
+        }
+        ");
+    }
 
     #[test]
     fn inline_blocks() {
@@ -1456,6 +1536,42 @@ mod tests {
             jmpif v0 then: b1(Field 1), else: b1(Field 2)
           b1(v1: Field):
             return v1
+        }
+        ");
+    }
+
+    /// `b3` ends up as a self-loop whose only remaining predecessor is itself: `b4` absorbs the
+    /// empty `b2`, the other rewrites re-point `b3`'s `jmpif` so that both arms name `b3`, and the
+    /// worklist then drops `b4`'s outgoing edge once `b4` is unreachable. Merging `b3` into itself
+    /// changes nothing, so reporting it as progress makes the pass spin forever.
+    #[test]
+    fn self_looping_block_with_no_other_predecessor() {
+        let src = "
+        brillig(inline) fn main f0 {
+          b0(v0: u1):
+            jmp b1(u1 0)
+          b1(v1: u1):
+            jmpif v1 then: b4(), else: b5()
+          b2():
+            jmp b3()
+          b3():
+            jmpif u1 0 then: b3(), else: b4()
+          b4():
+            jmp b2()
+          b5():
+            jmpif u1 1 then: b6(), else: b1(v0)
+          b6():
+            return
+        }
+        ";
+
+        let ssa = Ssa::from_str(src).unwrap();
+        let ssa = ssa.simplify_cfg();
+
+        assert_ssa_snapshot!(ssa, @r"
+        brillig(inline) fn main f0 {
+          b0(v0: u1):
+            return
         }
         ");
     }

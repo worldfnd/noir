@@ -2,8 +2,36 @@ use crate::field::MODULUS_BITS;
 use crate::option::Option;
 
 /// Create a new `Self` value from the given `T` value
+///
+/// The standard library implements `From` only for conversions that can't lose information:
+/// widening an integer to a larger type of the same signedness, an unsigned integer to [`Field`],
+/// and `bool` to an integer or `Field`. For conversions that can truncate, use `as` or
+/// [`AsPrimitive`]. Implementing `From` also provides [`Into`] in the other direction.
+///
+/// Example:
+///
+/// ```noir
+/// struct Meters {
+///     value: u32,
+/// }
+///
+/// impl From<u32> for Meters {
+///     fn from(value: u32) -> Meters {
+///         Meters { value }
+///     }
+/// }
+///
+/// fn main() {
+///     let m = Meters::from(5);
+///     assert_eq(m.value, 5);
+///
+///     let wide = u64::from(7_u8);
+///     assert_eq(wide, 7);
+/// }
+/// ```
 // docs:start:from-trait
 pub trait From<T> {
+    /// Converts `input` to `Self`.
     fn from(input: T) -> Self;
 }
 // docs:end:from-trait
@@ -15,8 +43,19 @@ impl<T> From<T> for T {
 }
 
 /// Convert a `Self` value into a `T` value
+///
+/// `Into` is implemented automatically for every [`From`] conversion, so implement [`From`] rather
+/// than `Into`. The target type usually has to be given by a type annotation.
+///
+/// Example:
+///
+/// ```noir
+/// let x: u64 = 7_u8.into();
+/// assert_eq(x, 7);
+/// ```
 // docs:start:into-trait
 pub trait Into<T> {
+    /// Converts `self` to `T`.
     fn into(self) -> T;
 }
 
@@ -211,8 +250,18 @@ impl From<bool> for Field {
 // docs:end:from-impls
 
 /// Create a new `Self` value from the given `T` value, wrapping a value that does not fit
+///
+/// Example:
+///
+/// ```noir
+/// use std::convert::UnsafeFrom;
+///
+/// assert_eq(u8::unsafe_from(300), 44);
+/// assert_eq(Field::unsafe_from(7_u32), 7);
+/// ```
 // docs:start:unsafe-from-trait
 pub trait UnsafeFrom<T> {
+    /// Converts `input` into `Self`, keeping the low bits of a value that does not fit.
     fn unsafe_from(input: T) -> Self;
 }
 // docs:end:unsafe-from-trait
@@ -241,8 +290,18 @@ impl<let N: u32> UnsafeFrom<Field> for i<N> {
 // docs:end:unsafe-from-impls
 
 /// Create a new `Self` value from the given `T` value, or `None` if the value does not fit
+///
+/// Example:
+///
+/// ```noir
+/// use std::convert::TryFrom;
+///
+/// assert_eq(u8::try_from(44), Option::some(44));
+/// assert(u8::try_from(300).is_none());
+/// ```
 // docs:start:try-from-trait
 pub trait TryFrom<T> {
+    /// Converts `input` into `Self`, or returns `None` if it does not fit.
     fn try_from(input: T) -> Option<Self>;
 }
 // docs:end:try-from-trait
@@ -295,19 +354,36 @@ impl<let N: u32> TryFrom<Field> for i<N> {
 }
 // docs:end:try-from-impls
 
-/// A generic interface for casting between primitive types,
-/// equivalent of using the `as` keyword between values.
+/// A generic interface for casting between primitive types, so generic code can cast with
+/// `T: AsPrimitive<U>`.
 ///
-/// # Example
+/// It is implemented between every pair of `bool` and integer types. To convert to or from a
+/// [`Field`], use [`From`], [`TryFrom`] or [`UnsafeFrom`].
 ///
-/// ```
+/// Casting to a number behaves like `as`, and never fails:
+///
+/// - Casting to a smaller integer type keeps the low bits, so `300 as u8` is `44`.
+/// - Casting between signed and unsigned types of the same size reinterprets the bits, so
+///   `-1_i8 as u8` is `255`.
+///
+/// Casting to `bool` is `self != 0`; `as` doesn't allow casting a number to `bool`. Use [`From`]
+/// for conversions that can't lose information.
+///
+/// Example:
+///
+/// ```noir
+/// use std::convert::AsPrimitive;
+///
 /// let x: u32 = 1234567890;
 /// let y: u8 = x as u8;
 /// let z: u8 = x.as_();
 /// assert_eq(y, z);
+///
+/// let nonzero: bool = 5_u8.as_();
+/// assert(nonzero);
 /// ```
 pub trait AsPrimitive<T> {
-    /// The equivalent of doing `self as T`.
+    /// Casts `self` to `T`.
     fn as_(self) -> T;
 }
 

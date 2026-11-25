@@ -1,0 +1,17 @@
+---
+source: tooling/nargo_cli/tests/execute.rs
+expression: expanded_code
+---
+use std::convert::UnsafeFrom;
+
+fn main(flag: bool, arr: [u8; 2]) -> pub u8 {
+    let arr: [Field; 2] = arr.map(|v: u8| -> Field { <Field as From<u8>>::from(v) });
+    let mut out: Field = 0_Field;
+    if flag {
+        let zero: u32 = 0_u32;
+        let q: u32 = 7_u32 / zero;
+        let v: [Field] = arr.as_vector().push_back(<Field as From<u32>>::from(q));
+        out = v[0_u32];
+    };
+    u8::unsafe_from(out)
+}

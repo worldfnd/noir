@@ -345,7 +345,7 @@ impl Type {
                 }),
                 Type::TypeVariable(type_var)
                 | Type::NamedGeneric(NamedGeneric { type_var, .. }) => {
-                    if let TypeBinding::Bound(typ) = &*type_var.borrow() {
+                    if let TypeBinding::Bound(typ) = type_var.binding() {
                         helper(
                             typ,
                             allow_empty_arrays,
@@ -470,7 +470,7 @@ impl Type {
             | Type::NamedGeneric(NamedGeneric { type_var, .. }) => {
                 // Unbound TypeVariable and Generic are allowed here as they can only result from
                 // generics being declared on the function itself, but we produce a different error in that case.
-                if let TypeBinding::Bound(typ) = &*type_var.borrow() {
+                if let TypeBinding::Bound(typ) = type_var.binding() {
                     typ.non_inlined_function_input_validity_helper(type_recursion_context.recur())
                 } else {
                     None
@@ -502,7 +502,7 @@ impl Type {
             | Type::Error => true,
 
             Type::TypeVariable(type_var) | Type::NamedGeneric(NamedGeneric { type_var, .. }) => {
-                if let TypeBinding::Bound(typ) = &*type_var.borrow() {
+                if let TypeBinding::Bound(typ) = type_var.binding() {
                     typ.is_valid_for_unconstrained_boundary_helper(type_recursion_context.recur())
                 } else {
                     true

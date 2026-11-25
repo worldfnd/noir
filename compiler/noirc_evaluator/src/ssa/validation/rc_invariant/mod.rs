@@ -154,6 +154,7 @@
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
 use std::collections::BTreeSet;
+use std::hash::Hash;
 
 use acvm::FieldElement;
 
@@ -163,11 +164,11 @@ use crate::{
         ir::{
             basic_block::BasicBlockId,
             cfg::ControlFlowGraph,
-            dom::DominatorTree,
+            dom::{DominanceQueries, DominatorTree},
             function::Function,
             instruction::{Instruction, InstructionId, TerminatorInstruction},
             post_order::PostOrder,
-            value::ValueId,
+            value::{Value, ValueId},
         },
         opt::{LoopOrder, Loops},
         ssa_gen::Ssa,
@@ -213,6 +214,10 @@ struct Context<'f> {
     /// iteration. A one-time allocation outside any shared loop is mutated in
     /// place exactly once, so reading it back is a genuine hazard.
     loop_blocks: Vec<BTreeSet<BasicBlockId>>,
+    /// For each loop header, the storage each array value bound in its loop may
+    /// hold. Used by [`Context::alias_set_for`] to drop a value that can never hold
+    /// the `array_set` source's storage while its reference count is 1.
+    loop_storage: Vec<LoopStorage>,
     /// For each array-typed value `V`, the set of values that may share
     /// `V`'s storage **at `V`'s program point** — the source itself plus
     /// anything that flows backward into it through block-parameter →
@@ -228,7 +233,7 @@ struct Context<'f> {
     /// reachable from the other along param→arg edges. This is what
     /// keeps path-merge over-approximation at join points out of the
     /// alias-set.
-    backward_aliases: HashMap<ValueId, im::HashSet<ValueId>>,
+    backward_aliases: HashMap<ValueId, imbl::HashSet<ValueId>>,
     /// For each array-typed value defined by an instruction, the
     /// `(block, instruction-position-within-block)` of the defining
     /// instruction. Used by the def-block-entry kill rule in
@@ -353,7 +358,8 @@ impl<'f> Context<'f> {
     fn new(function: &'f Function) -> Self {
         let cfg = ControlFlowGraph::with_function(function);
         let post_order = PostOrder::with_cfg(&cfg);
-        let dom_tree = DominatorTree::with_cfg_and_post_order(&cfg, &post_order);
+        let dom_tree =
+            DominatorTree::with_cfg_and_post_order(&cfg, &post_order, DominanceQueries::Enabled);
 
         // Cache the reverse-post-order block list once. Used for the
         // per-instruction setup pass below and (more importantly) by
@@ -499,119 +505,173 @@ impl<'f> Context<'f> {
         let fresh_array_values: HashSet<ValueId> =
             make_array_values.union(&call_result_values).copied().collect();
 
-        // Swap exclusions. For every loop back-edge `be_start → header`,
-        // inspect each array-typed header parameter at `source_pos`: if
-        // the back-edge rebinds it to a *sibling* header parameter
-        // (`source ← sibling`) whose own back-edge arg is an
-        // iteration-local fresh allocation, and the source and sibling
-        // receive distinct storage on every forward edge into the header,
-        // record the sibling as excluded from the source's alias-set. See
+        // Swap exclusions. For every loop header, find which pairs of its
+        // array parameters may hold the same storage in the same iteration
+        // (see [`header_param_aliasing`]), and exclude each parameter from the
+        // alias-set of every sibling it never shares storage with. See
         // [`Context::swap_excluded_aliases`].
         let mut swap_excluded_aliases: HashMap<ValueId, HashSet<ValueId>> = HashMap::default();
-        for &(be_start, header) in &back_edges {
-            let Some(edges) = incoming_edges.get(&header) else { continue };
-            let Some(be_args) =
-                edges.iter().find(|(pred, _)| *pred == be_start).map(|(_, args)| args)
-            else {
-                continue;
-            };
-            let params = function.dfg.block_parameters(header);
-            for (source_pos, &source_param) in params.iter().enumerate() {
-                if !function.dfg.type_of_value(source_param).contains_an_array() {
-                    continue;
-                }
-                let Some(&sibling) = be_args.get(source_pos) else { continue };
-                // `source_param ← sibling` must be a genuine swap to a
-                // *different* sibling header parameter (not self-threading,
-                // not a result).
-                if sibling == source_param {
-                    continue;
-                }
-                let Some(sibling_pos) = params.iter().position(|&pp| pp == sibling) else {
-                    continue;
-                };
-                // The sibling's own back-edge arg must be an
-                // iteration-local fresh allocation (the `c3 = [..]` or
-                // `c3 = f()` half of the swap).
-                if !be_args.get(sibling_pos).is_some_and(|a| iteration_local_fresh.contains(a)) {
-                    continue;
-                }
-                // Loop-entry guard. On every *forward* edge into the
-                // header, the source param and the sibling must receive
-                // **distinct** storage, or they can already alias at the
-                // array_set in the entry iteration (`source_0 = sibling_0`)
-                // and the exclusion would mask a real hazard. Two ways
-                // that can happen:
-                //
-                // - the sibling flows into the source's forward arg
-                //   (`sibling ∈ backward(source_forward_arg)`) — the
-                //   source *is* the sibling from the start.
-                // - the source's and sibling's forward args share a
-                //   backward-set member — e.g. `jmp header(v, v)` feeds the
-                //   same `v` to both, so they're runtime-equal even though
-                //   the directed backward walk keeps them in separate sets.
-                let backward_set = |v: ValueId| -> im::HashSet<ValueId> {
-                    backward_aliases.get(&v).cloned().unwrap_or_else(|| im::HashSet::unit(v))
-                };
-                let entry_aliased = edges
-                    .iter()
-                    .filter(|(pred, _)| !back_edges.contains(&(*pred, header)))
-                    .any(|(_, args)| {
-                        let Some(&source_forward_arg) = args.get(source_pos) else {
-                            return false;
-                        };
-                        let source_forward_aliases = backward_set(source_forward_arg);
-                        if source_forward_aliases.contains(&sibling) {
-                            return true;
-                        }
-                        args.get(sibling_pos).is_some_and(|&sibling_forward_arg| {
-                            let sibling_forward_aliases = backward_set(sibling_forward_arg);
-                            source_forward_aliases
-                                .iter()
-                                .any(|x| sibling_forward_aliases.contains(x))
-                        })
-                    });
-                if entry_aliased {
-                    continue;
-                }
-                swap_excluded_aliases.entry(source_param).or_default().insert(sibling);
-            }
+        let mut loops_by_header: HashMap<BasicBlockId, BTreeSet<BasicBlockId>> = HashMap::default();
+        for l in &loops.yet_to_unroll {
+            loops_by_header.entry(l.header).or_default().extend(l.blocks.iter().copied());
         }
-
-        // Propagate swap exclusions forward across non-back-edge
-        // block-parameter edges. On a forward edge `P ← A`, `P` is `A` within
-        // the same iteration, so `P`'s storage is `A`'s storage; a sibling
-        // distinct from `A`'s per-iteration storage is therefore distinct from
-        // `P`'s too. This carries an exclusion recorded on a loop-header
-        // parameter to a successor parameter seeded from it — e.g. an
-        // inner-loop header (the array_set source) fed from the swapped
-        // outer-loop parameter — so `alias_set_for` drops the sibling for the
-        // inner source as well. Back-edges are excluded: across one, `P` is a
-        // *prior* iteration's `A`, a distinct storage.
-        let mut changed = true;
-        while changed {
-            changed = false;
-            for (dest, edges) in &incoming_edges {
-                let params = function.dfg.block_parameters(*dest);
-                for (i, &param) in params.iter().enumerate() {
-                    for (pred, args) in edges {
-                        if back_edges.contains(&(*pred, *dest)) {
-                            continue;
-                        }
-                        let Some(&arg) = args.get(i) else { continue };
-                        let Some(arg_excl) = swap_excluded_aliases.get(&arg).cloned() else {
-                            continue;
-                        };
-                        let entry = swap_excluded_aliases.entry(param).or_default();
-                        for x in arg_excl {
-                            if x != param && entry.insert(x) {
-                                changed = true;
-                            }
-                        }
+        let mut loop_storage = Vec::with_capacity(loops_by_header.len());
+        for (&header, blocks) in &loops_by_header {
+            let mut storage = HashMap::default();
+            let may_alias = header_param_aliasing(
+                function,
+                header,
+                blocks,
+                &loops_by_header,
+                &back_edges,
+                &incoming_edges,
+                &backward_aliases,
+                &array_value_defs,
+                &fresh_array_values,
+                &inc_rc_locations,
+                &dom_tree,
+                &mut storage,
+            );
+            let is_array = |v: &ValueId| function.dfg.type_of_value(*v).contains_an_array();
+            let array_params: Vec<ValueId> =
+                function.dfg.block_parameters(header).iter().copied().filter(is_array).collect();
+            for &p in &array_params {
+                for &q in &array_params {
+                    if p != q && !may_alias.contains(&ordered_pair(p, q)) {
+                        swap_excluded_aliases.entry(p).or_default().insert(q);
                     }
                 }
             }
+            for &block in blocks {
+                let results = function.dfg[block]
+                    .instructions()
+                    .iter()
+                    .flat_map(|id| function.dfg.instruction_results(*id).iter().copied());
+                let values: Vec<ValueId> = function
+                    .dfg
+                    .block_parameters(block)
+                    .iter()
+                    .copied()
+                    .chain(results)
+                    .filter(is_array)
+                    .collect();
+                for value in values {
+                    iteration_storage(
+                        function,
+                        header,
+                        blocks,
+                        &loops_by_header,
+                        &incoming_edges,
+                        &array_value_defs,
+                        &fresh_array_values,
+                        &inc_rc_locations,
+                        &dom_tree,
+                        value,
+                        &mut storage,
+                    );
+                }
+            }
+            loop_storage.push(LoopStorage { blocks: blocks.clone(), storage, may_alias });
         }
+
+        // Propagate swap exclusions across block-parameter edges. A parameter
+        // excludes `x` only if every argument it can receive excludes `x`: at a
+        // join that takes `a` on one edge and `c` on the other, the parameter may
+        // be either, so it keeps both even when `a` and `c` exclude each other.
+        // An `array_set` result is its operand's storage, so it excludes what
+        // the operand does. Across a back-edge into `header` the argument comes
+        // from the previous iteration, so exclusions of values bound inside
+        // that loop do not carry over; values bound outside it, such as an
+        // enclosing loop's parameters, keep their binding and do. This is the
+        // greatest fixed point, so a loop-carried parameter keeps what its
+        // entry argument excludes. A loop header's parameters also keep the
+        // exclusions computed for them from their own back-edges above.
+        let header_exclusions = std::mem::take(&mut swap_excluded_aliases);
+        let array_params: Vec<(BasicBlockId, usize, ValueId)> = incoming_edges
+            .keys()
+            .flat_map(|&block| {
+                function
+                    .dfg
+                    .block_parameters(block)
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, p)| function.dfg.type_of_value(**p).contains_an_array())
+                    .map(move |(i, &p)| (block, i, p))
+            })
+            .collect();
+        // `None` is "excludes everything", the top of the lattice, until a
+        // predecessor narrows it.
+        let mut exclusions: HashMap<ValueId, Option<HashSet<ValueId>>> =
+            array_params.iter().map(|&(_, _, p)| (p, None)).collect();
+        let excluded_by = |exclusions: &HashMap<ValueId, Option<HashSet<ValueId>>>,
+                           mut v: ValueId|
+         -> Option<HashSet<ValueId>> {
+            loop {
+                if !function.dfg.is_global(v)
+                    && let Value::Instruction { instruction, .. } = &function.dfg[v]
+                    && let Instruction::ArraySet { array, .. } = &function.dfg[*instruction]
+                {
+                    v = *array;
+                    continue;
+                }
+                return exclusions.get(&v).cloned().unwrap_or(Some(HashSet::default()));
+            }
+        };
+        let bound_in_loop = |v: ValueId, header: BasicBlockId| -> bool {
+            let Some(blocks) = loops_by_header.get(&header) else { return false };
+            if function.dfg.is_global(v) {
+                return false;
+            }
+            match &function.dfg[v] {
+                Value::Param { block, .. } => blocks.contains(block),
+                _ => array_value_defs.get(&v).is_some_and(|(block, _)| blocks.contains(block)),
+            }
+        };
+        let mut changed = true;
+        while changed {
+            changed = false;
+            for &(block, i, param) in &array_params {
+                let mut narrowed: Option<HashSet<ValueId>> = None;
+                for (pred, args) in &incoming_edges[&block] {
+                    let from_edge = match args.get(i) {
+                        Some(&arg) => excluded_by(&exclusions, arg),
+                        None => Some(HashSet::default()),
+                    };
+                    let from_edge = if back_edges.contains(&(*pred, block)) {
+                        from_edge.map(|xs| {
+                            xs.into_iter().filter(|&x| !bound_in_loop(x, block)).collect()
+                        })
+                    } else {
+                        from_edge
+                    };
+                    narrowed = match (narrowed, from_edge) {
+                        (None, e) => e,
+                        (n, None) => n,
+                        (Some(n), Some(e)) => Some(n.intersection(&e).copied().collect()),
+                    };
+                }
+                let mut next = narrowed;
+                if let Some(own) = header_exclusions.get(&param) {
+                    next = next.map(|mut xs| {
+                        xs.extend(own.iter().copied());
+                        xs
+                    });
+                }
+                if let Some(xs) = &mut next {
+                    xs.remove(&param);
+                }
+                if exclusions[&param] != next {
+                    exclusions.insert(param, next);
+                    changed = true;
+                }
+            }
+        }
+        let swap_excluded_aliases: HashMap<ValueId, HashSet<ValueId>> = exclusions
+            .into_iter()
+            .filter_map(|(p, xs)| {
+                Some((p, xs.unwrap_or_default())).filter(|(_, xs)| !xs.is_empty())
+            })
+            .collect();
 
         Self {
             function,
@@ -619,6 +679,7 @@ impl<'f> Context<'f> {
             dom_tree,
             fresh_array_values,
             loop_blocks,
+            loop_storage,
             backward_aliases,
             array_value_defs,
             non_aliasing_array_values,
@@ -683,12 +744,12 @@ impl<'f> Context<'f> {
         source: ValueId,
         array_set_block: BasicBlockId,
         array_set_idx: usize,
-    ) -> im::HashSet<ValueId> {
+    ) -> imbl::HashSet<ValueId> {
         let class = self
             .backward_aliases
             .get(&source)
             .cloned()
-            .unwrap_or_else(|| im::HashSet::unit(source));
+            .unwrap_or_else(|| imbl::HashSet::unit(source));
         class
             .into_iter()
             .filter(|&v| {
@@ -702,6 +763,13 @@ impl<'f> Context<'f> {
                     return false;
                 }
                 if self.swap_excluded_aliases.get(&source).is_some_and(|qs| qs.contains(&v)) {
+                    return false;
+                }
+                if self
+                    .loop_storage
+                    .iter()
+                    .any(|l| l.blocks.contains(&array_set_block) && l.never_share(source, v))
+                {
                     return false;
                 }
                 if let Some(&(def_block, def_idx)) = self.array_value_defs.get(&v)
@@ -731,14 +799,14 @@ impl<'f> Context<'f> {
     /// after the `array_set`.
     fn unprotected_aliases(
         &self,
-        alias_set: &im::HashSet<ValueId>,
+        alias_set: &imbl::HashSet<ValueId>,
         source: ValueId,
         array_set_block: BasicBlockId,
         array_set_idx: usize,
-    ) -> im::HashSet<ValueId> {
+    ) -> imbl::HashSet<ValueId> {
         // Fast full-accept short-circuits cover the whole array_set at once.
         if self.some_inc_rc_precedes(alias_set, source, array_set_block, array_set_idx) {
-            return im::HashSet::new();
+            return imbl::HashSet::new();
         }
         // Otherwise compute per-member coverage and keep only uncovered members.
         let uncovered = self.compute_uncovered_values(source, array_set_block, array_set_idx);
@@ -772,9 +840,42 @@ impl<'f> Context<'f> {
     ///
     /// Well-formed SSA contains no `DecrementRc`, so we don't need to worry
     /// about a `dec_rc` intervening between the `inc_rc` and the `array_set`.
+    /// Whether `alias_set` contains a global.
+    ///
+    /// A global's storage is not function-local, so the forward walk that decides whether an
+    /// in-place mutation is observable cannot answer the question for it: the observing read
+    /// may be in another function, or in another invocation of this Brillig entry point (each
+    /// re-initializes the globals region, and ACVM builds a fresh VM per `BrilligCall`). The
+    /// storage is also live for the whole program, so it is never "the last use". Mechanism 2
+    /// (block-parameter threading) therefore cannot protect a mutation of a global; only an
+    /// `inc_rc` can. See [`Context::unprotected_global_for_source`].
+    fn alias_set_contains_global(&self, alias_set: &imbl::HashSet<ValueId>) -> bool {
+        alias_set.iter().any(|value| self.function.dfg.is_global(*value))
+    }
+
+    /// The global whose storage the mutation of `source` may write through, if any.
+    ///
+    /// Narrows the alias-set with the same per-path coverage the forward walk uses
+    /// ([`Context::unprotected_aliases`]), so a global that is `inc_rc`'d on every path where
+    /// it can be the source's storage is not reported — the mutation copies there. What is
+    /// left is a global whose storage the write may reach with its reference count still 1.
+    fn unprotected_global_for_source(
+        &self,
+        alias_set: &imbl::HashSet<ValueId>,
+        source: ValueId,
+        array_set_block: BasicBlockId,
+        array_set_idx: usize,
+    ) -> Option<ValueId> {
+        if !self.alias_set_contains_global(alias_set) {
+            return None;
+        }
+        let use_set = self.unprotected_aliases(alias_set, source, array_set_block, array_set_idx);
+        use_set.iter().copied().find(|value| self.function.dfg.is_global(*value))
+    }
+
     fn some_inc_rc_precedes(
         &self,
-        alias_set: &im::HashSet<ValueId>,
+        alias_set: &imbl::HashSet<ValueId>,
         source: ValueId,
         array_set_block: BasicBlockId,
         array_set_idx: usize,
@@ -862,13 +963,9 @@ impl<'f> Context<'f> {
         array_set_block: BasicBlockId,
         array_set_idx: usize,
     ) -> HashSet<ValueId> {
-        struct Node {
-            successors: Vec<(BasicBlockId, ValueId)>,
-            uncovered_terminal: bool,
-        }
-
         // Phase 1: build the backward threading graph.
-        let mut graph: HashMap<(BasicBlockId, ValueId), Node> = HashMap::default();
+        let mut graph: HashMap<(BasicBlockId, ValueId), Node<(BasicBlockId, ValueId)>> =
+            HashMap::default();
         let mut worklist: Vec<(BasicBlockId, ValueId, Option<usize>)> =
             vec![(array_set_block, source, Some(array_set_idx))];
 
@@ -886,24 +983,18 @@ impl<'f> Context<'f> {
             }
 
             // Wall: an `inc_rc` on the threaded value in this block.
-            if let Some(locations) = self.inc_rc_locations.get(&value)
-                && locations
-                    .iter()
-                    .any(|&(b, i)| b == block && seed_idx.is_none_or(|limit| i < limit))
-            {
+            if self.inc_rc_in_block(value, block, seed_idx) {
                 graph
                     .insert((block, value), Node { successors: vec![], uncovered_terminal: false });
                 continue;
             }
 
             // If `value` is defined in this block, the walk stops here.
-            if let Some(&(def_block, def_idx)) = self.array_value_defs.get(&value)
-                && def_block == block
-            {
-                let inst_id = self.function.dfg[block].instructions()[def_idx];
+            if let Some(instruction) = self.def_in_block(value, block) {
                 // An `array_set` result shares its operand's storage; continue
                 // threading with the operand.
-                if let Instruction::ArraySet { array, .. } = self.function.dfg[inst_id] {
+                if let Instruction::ArraySet { array, .. } = instruction {
+                    let array = *array;
                     graph.insert(
                         (block, value),
                         Node { successors: vec![(block, array)], uncovered_terminal: false },
@@ -951,22 +1042,7 @@ impl<'f> Context<'f> {
         }
 
         // Phase 2: propagate "uncovered" from terminals to a fixed point.
-        let mut uncovered: HashSet<(BasicBlockId, ValueId)> =
-            graph.iter().filter(|(_, n)| n.uncovered_terminal).map(|(k, _)| *k).collect();
-        let mut changed = true;
-        while changed {
-            changed = false;
-            for (state, node) in &graph {
-                if !uncovered.contains(state)
-                    && node.successors.iter().any(|s| uncovered.contains(s))
-                {
-                    uncovered.insert(*state);
-                    changed = true;
-                }
-            }
-        }
-
-        uncovered.into_iter().map(|(_, value)| value).collect()
+        propagate_uncovered(&graph).into_iter().map(|(_, value)| value).collect()
     }
 
     /// The argument passed to parameter position `i` of `dest` on the edge
@@ -996,6 +1072,172 @@ impl<'f> Context<'f> {
         }
     }
 
+    /// Whether an `inc_rc` on `value` sits in `block`. `limit` restricts the
+    /// search to instruction indices before it — used in a backward walk's seed
+    /// block, where only bumps *preceding* the seed instruction have executed;
+    /// any other block on a backward path runs in full before the seed, so pass
+    /// `None` and count an `inc_rc` anywhere in it.
+    fn inc_rc_in_block(&self, value: ValueId, block: BasicBlockId, limit: Option<usize>) -> bool {
+        self.inc_rc_locations.get(&value).is_some_and(|locations| {
+            locations
+                .iter()
+                .any(|&(rc_block, i)| rc_block == block && limit.is_none_or(|limit| i < limit))
+        })
+    }
+
+    /// The instruction defining `value` in `block`, if `value` is an
+    /// array-typed instruction result defined there (per
+    /// [`Context::array_value_defs`]).
+    fn def_in_block(&self, value: ValueId, block: BasicBlockId) -> Option<&Instruction> {
+        let &(def_block, def_idx) = self.array_value_defs.get(&value)?;
+        (def_block == block)
+            .then(|| &self.function.dfg[self.function.dfg[block].instructions()[def_idx]])
+    }
+
+    /// Whether some backward path from the call at `(call_block, call_idx)`
+    /// resolves `a` and `b` — the storages two argument positions of that call
+    /// denote — to the **same** buffer without crossing an `inc_rc` on it.
+    ///
+    /// This is the path-sensitive relation the co-aliased-arguments check
+    /// needs. Relating the two positions' backward alias *sets* is not enough,
+    /// for both directions of error:
+    ///
+    /// - a join may pass one buffer through both positions on one branch and
+    ///   protect it with a branch-local `inc_rc` that dominates nothing (the
+    ///   `valid_after_pass` fuzzer seed `0x96293a520000f025`), and
+    /// - a join may pass one buffer through *different* positions per branch
+    ///   (`(a, x)` on one arm, `(y, a)` on the other), so the sets intersect
+    ///   even though no single path carries the buffer twice.
+    ///
+    /// The walk threads the *pair* `(a, b)` backward over `(block, a, b)`
+    /// states, mirroring [`Context::compute_uncovered_values`]: across a
+    /// block-parameter edge each side follows the predecessor's argument, and
+    /// an `array_set` result continues with its array operand (the result
+    /// shares the operand's storage). Walls and sinks, in the order checked:
+    ///
+    /// - **`inc_rc` on either name** in the current block (limited to bumps
+    ///   before the call in the call's own block): covered. If the two names
+    ///   denote one buffer on this path, either bump protects it; if they
+    ///   don't, there is no hazard on this path to begin with.
+    /// - **Names equal, defined here or entry reached**: one buffer reaches
+    ///   both positions with no bump crossed — an uncovered terminal.
+    /// - **Names distinct and one is defined here** (non-`array_set`): the
+    ///   two positions carry distinct storages on this path — covered. (Two
+    ///   distinct names for one buffer via un-threaded relations, e.g. an
+    ///   `array_get` extraction, are not modeled — consistent with the rest
+    ///   of the alias engine, a false negative but never a false positive.)
+    /// - **Names distinct at an entry block**: distinct roots — covered.
+    ///
+    /// An unresolvable edge argument is conservatively an uncovered terminal.
+    /// Phase 2 ([`propagate_uncovered`], shared with
+    /// [`Context::compute_uncovered_values`]) floods "uncovered" backward from
+    /// the terminals; a cycle with no uncovered terminal stays covered.
+    fn pair_has_unprotected_shared_storage(
+        &self,
+        a: ValueId,
+        b: ValueId,
+        call_block: BasicBlockId,
+        call_idx: usize,
+    ) -> bool {
+        type State = (BasicBlockId, ValueId, ValueId);
+
+        // Phase 1: build the backward threading graph over (block, a, b) states.
+        let mut graph: HashMap<State, Node<State>> = HashMap::default();
+        let mut worklist: Vec<(BasicBlockId, ValueId, ValueId, Option<usize>)> =
+            vec![(call_block, a, b, Some(call_idx))];
+
+        while let Some((block, a, b, seed_idx)) = worklist.pop() {
+            if graph.contains_key(&(block, a, b)) {
+                continue;
+            }
+
+            // Wall: a bump on either name protects the buffer if the names
+            // coincide, and if they don't there is no hazard on this path.
+            if self.inc_rc_in_block(a, block, seed_idx) || self.inc_rc_in_block(b, block, seed_idx)
+            {
+                graph.insert((block, a, b), Node { successors: vec![], uncovered_terminal: false });
+                continue;
+            }
+
+            // An `array_set` result shares its operand's storage; continue
+            // threading the pair with the operand.
+            if let Some(Instruction::ArraySet { array, .. }) = self.def_in_block(a, block) {
+                let array = *array;
+                graph.insert(
+                    (block, a, b),
+                    Node { successors: vec![(block, array, b)], uncovered_terminal: false },
+                );
+                worklist.push((block, array, b, seed_idx));
+                continue;
+            }
+            if let Some(Instruction::ArraySet { array, .. }) = self.def_in_block(b, block) {
+                let array = *array;
+                graph.insert(
+                    (block, a, b),
+                    Node { successors: vec![(block, a, array)], uncovered_terminal: false },
+                );
+                worklist.push((block, a, array, seed_idx));
+                continue;
+            }
+
+            if a == b {
+                // One name, both positions. If its storage originates here (an
+                // unthreadable definition) or the walk reached an entry with
+                // no bump crossed, this path hands the callee one buffer twice
+                // unprotected.
+                let defined_here = self.def_in_block(a, block).is_some();
+                let mut preds = self.cfg.predecessors(block).peekable();
+                if defined_here || preds.peek().is_none() {
+                    graph.insert(
+                        (block, a, b),
+                        Node { successors: vec![], uncovered_terminal: true },
+                    );
+                    continue;
+                }
+            } else if self.def_in_block(a, block).is_some() || self.def_in_block(b, block).is_some()
+            {
+                // Distinct names and one storage originates here: the other
+                // name cannot resolve to it further back, so this path carries
+                // two distinct buffers.
+                graph.insert((block, a, b), Node { successors: vec![], uncovered_terminal: false });
+                continue;
+            }
+
+            let preds: Vec<BasicBlockId> = self.cfg.predecessors(block).collect();
+            if preds.is_empty() {
+                // Entry reached with distinct names: distinct roots (the `a ==
+                // b` entry case is an uncovered terminal above).
+                graph.insert((block, a, b), Node { successors: vec![], uncovered_terminal: false });
+                continue;
+            }
+
+            let params = self.function.dfg.block_parameters(block);
+            let a_pos = params.iter().position(|&p| p == a);
+            let b_pos = params.iter().position(|&p| p == b);
+            let mut successors = Vec::new();
+            let mut uncovered_terminal = false;
+            for &pred in &preds {
+                let resolve = |pos: Option<usize>, value: ValueId| match pos {
+                    Some(i) => self.edge_arg(pred, block, i),
+                    None => Some(value),
+                };
+                match (resolve(a_pos, a), resolve(b_pos, b)) {
+                    (Some(next_a), Some(next_b)) => {
+                        successors.push((pred, next_a, next_b));
+                        worklist.push((pred, next_a, next_b, None));
+                    }
+                    // An unresolvable edge argument: conservatively treat as
+                    // uncovered rather than silently dropping the path.
+                    _ => uncovered_terminal = true,
+                }
+            }
+            graph.insert((block, a, b), Node { successors, uncovered_terminal });
+        }
+
+        // Phase 2: propagate "uncovered" from terminals to a fixed point.
+        propagate_uncovered(&graph).contains(&(call_block, a, b))
+    }
+
     /// Run the coverage narrowing + forward reachable-use walk for a single
     /// potential in-place mutation of `source` at `(block, idx)` (the
     /// instruction `mutator_id`). Returns the aliased use that would observe
@@ -1013,7 +1255,7 @@ impl<'f> Context<'f> {
         idx: usize,
         mutator_id: InstructionId,
         write_index_const: Option<FieldElement>,
-        initial_derived: im::HashSet<ValueId>,
+        initial_derived: imbl::HashSet<ValueId>,
     ) -> Option<AliasedUse> {
         let alias_set = self.alias_set_for(source, block, idx);
 
@@ -1106,13 +1348,13 @@ impl<'f> Context<'f> {
     #[allow(clippy::too_many_arguments)]
     fn find_reachable_aliased_use(
         &self,
-        alias_set: &im::HashSet<ValueId>,
+        alias_set: &imbl::HashSet<ValueId>,
         source: ValueId,
         mutator_id: InstructionId,
         mutator_block: BasicBlockId,
         mutator_idx: usize,
         write_index_const: Option<FieldElement>,
-        initial_derived: im::HashSet<ValueId>,
+        initial_derived: imbl::HashSet<ValueId>,
     ) -> Option<AliasedUse> {
         let mut visited: HashMap<BasicBlockId, WalkState> = HashMap::default();
 
@@ -1152,7 +1394,7 @@ impl<'f> Context<'f> {
         // the loop-header parameter on the back-edge, since the value
         // threaded back is this protected participant rather than a
         // still-live alias.
-        let protected: im::HashSet<ValueId> = alias_set
+        let protected: imbl::HashSet<ValueId> = alias_set
             .iter()
             .copied()
             .filter(|&v| {
@@ -1161,13 +1403,13 @@ impl<'f> Context<'f> {
                     && self.back_edge_participants.contains(&v)
             })
             .collect();
-        let use_set: im::HashSet<ValueId> =
+        let use_set: imbl::HashSet<ValueId> =
             alias_set.iter().copied().filter(|v| !protected.contains(v)).collect();
 
         let initial_state = WalkState {
             use_set,
             derived: initial_derived,
-            tainted: write_index_const.map(im::HashSet::unit),
+            tainted: write_index_const.map(imbl::HashSet::unit),
         };
         let mut worklist: Vec<WalkFrame> = vec![WalkFrame {
             block: mutator_block,
@@ -1349,7 +1591,7 @@ impl<'f> Context<'f> {
         dest: BasicBlockId,
         arguments: &[ValueId],
         state: &WalkState,
-        protected: &im::HashSet<ValueId>,
+        protected: &imbl::HashSet<ValueId>,
     ) -> WalkState {
         WalkState {
             use_set: self.succ_use_set(dest, arguments, &state.use_set, protected),
@@ -1392,9 +1634,9 @@ impl<'f> Context<'f> {
         &self,
         dest: BasicBlockId,
         arguments: &[ValueId],
-        use_set: &im::HashSet<ValueId>,
-        protected: &im::HashSet<ValueId>,
-    ) -> im::HashSet<ValueId> {
+        use_set: &imbl::HashSet<ValueId>,
+        protected: &imbl::HashSet<ValueId>,
+    ) -> imbl::HashSet<ValueId> {
         let mut result = use_set.clone();
 
         // (1) Per-arg propagation for params of `dest`.
@@ -1427,6 +1669,264 @@ impl<'f> Context<'f> {
 
         result
     }
+}
+
+/// Whether `block` raises the reference count of `value`. Every instruction of a predecessor
+/// runs before its terminator, so for an edge's argument this covers the whole block.
+fn has_inc_rc_in(
+    inc_rc_locations: &HashMap<ValueId, Vec<(BasicBlockId, usize)>>,
+    value: ValueId,
+    block: BasicBlockId,
+) -> bool {
+    inc_rc_locations.get(&value).is_some_and(|locations| locations.iter().any(|(b, _)| *b == block))
+}
+
+/// An unordered pair of values, normalized so that `(a, b)` and `(b, a)` are the same key.
+fn ordered_pair(a: ValueId, b: ValueId) -> (ValueId, ValueId) {
+    if a <= b { (a, b) } else { (b, a) }
+}
+
+/// The pairs of `header`'s array parameters that may hold the same storage in the same
+/// iteration of its loop.
+///
+/// Two parameters share storage in an iteration only if the arguments that some incoming
+/// edge passes them may share storage. On an edge from outside the loop that is judged by
+/// the arguments' backward alias sets. On a back-edge each argument is traced, with
+/// [`iteration_storage`] (cached in `storage_of`), to the storage it may hold, and two
+/// arguments may share storage when they trace to a common storage, to a pair of
+/// parameters already known to share, or to something untraceable. Storage whose
+/// reference count has been raised is left out: nothing can write it in place. The relation grows to
+/// a fixed point, so a back-edge that only permutes parameters which enter the loop
+/// distinct never makes a pair share: `t = a; a = c; c = t` keeps `a` and `c` apart.
+#[allow(clippy::too_many_arguments)]
+fn header_param_aliasing(
+    function: &Function,
+    header: BasicBlockId,
+    loop_blocks: &BTreeSet<BasicBlockId>,
+    loops_by_header: &HashMap<BasicBlockId, BTreeSet<BasicBlockId>>,
+    back_edges: &HashSet<(BasicBlockId, BasicBlockId)>,
+    incoming_edges: &HashMap<BasicBlockId, Vec<(BasicBlockId, Vec<ValueId>)>>,
+    backward_aliases: &HashMap<ValueId, imbl::HashSet<ValueId>>,
+    array_value_defs: &HashMap<ValueId, (BasicBlockId, usize)>,
+    fresh_array_values: &HashSet<ValueId>,
+    inc_rc_locations: &HashMap<ValueId, Vec<(BasicBlockId, usize)>>,
+    dom_tree: &DominatorTree,
+    storage_of: &mut HashMap<ValueId, Option<BTreeSet<ValueId>>>,
+) -> HashSet<(ValueId, ValueId)> {
+    let params = function.dfg.block_parameters(header);
+    let array_positions: Vec<usize> = (0..params.len())
+        .filter(|&i| function.dfg.type_of_value(params[i]).contains_an_array())
+        .collect();
+    let pairs: Vec<(usize, usize)> = array_positions
+        .iter()
+        .enumerate()
+        .flat_map(|(n, &i)| array_positions[n + 1..].iter().map(move |&j| (i, j)))
+        .collect();
+    let no_edges = Vec::new();
+    let edges = incoming_edges.get(&header).unwrap_or(&no_edges);
+    let backward =
+        |v: ValueId| backward_aliases.get(&v).cloned().unwrap_or_else(|| imbl::HashSet::unit(v));
+
+    let mut may_alias: HashSet<(ValueId, ValueId)> = HashSet::default();
+    for (pred, args) in edges {
+        if back_edges.contains(&(*pred, header)) {
+            continue;
+        }
+        for &(i, j) in &pairs {
+            let shares = match (args.get(i), args.get(j)) {
+                (Some(&x), Some(&y)) => {
+                    let (bx, by) = (backward(x), backward(y));
+                    bx.contains(&params[j])
+                        || by.contains(&params[i])
+                        || bx.iter().any(|v| by.contains(v))
+                }
+                _ => true,
+            };
+            if shares {
+                may_alias.insert(ordered_pair(params[i], params[j]));
+            }
+        }
+    }
+
+    let back_edge_storage: Vec<HashMap<usize, Option<BTreeSet<ValueId>>>> = edges
+        .iter()
+        .filter(|(pred, _)| back_edges.contains(&(*pred, header)))
+        .map(|(pred, args)| {
+            array_positions
+                .iter()
+                .map(|&i| {
+                    let storage = args.get(i).and_then(|&arg| {
+                        if has_inc_rc_in(inc_rc_locations, arg, *pred) {
+                            return Some(BTreeSet::new());
+                        }
+                        iteration_storage(
+                            function,
+                            header,
+                            loop_blocks,
+                            loops_by_header,
+                            incoming_edges,
+                            array_value_defs,
+                            fresh_array_values,
+                            inc_rc_locations,
+                            dom_tree,
+                            arg,
+                            storage_of,
+                        )
+                    });
+                    (i, storage)
+                })
+                .collect()
+        })
+        .collect();
+
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for storage in &back_edge_storage {
+            for &(i, j) in &pairs {
+                let pair = ordered_pair(params[i], params[j]);
+                if may_alias.contains(&pair) {
+                    continue;
+                }
+                let shares = match (&storage[&i], &storage[&j]) {
+                    (Some(x), Some(y)) => x.iter().any(|&p| {
+                        y.iter().any(|&q| p == q || may_alias.contains(&ordered_pair(p, q)))
+                    }),
+                    _ => true,
+                };
+                if shares {
+                    may_alias.insert(pair);
+                    changed = true;
+                }
+            }
+        }
+    }
+    may_alias
+}
+
+/// The storage that `value`, computed in an iteration of the loop headed by `header`, may
+/// hold with a reference count of 1. Each storage is named by a value: one of `header`'s
+/// parameters, for the storage it holds at the start of the iteration, or the instruction
+/// result that allocated it during the iteration. An empty set is storage whose reference
+/// count has been raised; `None` is untraceable. Results are cached in `memo`.
+///
+/// An `array_set` result may be its operand's storage, mutated in place, or a new allocation
+/// if the operand's reference count is above 1, so it is both; if an `inc_rc` of the operand
+/// runs first it is only the new allocation. A
+/// `make_array` or `Call` result defined in the loop is a new allocation, the same assumption
+/// [`Context::iteration_local_fresh`] makes. A parameter of a block in the loop that is not
+/// itself a loop header only has forward predecessors, so it may be whatever they pass it,
+/// except along an edge whose predecessor raises the argument's reference count. Everything
+/// else is untraceable: values from outside the loop, parameters of nested loop headers, and
+/// any other instruction result.
+///
+/// A raised reference count is never lowered again (well-formed SSA has no `dec_rc`), so
+/// storage that has been through an `inc_rc` cannot be written in place by anything.
+#[allow(clippy::too_many_arguments)]
+fn iteration_storage(
+    function: &Function,
+    header: BasicBlockId,
+    loop_blocks: &BTreeSet<BasicBlockId>,
+    loops_by_header: &HashMap<BasicBlockId, BTreeSet<BasicBlockId>>,
+    incoming_edges: &HashMap<BasicBlockId, Vec<(BasicBlockId, Vec<ValueId>)>>,
+    array_value_defs: &HashMap<ValueId, (BasicBlockId, usize)>,
+    fresh_array_values: &HashSet<ValueId>,
+    inc_rc_locations: &HashMap<ValueId, Vec<(BasicBlockId, usize)>>,
+    dom_tree: &DominatorTree,
+    value: ValueId,
+    memo: &mut HashMap<ValueId, Option<BTreeSet<ValueId>>>,
+) -> Option<BTreeSet<ValueId>> {
+    enum Step {
+        Known(Option<BTreeSet<ValueId>>),
+        /// The union of the dependencies' storage, plus the value's own allocation if any.
+        UnionOf(Vec<ValueId>, Option<ValueId>),
+    }
+    let step = |v: ValueId| -> Step {
+        // A global's value lives in the globals' own DFG, not this function's.
+        if function.dfg.is_global(v) {
+            return Step::Known(None);
+        }
+        match &function.dfg[v] {
+            Value::Param { block, position, .. } => {
+                if *block == header {
+                    return Step::Known(Some(BTreeSet::from([v])));
+                }
+                if !loop_blocks.contains(block) || loops_by_header.contains_key(block) {
+                    return Step::Known(None);
+                }
+                let args = incoming_edges
+                    .get(block)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|(pred, args)| match args.get(*position) {
+                        Some(&arg) if has_inc_rc_in(inc_rc_locations, arg, *pred) => None,
+                        arg => Some(arg.copied()),
+                    })
+                    .collect::<Option<Vec<_>>>();
+                match args {
+                    Some(args) => Step::UnionOf(args, None),
+                    None => Step::Known(None),
+                }
+            }
+            Value::Instruction { instruction, .. } => {
+                let Some(&(def_block, def_idx)) = array_value_defs.get(&v) else {
+                    return Step::Known(None);
+                };
+                if !loop_blocks.contains(&def_block) {
+                    return Step::Known(None);
+                }
+                match &function.dfg[*instruction] {
+                    Instruction::ArraySet { array, .. } => {
+                        let raised = inc_rc_locations.get(array).is_some_and(|locations| {
+                            locations.iter().any(|&(block, idx)| {
+                                (block == def_block && idx < def_idx)
+                                    || (block != def_block && dom_tree.dominates(block, def_block))
+                            })
+                        });
+                        if raised {
+                            Step::Known(Some(BTreeSet::from([v])))
+                        } else {
+                            Step::UnionOf(vec![*array], Some(v))
+                        }
+                    }
+                    _ if fresh_array_values.contains(&v) => Step::Known(Some(BTreeSet::from([v]))),
+                    _ => Step::Known(None),
+                }
+            }
+            _ => Step::Known(None),
+        }
+    };
+
+    // Iterative post-order walk: a chain of `array_set`s and forward block parameters can
+    // be as long as the loop body. Within one iteration the chain is acyclic, since only a
+    // loop header has a back-edge predecessor; a dependency not yet resolved when it is
+    // needed could only come from a cycle, and is treated as untraceable.
+    let mut stack = vec![(value, false)];
+    let mut in_progress = HashSet::default();
+    while let Some((v, expanded)) = stack.pop() {
+        if memo.contains_key(&v) || (!expanded && in_progress.contains(&v)) {
+            continue;
+        }
+        match step(v) {
+            Step::Known(storage) => {
+                memo.insert(v, storage);
+            }
+            Step::UnionOf(deps, own) if expanded => {
+                let storage = deps.iter().try_fold(BTreeSet::from_iter(own), |mut acc, dep| {
+                    acc.extend(memo.get(dep).cloned().flatten()?);
+                    Some(acc)
+                });
+                memo.insert(v, storage);
+            }
+            Step::UnionOf(deps, _) => {
+                in_progress.insert(v);
+                stack.push((v, true));
+                stack
+                    .extend(deps.into_iter().filter(|d| !memo.contains_key(d)).map(|d| (d, false)));
+            }
+        }
+    }
+    memo[&value].clone()
 }
 
 /// Compute, for each array-typed block parameter, the set of values that
@@ -1475,14 +1975,14 @@ fn compute_backward_aliases(
     function: &Function,
     rpo: &[BasicBlockId],
     incoming_edges: &HashMap<BasicBlockId, Vec<(BasicBlockId, Vec<ValueId>)>>,
-) -> HashMap<ValueId, im::HashSet<ValueId>> {
-    let mut result: HashMap<ValueId, im::HashSet<ValueId>> = HashMap::default();
+) -> HashMap<ValueId, imbl::HashSet<ValueId>> {
+    let mut result: HashMap<ValueId, imbl::HashSet<ValueId>> = HashMap::default();
 
     // Seed each array-typed block parameter with `{p}`.
     for &block_id in rpo {
         for &param in function.dfg.block_parameters(block_id) {
             if function.dfg.type_of_value(param).contains_an_array() {
-                result.insert(param, im::HashSet::unit(param));
+                result.insert(param, imbl::HashSet::unit(param));
             }
         }
     }
@@ -1502,7 +2002,7 @@ fn compute_backward_aliases(
                 if !function.dfg.type_of_value(param).contains_an_array() {
                     continue;
                 }
-                let mut new_set = result.get(&param).cloned().unwrap_or_else(im::HashSet::new);
+                let mut new_set = result.get(&param).cloned().unwrap_or_else(imbl::HashSet::new);
                 let prev_len = new_set.len();
                 for (_pred, args) in incoming {
                     if let Some(&arg) = args.get(i) {
@@ -1527,6 +2027,62 @@ fn compute_backward_aliases(
     result
 }
 
+/// A state in a backward threading graph: the states one step further back
+/// on each path, and whether the walk ended here on an uncovered terminal.
+/// What [`header_param_aliasing`] and [`iteration_storage`] found for one loop.
+struct LoopStorage {
+    blocks: BTreeSet<BasicBlockId>,
+    /// [`iteration_storage`] of each array value bound in the loop.
+    storage: HashMap<ValueId, Option<BTreeSet<ValueId>>>,
+    /// [`header_param_aliasing`] of the loop's header.
+    may_alias: HashSet<(ValueId, ValueId)>,
+}
+
+impl LoopStorage {
+    /// Whether `a` and `b`, both bound in an iteration of this loop, can never hold the same
+    /// storage while its reference count is 1.
+    fn never_share(&self, a: ValueId, b: ValueId) -> bool {
+        match (self.storage.get(&a), self.storage.get(&b)) {
+            (Some(Some(x)), Some(Some(y))) => !x.iter().any(|&p| {
+                y.iter().any(|&q| p == q || self.may_alias.contains(&ordered_pair(p, q)))
+            }),
+            _ => false,
+        }
+    }
+}
+
+struct Node<S> {
+    successors: Vec<S>,
+    uncovered_terminal: bool,
+}
+
+/// Propagate "uncovered" from terminal states to a fixed point: a state is
+/// uncovered if it is an uncovered terminal or any of its successors is
+/// uncovered. A cycle with no uncovered terminal stays covered.
+fn propagate_uncovered<S: Copy + Eq + Hash>(graph: &HashMap<S, Node<S>>) -> HashSet<S> {
+    // Invert the edges so the flood can step from a state to the states that
+    // point at it.
+    let mut incoming: HashMap<S, Vec<S>> = HashMap::default();
+    for (&state, node) in graph {
+        for &successor in &node.successors {
+            incoming.entry(successor).or_default().push(state);
+        }
+    }
+
+    // Flood backward from the uncovered terminals.
+    let mut worklist: Vec<S> = graph
+        .iter()
+        .filter_map(|(&state, node)| node.uncovered_terminal.then_some(state))
+        .collect();
+    let mut uncovered = HashSet::default();
+    while let Some(state) = worklist.pop() {
+        if uncovered.insert(state) {
+            worklist.extend(incoming.get(&state).into_iter().flatten());
+        }
+    }
+    uncovered
+}
+
 /// Per-frame state of the forward reachable-use walk: which alias-set
 /// members are live, which chain-derived values share storage with the
 /// source, and which storage positions any chain link may already have
@@ -1538,16 +2094,16 @@ struct WalkState {
     /// `array_set`'s source storage *at the `array_set`'s program point*. A
     /// non-terminator read of one of these is the hazard the walk is
     /// looking for.
-    use_set: im::HashSet<ValueId>,
+    use_set: imbl::HashSet<ValueId>,
     /// Values that may share the source's storage through transitive
     /// in-place chain mutations. Seeded with the `array_set`'s own result;
     /// extended by every later `array_set` whose `array` operand is
     /// already in `derived`.
-    derived: im::HashSet<ValueId>,
+    derived: imbl::HashSet<ValueId>,
     /// Storage positions any chain link may already have written. `None`
     /// (= "all positions") absorbs a dynamic chain write — once we lose
     /// precise tracking we can't recover it.
-    tainted: Option<im::HashSet<FieldElement>>,
+    tainted: Option<imbl::HashSet<FieldElement>>,
 }
 
 impl WalkState {

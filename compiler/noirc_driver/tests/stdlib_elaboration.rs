@@ -1,37 +1,56 @@
 use std::path::Path;
 
 use acvm::{FieldConfig, FieldId};
-use noirc_driver::{CompileOptions, check_crate, file_manager_with_stdlib, prepare_crate};
+use noirc_driver::{
+    CompileOptions, check_crate_with_comptime_io, file_manager_with_stdlib, prepare_crate,
+};
 use noirc_errors::CustomDiagnostic;
-use noirc_frontend::elaborator::FrontendOptions;
+use noirc_frontend::elaborator::{FrontendOptions, UnstableFeature};
 use noirc_frontend::graph::CrateId;
-use noirc_frontend::hir::Context;
-use noirc_frontend::hir::comptime::EvaluationTracker;
+use noirc_frontend::hir::comptime::{ComptimeIo, EvaluationTracker};
 use noirc_frontend::hir::def_map::{CrateDefMap, parse_file};
+use noirc_frontend::hir::{CheckState, Context, ParsedFiles};
 use noirc_frontend::monomorphization::monomorphize;
 
+/// The frontend options these tests elaborate under: `field`, with enums enabled.
+fn frontend_options(field: FieldId, generic_builtins: bool) -> FrontendOptions<'static> {
+    FrontendOptions {
+        debug_comptime_in_file: None,
+        enabled_unstable_features: &[UnstableFeature::Enums],
+        disable_required_unstable_features: true,
+        field: FieldConfig::new(field),
+        generic_builtins,
+    }
+}
+
 fn elaborate(source: &str, field: FieldId) -> Vec<String> {
-    let options =
-        FrontendOptions { field: FieldConfig::new(field), ..FrontendOptions::test_default() };
+    let options = frontend_options(field, false);
     diagnostics_with(source, options).into_iter().map(|(_, rendered)| rendered).collect()
 }
 
+/// Where comptime code prints, with a tracker: it makes the interpreter answer
+/// `is_unconstrained()` from the calling context rather than always `true`, so constrained
+/// branches run under `comptime` as well.
+fn tracking_io() -> ComptimeIo {
+    ComptimeIo {
+        evaluation_tracker: Some(EvaluationTracker::new(Default::default())),
+        ..ComptimeIo::stdout()
+    }
+}
+
 /// A context holding the standard library and `source` as `main.nr`, ready to elaborate.
-fn context_with_stdlib(source: &str) -> (Context<'static, 'static>, CrateId) {
+fn context_with_stdlib(source: &str) -> (Context, CrateId) {
     let root = Path::new("");
     let file_name = Path::new("main.nr");
     let mut file_manager = file_manager_with_stdlib(root);
     file_manager.add_file_with_source(file_name, source.to_owned()).unwrap();
-    let parsed_files = file_manager
+    let parsed_files: ParsedFiles = file_manager
         .as_file_map()
         .all_file_ids()
         .map(|&file_id| (file_id, parse_file(&file_manager, file_id)))
         .collect();
     let mut context = Context::new(file_manager, parsed_files);
     let crate_id = prepare_crate(&mut context, file_name);
-    // A tracker makes the interpreter answer `is_unconstrained()` from the calling context
-    // rather than always `true`, so constrained branches run under `comptime` as well.
-    context.evaluation_tracker = Some(EvaluationTracker::new(Default::default()));
     (context, crate_id)
 }
 
@@ -39,7 +58,9 @@ fn context_with_stdlib(source: &str) -> (Context<'static, 'static>, CrateId) {
 /// standard library's warnings are included, which `check_crate` would drop.
 fn diagnostics_with(source: &str, options: FrontendOptions) -> Vec<(bool, String)> {
     let (mut context, crate_id) = context_with_stdlib(source);
-    let errors = CrateDefMap::collect_defs(crate_id, &mut context, options);
+    let (mut comptime_io, mut state) = (tracking_io(), CheckState::default());
+    let errors =
+        CrateDefMap::collect_defs(crate_id, &mut context, options, &mut comptime_io, &mut state);
     errors
         .iter()
         .map(|error| {
@@ -195,12 +216,13 @@ fn generic_halves_source(is_bn254: bool) -> String {
 
 /// The monomorphized program of `source`, compiled against the stdlib under `field`.
 fn monomorphized(source: &str, field: FieldId) -> String {
-    let (mut context, crate_id) = context_with_stdlib(source);
+    let (context, crate_id) = context_with_stdlib(source);
     let options = CompileOptions { field, ..Default::default() };
-    check_crate(&mut context, crate_id, &options).expect("the program compiles");
+    let (context, result) =
+        check_crate_with_comptime_io(context, crate_id, &options, &mut tracking_io());
+    result.expect("the program compiles");
     let main = context.get_main_function(&crate_id).expect("main is defined");
-    let files = context.file_manager.as_file_map();
-    monomorphize(main, &mut context.def_interner, files, false).unwrap().to_string()
+    monomorphize(main, &context.def_interner, false).unwrap().to_string()
 }
 
 /// Wrapping arithmetic names `Field` only where that takes the fewest R1CS rows: `u128`
@@ -316,11 +338,7 @@ fn goldilocks_stdlib_fallbacks_preserve_values() {
 #[test]
 fn bn254_takes_the_generic_halves_under_generic_builtins() {
     let source = generic_halves_source(true);
-    let options = FrontendOptions {
-        field: FieldConfig::new(FieldId::Bn254),
-        generic_builtins: true,
-        ..FrontendOptions::test_default()
-    };
+    let options = frontend_options(FieldId::Bn254, true);
     let (warnings, errors): (Vec<_>, Vec<_>) =
         diagnostics_with(&source, options).into_iter().partition(|(is_warning, _)| *is_warning);
     let errors: Vec<_> = errors.into_iter().map(|(_, rendered)| rendered).collect();
@@ -352,15 +370,18 @@ fn the_compile_option_reaches_the_frontend() {
     let source = generic_halves_source(true);
     let with_option =
         CompileOptions { field: FieldId::Bn254, generic_builtins: true, ..Default::default() };
-    let (mut context, crate_id) = context_with_stdlib(&source);
-    let ((), warnings) = check_crate(&mut context, crate_id, &with_option)
+    let (context, crate_id) = context_with_stdlib(&source);
+    let (_, result) =
+        check_crate_with_comptime_io(context, crate_id, &with_option, &mut tracking_io());
+    let ((), warnings) = result
         .unwrap_or_else(|errors| panic!("the generic halves pass under the option: {errors:?}"));
     assert!(warnings.is_empty(), "the stdlib's warning is not the root crate's: {warnings:?}");
 
     let without_option = CompileOptions { field: FieldId::Bn254, ..Default::default() };
-    let (mut context, crate_id) = context_with_stdlib(&source);
-    let errors = check_crate(&mut context, crate_id, &without_option)
-        .expect_err("bn254's own `Hash for u64` writes one element");
+    let (context, crate_id) = context_with_stdlib(&source);
+    let (_, result) =
+        check_crate_with_comptime_io(context, crate_id, &without_option, &mut tracking_io());
+    let errors = result.expect_err("bn254's own `Hash for u64` writes one element");
     assert!(errors.iter().any(|error| error.message.contains("Assertion failed")), "{errors:?}");
 }
 
@@ -370,11 +391,7 @@ fn the_compile_option_reaches_the_frontend() {
 #[test]
 fn generic_builtins_leave_the_stdlib_compiling_under_every_field() {
     for field in FieldId::ALL {
-        let options = FrontendOptions {
-            field: FieldConfig::new(field),
-            generic_builtins: true,
-            ..FrontendOptions::test_default()
-        };
+        let options = frontend_options(field, true);
         let errors: Vec<_> = diagnostics_with("fn main() {}", options)
             .into_iter()
             .filter_map(|(is_warning, rendered)| (!is_warning).then_some(rendered))

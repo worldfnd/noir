@@ -227,17 +227,6 @@ impl Function {
         Signature::new(params, returns)
     }
 
-    /// Finds the block of the function with the Return instruction
-    pub(crate) fn find_last_block(&self) -> BasicBlockId {
-        for block in self.reachable_blocks() {
-            if matches!(self.dfg[block].terminator(), Some(TerminatorInstruction::Return { .. })) {
-                return block;
-            }
-        }
-
-        unreachable!("SSA Function {} has no reachable return instruction!", self.id())
-    }
-
     /// Total number of instructions in the reachable blocks of this function.
     pub(crate) fn num_instructions(&self) -> usize {
         self.reachable_blocks()
@@ -371,14 +360,12 @@ pub(crate) struct Signature {
 }
 
 impl Signature {
-    /// Construct a [Signature] whose parameter and return types have all
-    /// reference mutability canonicalized away. This makes `&T` and `&mut T`
-    /// compare equal when a [Signature] is used as a map key, matching
-    /// [`Type::canonical_eq`] leniency and the frontend's `&mut T → &T` coercion.
-    pub(crate) fn new(mut params: Vec<Type>, mut returns: Vec<Type>) -> Self {
-        for typ in params.iter_mut().chain(returns.iter_mut()) {
-            typ.canonicalize();
-        }
+    /// Construct a [Signature] with the exact parameter and return types given,
+    /// including reference mutability. Two signatures differing only in
+    /// reference mutability are distinct: dispatching over them requires
+    /// directional compatibility (see `dispatch_compatible` in defunctionalize),
+    /// not equality.
+    pub(crate) fn new(params: Vec<Type>, returns: Vec<Type>) -> Self {
         Self { params, returns }
     }
 }

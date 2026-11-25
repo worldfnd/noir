@@ -132,7 +132,7 @@ impl Type {
                 alias.try_unify_with_flags(other, flags, bindings)
             }
 
-            (TypeVariable(var), other) | (other, TypeVariable(var)) => match &*var.borrow() {
+            (TypeVariable(var), other) | (other, TypeVariable(var)) => match var.binding() {
                 TypeBinding::Bound(typ) => {
                     if typ.is_numeric_value() {
                         other.try_unify_to_type_variable(var, flags, bindings, |bindings| {
@@ -230,9 +230,9 @@ impl Type {
 
             (NamedGeneric(types::NamedGeneric { type_var, .. }), other)
             | (other, NamedGeneric(types::NamedGeneric { type_var, .. }))
-                if !type_var.borrow().is_unbound() =>
+                if !type_var.binding().is_unbound() =>
             {
-                if let TypeBinding::Bound(link) = &*type_var.borrow() {
+                if let TypeBinding::Bound(link) = type_var.binding() {
                     link.try_unify_with_flags(other, flags, bindings)
                 } else {
                     unreachable!("If guard ensures binding is bound")
@@ -244,8 +244,8 @@ impl Type {
                 NamedGeneric(types::NamedGeneric { type_var: binding_b, .. }),
             ) => {
                 // Bound NamedGenerics are caught by the check above
-                assert!(binding_a.borrow().is_unbound());
-                assert!(binding_b.borrow().is_unbound());
+                assert!(binding_a.binding().is_unbound());
+                assert!(binding_b.binding().is_unbound());
 
                 if binding_a.0 == binding_b.0 {
                     binding_a.kind().unify(&binding_b.kind())
@@ -319,11 +319,15 @@ impl Type {
                 } else if let InfixExpr(lhs, op, rhs, _) = other {
                     if let Some(inverse) = op.approx_inverse() {
                         // Handle cases like `4 = a + b` by trying to solve to `a = 4 - b`
-                        let new_type = Type::inverted_infix_expr(
-                            Box::new(Constant(value.clone())),
-                            inverse,
-                            rhs,
-                        );
+                        let new_type = if inverse == BinaryTypeOperator::Division {
+                            Self::exact_quotient(Box::new(Constant(value.clone())), rhs)?
+                        } else {
+                            Type::inverted_infix_expr(
+                                Box::new(Constant(value.clone())),
+                                inverse,
+                                rhs,
+                            )
+                        };
 
                         // Use DoNotMoveConstants to prevent try_unify_by_moving_single_constant_term
                         // from undoing this rewrite, which would cause infinite recursion when
@@ -362,7 +366,7 @@ impl Type {
         // bind to the given type or not.
         bind_variable: impl FnOnce(&mut TypeBindings) -> Result<(), UnificationError>,
     ) -> Result<(), UnificationError> {
-        match &*type_variable.borrow() {
+        match type_variable.binding() {
             // If it is already bound, unify against what it is bound to
             TypeBinding::Bound(link) => link.try_unify_with_flags(self, flags, bindings),
             TypeBinding::Unbound(id, _) => {
@@ -381,6 +385,50 @@ impl Type {
                 }
             }
         }
+    }
+
+    /// Solve `X * divisor = dividend` for `X` as `dividend / divisor`.
+    ///
+    /// Integer division truncates, so the quotient only solves the equation when `divisor`
+    /// divides `dividend` exactly: `X * 2 = 5` has no solution, and `5 / 2 = 2` is not one.
+    /// When both operands are known an inexact division is rejected here. Otherwise the quotient
+    /// carries the requirement as a `CheckedCast` whose `from` side adds the remainder back,
+    /// so it agrees with the quotient exactly when the remainder is zero. Evaluating the
+    /// binding once the generics are concrete then reports an inexact division as an error
+    /// instead of producing a smaller value than the one the equation asked for.
+    ///
+    /// Field division is exact, so field-kinded operands need neither check.
+    fn exact_quotient(dividend: Box<Type>, divisor: Box<Type>) -> Result<Type, UnificationError> {
+        let kind = dividend.infix_kind(&divisor);
+        let quotient = Type::inverted_infix_expr(
+            dividend.clone(),
+            BinaryTypeOperator::Division,
+            divisor.clone(),
+        );
+
+        let dummy_location = Location::dummy();
+        if let (Ok(dividend), Ok(divisor)) = (
+            dividend.evaluate_to_integer(&kind, dummy_location),
+            divisor.evaluate_to_integer(&kind, dummy_location),
+        ) {
+            return match BinaryTypeOperator::Modulo.function(dividend, divisor, dummy_location) {
+                Ok(remainder) if !remainder.is_zero() => Err(UnificationError),
+                _ => Ok(quotient),
+            };
+        }
+
+        if !matches!(&kind, Kind::Numeric(typ) if typ.is_integer()) {
+            return Ok(quotient);
+        }
+
+        let remainder = Type::InfixExpr(dividend, BinaryTypeOperator::Modulo, divisor, false);
+        let from = Type::InfixExpr(
+            Box::new(quotient.clone()),
+            BinaryTypeOperator::Addition,
+            Box::new(remainder),
+            false,
+        );
+        Ok(Type::CheckedCast { from: Box::new(from), to: Box::new(quotient) })
     }
 
     /// Try to unify the following equations:
@@ -402,6 +450,29 @@ impl Type {
         )
     }
 
+    /// Wrap a rearranged equation in the obligation to check that rearranging it did not
+    /// change its value.
+    ///
+    /// Binding a type variable to `expr` commits the type checker to `expr`'s canonical form,
+    /// and canonicalization is where a value-preserving rewrite can silently stop being one.
+    /// A `CheckedCast` keeps both readings: `to` is the canonical form everything downstream
+    /// reasons with, and `from` is the rearrangement as it was derived. Evaluating the pair
+    /// once the generics are concrete recomputes both and rejects a disagreement, so a
+    /// simplification that changes the value surfaces as an error at the instantiation rather
+    /// than as a length that is quietly wrong.
+    ///
+    /// This is the same obligation the elaborator attaches to arithmetic written in source;
+    /// see `design/arithmetic_generics.md` for how the two sides are evaluated.
+    fn with_canonicalization_obligation(expr: Type) -> Type {
+        // Only an infix expression can be simplified, and wrapping `Type::Error` would hide it
+        // from the error-recovery arms that look for it.
+        if !matches!(expr, Type::InfixExpr(..)) {
+            return expr;
+        }
+
+        Type::CheckedCast { from: Box::new(expr.clone()), to: Box::new(expr) }.canonicalize()
+    }
+
     /// Try to unify the following equations:
     /// - `A + rhs = other` -> `A = other - rhs`
     /// - `A - rhs = other` -> `A = other + rhs`
@@ -418,11 +489,14 @@ impl Type {
             // Check if it's `A + rhs = other` or `A - rhs = other`
             if let (Some(op_a_inverse), Type::TypeVariable(lhs_lhs_var)) =
                 (lhs_op_inverse, lhs_lhs.as_ref())
-                && lhs_lhs_var.1.borrow().is_unbound()
+                && lhs_lhs_var.binding().is_unbound()
             {
                 // We can say that `A = other - rhs` or `A = other + rhs` respectively
-                let new_rhs =
-                    Type::infix_expr(Box::new(other.clone()), op_a_inverse, lhs_rhs.clone());
+                let new_rhs = Self::with_canonicalization_obligation(Type::infix_expr(
+                    Box::new(other.clone()),
+                    op_a_inverse,
+                    lhs_rhs.clone(),
+                ));
 
                 let mut tmp_bindings = bindings.clone();
                 if lhs_lhs.try_unify(&new_rhs, &mut tmp_bindings).is_ok() {
@@ -434,14 +508,14 @@ impl Type {
             // Check if it's `lhs + B = other`
             if let (BinaryTypeOperator::Addition, Type::TypeVariable(lhs_rhs_var)) =
                 (lhs_op, lhs_rhs.as_ref())
-                && lhs_rhs_var.1.borrow().is_unbound()
+                && lhs_rhs_var.binding().is_unbound()
             {
                 // We can say that `B = other - lhs`
-                let new_rhs = Type::inverted_infix_expr(
+                let new_rhs = Self::with_canonicalization_obligation(Type::inverted_infix_expr(
                     Box::new(other.clone()),
                     BinaryTypeOperator::Subtraction,
                     lhs_lhs.clone(),
-                );
+                ));
 
                 let mut tmp_bindings = bindings.clone();
                 if lhs_rhs.try_unify(&new_rhs, &mut tmp_bindings).is_ok() {
@@ -453,14 +527,14 @@ impl Type {
             // Check if it's `lhs - B = other`
             if let (BinaryTypeOperator::Subtraction, Type::TypeVariable(lhs_rhs_var)) =
                 (lhs_op, lhs_rhs.as_ref())
-                && lhs_rhs_var.1.borrow().is_unbound()
+                && lhs_rhs_var.binding().is_unbound()
             {
                 // We can say that `B = lhs - other`
-                let new_rhs = Type::inverted_infix_expr(
+                let new_rhs = Self::with_canonicalization_obligation(Type::inverted_infix_expr(
                     lhs_lhs.clone(),
                     BinaryTypeOperator::Subtraction,
                     Box::new(other.clone()),
-                );
+                ));
 
                 let mut tmp_bindings = bindings.clone();
                 if lhs_rhs.try_unify(&new_rhs, &mut tmp_bindings).is_ok() {
@@ -523,8 +597,12 @@ impl Type {
             let lhs_rhs = lhs_rhs.substitute(bindings);
             if let Ok(value) = lhs_rhs.evaluate_to_integer(&kind, dummy_location) {
                 let lhs_rhs = Box::new(Type::Constant(value));
-                let new_rhs =
-                    Type::inverted_infix_expr(Box::new(other.clone()), lhs_op_inverse, lhs_rhs);
+                let other = Box::new(other.clone());
+                let new_rhs = if lhs_op_inverse == BinaryTypeOperator::Division {
+                    Self::exact_quotient(other, lhs_rhs)?
+                } else {
+                    Type::inverted_infix_expr(other, lhs_op_inverse, lhs_rhs)
+                };
 
                 let mut tmp_bindings = bindings.clone();
 
@@ -555,6 +633,43 @@ impl Type {
         errors: &mut Vec<CompilationError>,
         make_error: impl FnOnce(&Elaborator) -> CompilationError,
     ) {
+        self.unify_with_coercions_inner(
+            expected, expression, location, elaborator, errors, make_error, false,
+        );
+    }
+
+    /// As [`Self::unify_with_coercions`], but an `unconstrained fn(..)` is accepted where a
+    /// constrained `fn(..)` is expected, without reporting [`TypeCheckError::UnsafeFn`].
+    ///
+    /// Calling this asserts that the runtime named by `expected` is not observable, so erasing it
+    /// changes nothing. That holds where the elaborator has itself chosen to make the value
+    /// unconstrained and the value goes straight into unconstrained code; it does not hold for a
+    /// slot that outlives the expression being checked.
+    pub fn unify_with_coercions_allowing_unconstrained_fn(
+        &self,
+        expected: &Type,
+        expression: ExprId,
+        location: Location,
+        elaborator: &mut Elaborator,
+        errors: &mut Vec<CompilationError>,
+        make_error: impl FnOnce(&Elaborator) -> CompilationError,
+    ) {
+        self.unify_with_coercions_inner(
+            expected, expression, location, elaborator, errors, make_error, true,
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn unify_with_coercions_inner(
+        &self,
+        expected: &Type,
+        expression: ExprId,
+        location: Location,
+        elaborator: &mut Elaborator,
+        errors: &mut Vec<CompilationError>,
+        make_error: impl FnOnce(&Elaborator) -> CompilationError,
+        allow_unconstrained_fn_coercion: bool,
+    ) {
         let mut bindings = TypeBindings::default();
 
         if let Ok(()) = self.try_unify(expected, &mut bindings) {
@@ -578,15 +693,29 @@ impl Type {
         match self.try_fn_to_unconstrained_fn_coercion(expected) {
             FunctionCoercionResult::NoCoercion => errors.push(make_error(elaborator)),
             FunctionCoercionResult::Coerced(coerced_self) => {
-                coerced_self.unify_with_coercions(
-                    expected, expression, location, elaborator, errors, make_error,
+                coerced_self.unify_with_coercions_inner(
+                    expected,
+                    expression,
+                    location,
+                    elaborator,
+                    errors,
+                    make_error,
+                    allow_unconstrained_fn_coercion,
                 );
             }
             FunctionCoercionResult::UnconstrainedMismatch(coerced_self) => {
-                errors.push(CompilationError::TypeError(TypeCheckError::UnsafeFn { location }));
+                if !allow_unconstrained_fn_coercion {
+                    errors.push(CompilationError::TypeError(TypeCheckError::UnsafeFn { location }));
+                }
 
-                coerced_self.unify_with_coercions(
-                    expected, expression, location, elaborator, errors, make_error,
+                coerced_self.unify_with_coercions_inner(
+                    expected,
+                    expression,
+                    location,
+                    elaborator,
+                    errors,
+                    make_error,
+                    allow_unconstrained_fn_coercion,
                 );
             }
         }
@@ -780,6 +909,37 @@ mod tests {
 
     fn binary(a: &Type, op: BinaryTypeOperator, b: &Type) -> Type {
         Type::infix_expr(Box::new(a.clone()), op, Box::new(b.clone()))
+    }
+
+    /// Solving for a numeric generic rearranges the equation it appears in and canonicalizes
+    /// the result. That answer is the solution only if canonicalizing it preserved the value,
+    /// so the binding keeps the rearrangement it was derived from — the `from` side of a
+    /// `CheckedCast` — for evaluation to check it against once the generics are concrete.
+    /// Binding the canonical form on its own commits to a simplification nothing re-examines.
+    #[test]
+    fn isolated_numeric_generic_keeps_its_derivation_for_checking() {
+        let mut types = Types::new();
+        let mut bindings = TypeBindings::default();
+
+        // (Z + (Y * K)) - B = Y * K
+        let (z, _) = types.type_variable_with_kind(Kind::u32());
+        let (y, _) = types.type_variable_with_kind(Kind::u32());
+        let (k, _) = types.type_variable_with_kind(Kind::u32());
+        let (b, id_b) = types.type_variable_with_kind(Kind::u32());
+
+        let y_times_k = multiply(&y, &k);
+        let equation = subtract(&add(&z, &y_times_k), &b);
+        assert!(equation.try_unify(&y_times_k, &mut bindings).is_ok());
+
+        // Isolating `B` rearranges this to `B = (Z + (Y * K)) - (Y * K)`, which cancels the
+        // repeated `Y * K` down to `Z`. Both readings are kept, and they differ — the
+        // cancellation is exactly the step a later evaluation gets to re-check.
+        let binding = &bindings[&id_b].2;
+        let Type::CheckedCast { from, to } = binding else {
+            panic!("expected `B` to keep its derivation, but it was bound to `{binding}`");
+        };
+        assert_eq!(**to, z, "the canonical form is what the type checker goes on to use");
+        assert_ne!(from, to, "the rearrangement before cancellation is kept for checking");
     }
 
     #[test]

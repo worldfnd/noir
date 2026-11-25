@@ -284,6 +284,7 @@ mod tests {
     fn suggests_wrapping_large_numbers_in_double_quotes() {
         let typ = AbiType::Field;
         let abi = Abi {
+            abi_version: crate::ABI_VERSION,
             parameters: vec![AbiParameter {
                 name: "input".to_string(),
                 typ,
@@ -301,6 +302,7 @@ mod tests {
     fn suggests_wrapping_large_hex_numbers_in_double_quotes() {
         let typ = AbiType::Field;
         let abi = Abi {
+            abi_version: crate::ABI_VERSION,
             parameters: vec![AbiParameter {
                 name: "input".to_string(),
                 typ,
@@ -318,6 +320,7 @@ mod tests {
     fn try_from_toml_tuple_array_length_mismatch() {
         let typ = AbiType::Tuple { fields: vec![AbiType::Field, AbiType::Field] };
         let abi = Abi {
+            abi_version: crate::ABI_VERSION,
             parameters: vec![AbiParameter {
                 name: "input".to_string(),
                 typ,

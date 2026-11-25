@@ -6,9 +6,9 @@ use std::convert::UnsafeFrom;
 // cannot be named by hand, so it must not leak through a `pub fn` return or public struct field.
 comptime fn emit_private_type_api(_f: FunctionDefinition) -> Quoted {
     let typ = quote { PublicBox }.as_type();
-    let (def, generics) = typ.as_data_type().unwrap();
-    let fields = def.fields(generics);
-    let private_type = fields[0].1;
+    let data_type = typ.as_data_type().unwrap();
+    let fields = data_type.definition().fields(data_type.generics());
+    let private_type = fields[0].typ();
 
     quote {
         pub fn leaked_private_type_api() -> Option<$private_type> {

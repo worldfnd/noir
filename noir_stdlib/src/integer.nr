@@ -1,15 +1,33 @@
 impl<let N: u32> u<N> {
     /// Returns the maximum value representable by `u<N>`: `2^N - 1`.
+    ///
+    /// Example:
+    ///
+    /// ```noir
+    /// assert_eq(u8::max_value(), 255);
+    /// ```
     pub fn max_value() -> Self {
         !(0 as Self)
     }
 
     /// Returns the minimum value representable by `u<N>`: 0.
+    ///
+    /// Example:
+    ///
+    /// ```noir
+    /// assert_eq(u8::min_value(), 0);
+    /// ```
     pub fn min_value() -> Self {
         0
     }
 
     /// Returns the number of bits in `u<N>`: `N`.
+    ///
+    /// Example:
+    ///
+    /// ```noir
+    /// assert_eq(u8::bits(), 8);
+    /// ```
     pub fn bits() -> u32 {
         N
     }
@@ -17,6 +35,12 @@ impl<let N: u32> u<N> {
 
 impl<let N: u32> i<N> {
     /// Returns the maximum value representable by `i<N>`: `2^(N-1) - 1`.
+    ///
+    /// Example:
+    ///
+    /// ```noir
+    /// assert_eq(i8::max_value(), 127);
+    /// ```
     pub fn max_value() -> Self {
         // Avoid constructing 2^(N-1), which exceeds the signed range.
         let half = (1 as Self) << ((N - 2) as Self);
@@ -24,12 +48,24 @@ impl<let N: u32> i<N> {
     }
 
     /// Returns the minimum value representable by `i<N>`: `-2^(N-1)`.
+    ///
+    /// Example:
+    ///
+    /// ```noir
+    /// assert_eq(i8::min_value(), -128);
+    /// ```
     pub fn min_value() -> Self {
         let half = (1 as Self) << ((N - 2) as Self);
         -half - half
     }
 
     /// Returns the number of bits in `i<N>`: `N`.
+    ///
+    /// Example:
+    ///
+    /// ```noir
+    /// assert_eq(i8::bits(), 8);
+    /// ```
     pub fn bits() -> u32 {
         N
     }

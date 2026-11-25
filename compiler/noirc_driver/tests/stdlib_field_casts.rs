@@ -2,12 +2,34 @@ use std::path::Path;
 
 use acvm::{FieldConfig, FieldId};
 use noirc_driver::{CompileOptions, check_crate, file_manager_with_stdlib, prepare_crate};
-use noirc_frontend::elaborator::FrontendOptions;
-use noirc_frontend::hir::Context;
+use noirc_frontend::elaborator::{FrontendOptions, UnstableFeature};
+use noirc_frontend::hir::comptime::ComptimeIo;
 use noirc_frontend::hir::def_collector::dc_crate::CompilationError;
 use noirc_frontend::hir::def_map::{CrateDefMap, parse_file};
 use noirc_frontend::hir::type_check::TypeCheckError;
+use noirc_frontend::hir::{CheckState, Context, ParsedFiles};
 use noirc_frontend::monomorphization::monomorphize;
+
+/// The frontend options these tests elaborate under: `field`, with enums enabled.
+fn frontend_options(field: FieldId, generic_builtins: bool) -> FrontendOptions<'static> {
+    FrontendOptions {
+        debug_comptime_in_file: None,
+        enabled_unstable_features: &[UnstableFeature::Enums],
+        disable_required_unstable_features: true,
+        field: FieldConfig::new(field),
+        generic_builtins,
+    }
+}
+
+/// Collects and elaborates `crate_id`, returning the errors found.
+fn collect_defs(
+    crate_id: noirc_frontend::graph::CrateId,
+    context: &mut Context,
+    options: FrontendOptions,
+) -> Vec<CompilationError> {
+    let (mut comptime_io, mut state) = (ComptimeIo::stdout(), CheckState::default());
+    CrateDefMap::collect_defs(crate_id, context, options, &mut comptime_io, &mut state)
+}
 
 /// The standard library writes no cast between `Field` and an integer, under any field and
 /// whichever halves of its gated items are compiled: it converts as every other crate does.
@@ -19,7 +41,7 @@ fn stdlib_never_casts_between_field_and_an_integer() {
             let file_name = Path::new("main.nr");
             let mut file_manager = file_manager_with_stdlib(root);
             file_manager.add_file_with_source(file_name, "fn main() {}".to_owned()).unwrap();
-            let parsed_files = file_manager
+            let parsed_files: ParsedFiles = file_manager
                 .as_file_map()
                 .all_file_ids()
                 .map(|&file_id| (file_id, parse_file(&file_manager, file_id)))
@@ -27,12 +49,8 @@ fn stdlib_never_casts_between_field_and_an_integer() {
 
             let mut context = Context::new(file_manager, parsed_files);
             let crate_id = prepare_crate(&mut context, file_name);
-            let options = FrontendOptions {
-                field: FieldConfig::new(field),
-                generic_builtins,
-                ..FrontendOptions::test_default()
-            };
-            let errors = CrateDefMap::collect_defs(crate_id, &mut context, options);
+            let options = frontend_options(field, generic_builtins);
+            let errors = collect_defs(crate_id, &mut context, options);
 
             let offenders: Vec<_> = errors
                 .iter()
@@ -57,7 +75,7 @@ fn stdlib_never_casts_between_field_and_an_integer() {
 
 /// Compiles `source` against the stdlib and returns the error messages.
 fn compile_errors(source: &str) -> Vec<String> {
-    compile_errors_with(source, FrontendOptions::test_default())
+    compile_errors_with(source, frontend_options(FieldId::linked(), false))
 }
 
 /// Like `compile_errors`, under the configured field of `options`.
@@ -66,14 +84,14 @@ fn compile_errors_with(source: &str, options: FrontendOptions) -> Vec<String> {
     let file_name = Path::new("main.nr");
     let mut file_manager = file_manager_with_stdlib(root);
     file_manager.add_file_with_source(file_name, source.to_owned()).unwrap();
-    let parsed_files = file_manager
+    let parsed_files: ParsedFiles = file_manager
         .as_file_map()
         .all_file_ids()
         .map(|&file_id| (file_id, parse_file(&file_manager, file_id)))
         .collect();
     let mut context = Context::new(file_manager, parsed_files);
     let crate_id = prepare_crate(&mut context, file_name);
-    let errors = CrateDefMap::collect_defs(crate_id, &mut context, options);
+    let errors = collect_defs(crate_id, &mut context, options);
     let root_files = context.crate_files(&crate_id);
     errors
         .iter()
@@ -96,7 +114,7 @@ fn stdlib_conversions_into_field_follow_the_field_width() {
                     assert(Field::from(x) == 1);
                 }}"
             );
-            let options = FrontendOptions { field: config, ..FrontendOptions::test_default() };
+            let options = frontend_options(field, false);
             let errors = compile_errors_with(&source, options);
             if config.fits_unsigned(bits) {
                 assert!(errors.is_empty(), "{field}, u{bits}: {errors:?}");
@@ -123,17 +141,17 @@ fn stdlib_conversions_between_field_and_integers_are_casts() {
     let file_name = Path::new("main.nr");
     let mut file_manager = file_manager_with_stdlib(root);
     file_manager.add_file_with_source(file_name, source.to_owned()).unwrap();
-    let parsed_files = file_manager
+    let parsed_files: ParsedFiles = file_manager
         .as_file_map()
         .all_file_ids()
         .map(|&file_id| (file_id, parse_file(&file_manager, file_id)))
         .collect();
     let mut context = Context::new(file_manager, parsed_files);
     let crate_id = prepare_crate(&mut context, file_name);
-    check_crate(&mut context, crate_id, &CompileOptions::default()).expect("the program compiles");
+    let (context, result) = check_crate(context, crate_id, &CompileOptions::default());
+    result.expect("the program compiles");
     let main = context.get_main_function(&crate_id).expect("main is defined");
-    let files = context.file_manager.as_file_map();
-    let program = monomorphize(main, &mut context.def_interner, files, false).unwrap();
+    let program = monomorphize(main, &context.def_interner, false).unwrap();
 
     insta::assert_snapshot!(program, @r"
     fn main$f0(x$l0: u32, y$l1: i8) -> pub u8 {

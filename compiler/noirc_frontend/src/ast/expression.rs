@@ -583,17 +583,7 @@ pub struct ConstrainExpression {
 
 impl Display for ConstrainExpression {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.kind {
-            ConstrainKind::Assert | ConstrainKind::AssertEq => write!(
-                f,
-                "{}({})",
-                self.kind,
-                vecmap(&self.arguments, |arg| arg.to_string()).join(", ")
-            ),
-            ConstrainKind::Constrain => {
-                write!(f, "constrain {}", self.arguments[0])
-            }
-        }
+        write!(f, "{}({})", self.kind, vecmap(&self.arguments, |arg| arg.to_string()).join(", "))
     }
 }
 
@@ -601,7 +591,6 @@ impl Display for ConstrainExpression {
 pub enum ConstrainKind {
     Assert,
     AssertEq,
-    Constrain,
 }
 
 impl ConstrainKind {
@@ -609,7 +598,7 @@ impl ConstrainKind {
     /// not counting the optional assertion message.
     pub fn required_arguments_count(&self) -> usize {
         match self {
-            ConstrainKind::Assert | ConstrainKind::Constrain => 1,
+            ConstrainKind::Assert => 1,
             ConstrainKind::AssertEq => 2,
         }
     }
@@ -620,7 +609,6 @@ impl Display for ConstrainKind {
         match self {
             ConstrainKind::Assert => write!(f, "assert"),
             ConstrainKind::AssertEq => write!(f, "assert_eq"),
-            ConstrainKind::Constrain => write!(f, "constrain"),
         }
     }
 }

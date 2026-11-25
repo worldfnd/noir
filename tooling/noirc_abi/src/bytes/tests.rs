@@ -41,6 +41,7 @@ fn structure(fields: &[(&str, AbiType)]) -> AbiType {
 
 fn abi(parameters: &[(&str, AbiType)], return_type: Option<AbiType>) -> Abi {
     Abi {
+        abi_version: crate::ABI_VERSION,
         parameters: parameters
             .iter()
             .map(|(name, typ)| AbiParameter {

@@ -1,5 +1,6 @@
 [package]
 name = "noir_ast_fuzzer"
+publish = false
 description = "A fuzzer generating arbitrary monomorphized ASTs and comparing the execution between ACIR and Brillig"
 version.workspace = true
 authors.workspace = true
@@ -17,7 +18,7 @@ build-data.workspace = true
 [dependencies]
 arbitrary.workspace = true
 color-eyre.workspace = true
-im.workspace = true
+imbl.workspace = true
 itertools.workspace = true
 proptest.workspace = true
 strum.workspace = true

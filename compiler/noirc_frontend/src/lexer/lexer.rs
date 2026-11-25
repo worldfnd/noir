@@ -261,8 +261,11 @@ impl<'a> Lexer<'a> {
                 if self.peek_char_is('=') {
                     self.next_char();
                     Ok(Token::LessEqual.into_span(start, start + 1))
-                    // Note: There is deliberately no case for ShiftLeft. We always lex << as
-                    // two separate Less tokens to help the parser parse nested generic types.
+                } else if self.peek_char_is('<') {
+                    // The parser splits this token back into two `<` where it expects one,
+                    // as in `Store<<T as HasKey>::Key>`.
+                    self.next_char();
+                    Ok(Token::ShiftLeft.into_span(start, start + 1))
                 } else {
                     Ok(prev_token.into_single_span(start))
                 }
@@ -1109,8 +1112,7 @@ mod tests {
             Token::Star,
             Token::Assign,
             Token::Equal,
-            Token::Less,
-            Token::Less,
+            Token::ShiftLeft,
             Token::Greater,
             Token::Greater,
             Token::EOF,
@@ -1558,7 +1560,6 @@ mod tests {
         let mul = fn(x, y) {
             x * y;
         };
-        constrain mul(five, ten) == 50;
         assert(ten + five == 15);
     ";
 
@@ -1590,16 +1591,6 @@ mod tests {
             Token::Ident("y".to_string()),
             Token::Semicolon,
             Token::RightBrace,
-            Token::Semicolon,
-            Token::Keyword(Keyword::Constrain),
-            Token::Ident("mul".to_string()),
-            Token::LeftParen,
-            Token::Ident("five".to_string()),
-            Token::Comma,
-            Token::Ident("ten".to_string()),
-            Token::RightParen,
-            Token::Equal,
-            Token::Int(50_i128.into(), None),
             Token::Semicolon,
             Token::Keyword(Keyword::Assert),
             Token::LeftParen,

@@ -15,7 +15,7 @@ use noirc_evaluator::ssa::{
     ir::{instruction::BinaryOp, types::NumericType},
     ssa_gen::Ssa,
 };
-use noirc_frontend::{Shared, monomorphization::ast::Program};
+use noirc_frontend::monomorphization::ast::Program;
 use regex::Regex;
 
 use crate::{Config, arb_program, compare::logging, input::arb_inputs_from_ssa, program_abi};
@@ -224,7 +224,9 @@ impl Comparable for ssa::interpreter::errors::InterpreterError {
             }
             (PoppedFromEmptyVector { .. }, ConstrainEqFailed { msg, .. }) => {
                 // The removal of unreachable instructions can replace popping from an empty vector with an always-fail constraint.
-                msg.as_ref().is_some_and(|msg| msg == "Index out of bounds")
+                msg.as_ref().is_some_and(|msg| {
+                    msg == "Index out of bounds" || msg == "Attempt to pop from an empty vector"
+                })
             }
             (IndexOutOfBounds { .. }, ConstrainEqFailed { msg, .. }) => {
                 msg.as_ref().is_some_and(|msg| msg.contains("Index out of bounds"))
@@ -246,12 +248,13 @@ impl Comparable for Value {
             (Value::ArrayOrVector(a), Value::ArrayOrVector(b)) => {
                 // Ignore the RC
                 a.element_types == b.element_types
-                    && Comparable::equivalent(&a.elements, &b.elements)
+                    && Comparable::equivalent(&*a.elements.borrow(), &*b.elements.borrow())
                     && a.length == b.length
             }
             (Value::Reference(a), Value::Reference(b)) => {
                 // Ignore the original ID
-                a.element_type == b.element_type && Comparable::equivalent(&a.element, &b.element)
+                a.element_type == b.element_type
+                    && Comparable::equivalent(&*a.element.borrow(), &*b.element.borrow())
             }
             (a, b) => a == b,
         }
@@ -297,15 +300,10 @@ fn input_value_to_ssa(typ: &AbiType, input: &InputValue) -> Vec<Value> {
 }
 
 fn append_input_value_to_ssa(typ: &AbiType, input: &InputValue, values: &mut Vec<Value>) {
-    use ssa::interpreter::value::{ArrayValue, NumericValue, Value};
+    use ssa::interpreter::value::{NumericValue, Value};
     use ssa::ir::types::Type;
     let array_value = |elements: Vec<Value>, types: Vec<Type>, length: SemanticLength| {
-        Value::ArrayOrVector(ArrayValue {
-            elements: Shared::new(elements),
-            rc: Shared::new(1),
-            element_types: Arc::new(types),
-            length: Some(length),
-        })
+        Value::array_with_length(elements, types, length)
     };
     match input {
         InputValue::Field(f) => {
@@ -469,6 +467,24 @@ mod tests {
         assert!(!Comparable::equivalent(
             &overflow(BinaryOp::Mod),
             &constrain_eq_failed("attempt to divide with overflow"),
+        ));
+    }
+
+    #[test]
+    fn empty_vector_pop_matches_its_lowered_constraint() {
+        let popped = InterpreterError::PoppedFromEmptyVector {
+            vector: Id::new(0),
+            instruction: "vector_pop_front",
+        };
+
+        assert!(Comparable::equivalent(
+            &popped,
+            &constrain_eq_failed("Attempt to pop from an empty vector"),
+        ));
+        assert!(Comparable::equivalent(&popped, &constrain_eq_failed("Index out of bounds"),));
+        assert!(!Comparable::equivalent(
+            &popped,
+            &constrain_eq_failed("attempt to divide by zero"),
         ));
     }
 

@@ -1,4 +1,4 @@
-use super::{ModuleDefId, ModuleId, Namespace, namespace::PerNs};
+use super::{ModuleDefId, Namespace, namespace::PerNs};
 use crate::ast::{Ident, ItemVisibility};
 use crate::node_interner::FuncId;
 
@@ -60,7 +60,7 @@ impl ItemScope {
                 // The exception to this is when we're explicitly importing something
                 // which exists in the Noir stdlib prelude.
                 //
-                // In this case we ignore the prelude and favour the explicit import.
+                // In this case we ignore the prelude and favor the explicit import.
                 if o.get().is_prelude && !is_prelude {
                     // Explicit import or definition overrides prelude
                     *o.get_mut() = NamespaceItem { id: mod_def, visibility, is_prelude };
@@ -82,14 +82,6 @@ impl ItemScope {
         match mod_def.namespace() {
             Namespace::Type => add_item(&mut self.types),
             Namespace::Value => add_item(&mut self.values),
-        }
-    }
-
-    /// Look up an [Ident] in `types`, and return it _iff_ it's a [`ModuleDefId::ModuleId`].
-    pub fn find_module_with_name(&self, mod_name: &Ident) -> Option<&ModuleId> {
-        match &self.types.get(mod_name)?.id {
-            ModuleDefId::ModuleId(id) => Some(id),
-            _ => None,
         }
     }
 

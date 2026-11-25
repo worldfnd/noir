@@ -3,13 +3,14 @@ use std::{cmp::Ordering, collections::BTreeMap, io::Write};
 use super::{
     Ssa,
     ir::{
-        dfg::DataFlowGraph,
+        dfg::{DataFlowGraph, vector_capacity::vector_capacity_flows},
         function::{Function, FunctionId, RuntimeType},
         instruction::{Binary, BinaryOp, ConstrainError, Instruction, TerminatorInstruction},
         types::Type,
         value::ValueId,
     },
 };
+use crate::brillig::{assert_u32, assert_usize};
 use crate::ssa::ir::{
     instruction::binary::{
         BinaryEvaluationResult, convert_signed_integer_to_field_element, eval_constant_binary_op,
@@ -18,16 +19,19 @@ use crate::ssa::ir::{
     printer::display_binary,
     types::NumericType,
 };
-use acvm::{AcirField, FieldElement};
+use crate::ssa::opt::pure::Purity;
+use acvm::{AcirField, FieldElement, acir::brillig::lengths::SemanticLength};
 use errors::{InternalError, InterpreterError, MAX_UNSIGNED_BIT_SIZE};
-use iter_extended::{try_vecmap, vecmap};
+use iter_extended::try_vecmap;
 use itertools::Itertools;
-use noirc_frontend::Shared;
-use rustc_hash::FxHashMap as HashMap;
-use value::{ArrayValue, NumericValue, ReferenceValue};
+use num_bigint::BigUint;
+use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
+use shared_cell::SharedCell;
+use value::{ArrayValue, NumericValue, ReferenceValue, StorageIdentity};
 
 pub mod errors;
 mod intrinsics;
+mod shared_cell;
 pub(crate) mod tests;
 pub mod value;
 
@@ -36,14 +40,23 @@ mod small_field_validation;
 
 use value::Value;
 
-/// Maximum number of recursive calls allowed at comptime.
+/// Maximum number of call frames allowed at comptime.
 const MAX_INTERPRETER_CALL_STACK_SIZE: usize = 1000;
 
 pub(crate) struct Interpreter<'ssa, W> {
-    /// Contains each function called with `main` (or the first called function if
-    /// the interpreter was manually invoked on a different function) at
-    /// the front of the Vec.
-    call_stack: Vec<CallContext>,
+    /// The program's globals, established once by [`Interpreter::interpret_globals`].
+    ///
+    /// Deliberately *not* part of [`Interpreter::evaluation`]: the globals are
+    /// interpreted once and shared by every evaluation the interpreter performs,
+    /// which is what lets one interpreter be reused for many calls.
+    globals: GlobalScope,
+
+    /// The state of the evaluation currently in progress.
+    ///
+    /// [`Interpreter::interpret_function`] replaces this wholesale, so everything
+    /// scoped to one top-level evaluation is reset by construction rather than by
+    /// a list of fields to remember.
+    evaluation: Evaluation,
 
     functions: &'ssa BTreeMap<FunctionId, Function>,
 
@@ -52,6 +65,35 @@ pub(crate) struct Interpreter<'ssa, W> {
 
     /// Print output.
     output: W,
+}
+
+/// The program's globals: the value of each one, and the storage they own.
+///
+/// Held separately from the call stack because globals are not part of any one
+/// call's state — they are visible to every function, for the whole program.
+#[derive(Default)]
+struct GlobalScope {
+    /// The value of each global, by the [`ValueId`] that names it.
+    values: HashMap<ValueId, Value>,
+
+    /// Storage identities of every array or reference defined by global instructions.
+    /// Globals are visible everywhere, so mutating their storage inside a function
+    /// whose purity forbids caller-visible side effects is always a violation.
+    storage: HashSet<StorageIdentity>,
+}
+
+/// The state of one top-level evaluation ([`Interpreter::interpret_function`]).
+///
+/// Every field here is scoped to a single evaluation, and the whole struct is
+/// replaced at the start of the next one. Grouping them means a field added later
+/// is reset along with the rest instead of silently outliving the evaluation that
+/// produced it.
+#[derive(Default)]
+struct Evaluation {
+    /// One entry per call currently in progress, innermost last. Empty between
+    /// evaluations, and while global instructions are being interpreted it holds
+    /// the single frame those instructions are evaluated into.
+    call_stack: Vec<CallContext>,
 
     /// Number of instructions and terminators executed.
     step_counter: usize,
@@ -79,26 +121,59 @@ struct CallContext {
     /// expected to have no effect if there are no such instructions or if the code
     /// being executed is an unconstrained function.
     side_effects_enabled: bool,
+
+    /// Present when the called function's recorded purity is [Purity::Pure] or
+    /// [Purity::PureWithPredicate], both of which forbid mutating caller-visible
+    /// memory. Absent for `Impure` functions and when no purity analysis has run.
+    pure_scope: Option<PureScope>,
+}
+
+/// The purity contract the interpreter enforces for the duration of one call.
+///
+/// A violation can only stem from a bug in purity analysis or in an SSA pass that
+/// invalidated its results, so the interpreter reports it as an
+/// [InterpreterError::PurityViolation] rather than treating it as program behavior.
+struct PureScope {
+    /// The purity recorded for the called function, as observed by its caller
+    /// (see [DataFlowGraph::purity_of]).
+    purity: Purity,
+
+    /// Storage identities of everything reachable from the call's arguments at
+    /// entry. An in-place write to any of these during the call is observable by
+    /// the caller, which both `Pure` and `PureWithPredicate` forbid.
+    argument_storage: HashSet<StorageIdentity>,
+
+    /// Clones of the arguments, held only to keep the collected storage alive for
+    /// the duration of the call so that a freed allocation's address cannot be
+    /// reused by unrelated storage and trigger a false violation.
+    _argument_keepalive: Vec<Value>,
 }
 
 impl CallContext {
-    fn new(called_function: FunctionId) -> Self {
+    fn new(called_function: FunctionId, pure_scope: Option<PureScope>) -> Self {
         Self {
             called_function: Some(called_function),
             scope: Default::default(),
             side_effects_enabled: true,
+            pure_scope,
         }
     }
 
+    /// The frame that global instructions are evaluated into. It is popped once
+    /// they are all evaluated and its scope becomes [`GlobalScope::values`].
     fn global_context() -> Self {
-        Self { called_function: None, scope: Default::default(), side_effects_enabled: true }
+        Self {
+            called_function: None,
+            scope: Default::default(),
+            side_effects_enabled: true,
+            pure_scope: None,
+        }
     }
 }
 
 type IResult<T> = Result<T, InterpreterError>;
 pub type IResults = IResult<Vec<Value>>;
 
-#[allow(unused)]
 impl Ssa {
     pub fn interpret(&self, args: Vec<Value>) -> IResults {
         self.interpret_with_options(args, InterpreterOptions::default(), std::io::empty())
@@ -122,7 +197,16 @@ impl Ssa {
     ) -> IResults {
         let mut interpreter = Interpreter::new(self, options, output);
         interpreter.interpret_globals()?;
-        interpreter.interpret_function(function, args)
+
+        #[cfg(test)]
+        let globals_before = interpreter.globals_snapshot();
+
+        let result = interpreter.interpret_function(function, args);
+
+        #[cfg(test)]
+        interpreter.assert_globals_unchanged(&globals_before);
+
+        result
     }
 }
 
@@ -136,8 +220,13 @@ impl<'ssa, W: Write> Interpreter<'ssa, W> {
         options: InterpreterOptions,
         output: W,
     ) -> Self {
-        let call_stack = vec![CallContext::global_context()];
-        Self { functions, call_stack, options, output, step_counter: 0 }
+        Self {
+            functions,
+            globals: GlobalScope::default(),
+            evaluation: Evaluation::default(),
+            options,
+            output,
+        }
     }
 
     pub(crate) fn functions(&self) -> &BTreeMap<FunctionId, Function> {
@@ -149,31 +238,35 @@ impl<'ssa, W: Write> Interpreter<'ssa, W> {
     /// If there is no step limit, then it doesn't increment the counter.
     fn inc_step_counter(&mut self) -> IResult<()> {
         if let Some(limit) = self.options.step_limit {
-            if self.step_counter >= limit {
-                return Err(InterpreterError::OutOfBudget { steps: self.step_counter });
+            if self.evaluation.step_counter >= limit {
+                return Err(InterpreterError::OutOfBudget { steps: self.evaluation.step_counter });
             }
             // With a limit we shouldn't wrap around, but just in case we wanted move this outside,
             // use a safe wrap-around increment.
-            self.step_counter = self.step_counter.wrapping_add(1);
+            self.evaluation.step_counter = self.evaluation.step_counter.wrapping_add(1);
         }
         Ok(())
     }
 
+    /// The innermost frame, or `None` when no call is in progress: between
+    /// evaluations, and at the point a top-level call is about to push its frame.
+    fn current_frame(&self) -> Option<&CallContext> {
+        self.evaluation.call_stack.last()
+    }
+
+    /// The innermost frame. Only valid while interpreting an instruction, which
+    /// always happens inside a frame (global instructions included).
     fn call_context(&self) -> &CallContext {
-        self.call_stack.last().expect("call_stack should always be non-empty")
+        self.current_frame().expect("a call should be in progress")
     }
 
     fn call_context_mut(&mut self) -> &mut CallContext {
-        self.call_stack.last_mut().expect("call_stack should always be non-empty")
-    }
-
-    fn global_scope(&self) -> &HashMap<ValueId, Value> {
-        &self.call_stack.first().expect("call_stack should always be non-empty").scope
+        self.evaluation.call_stack.last_mut().expect("a call should be in progress")
     }
 
     fn try_current_function(&self) -> Option<&'ssa Function> {
-        let current_function_id = self.call_context().called_function;
-        current_function_id.map(|current_function_id| &self.functions[&current_function_id])
+        let current_function_id = self.current_frame()?.called_function?;
+        Some(&self.functions[&current_function_id])
     }
 
     fn current_function(&self) -> &'ssa Function {
@@ -239,11 +332,35 @@ impl<'ssa, W: Write> Interpreter<'ssa, W> {
     /// Once this is complete, the interpreter can be reused for multiple
     /// function calls within the same SSA.
     pub(crate) fn interpret_globals(&mut self) -> IResult<()> {
-        assert_eq!(self.call_stack.len(), 1, "should be in the global context");
-        let Some((_, function)) = self.functions.first_key_value() else {
+        assert!(
+            self.evaluation.call_stack.is_empty(),
+            "globals should be interpreted before any call"
+        );
+        let functions: &'ssa BTreeMap<FunctionId, Function> = self.functions;
+        let Some((_, function)) = functions.first_key_value() else {
             return Ok(());
         };
 
+        // Global instructions run through the ordinary instruction path, which defines
+        // its results into the innermost frame, so give them a frame to land in and move
+        // its scope into `self.globals` once they have all been evaluated. Afterwards no
+        // frame holds the globals, so a call cannot reach them as if they were locals.
+        self.evaluation.call_stack.push(CallContext::global_context());
+        let result = self.interpret_global_instructions(function);
+        let context = self.evaluation.call_stack.pop().expect("the global context was just pushed");
+        self.globals.values = context.scope;
+
+        let mut storage = HashSet::default();
+        for value in self.globals.values.values() {
+            value.collect_storage_identities(&mut storage);
+        }
+        self.globals.storage = storage;
+
+        result
+    }
+
+    /// Evaluate every global instruction into the current frame.
+    fn interpret_global_instructions(&mut self, function: &'ssa Function) -> IResult<()> {
         let globals = &function.dfg.globals;
         for (global_id, global) in globals.values_iter() {
             let value = match global {
@@ -266,19 +383,46 @@ impl<'ssa, W: Write> Interpreter<'ssa, W> {
             };
             self.define(global_id, value)?;
         }
+
         Ok(())
+    }
+
+    /// A deep copy of the globals, to check an evaluation against.
+    #[cfg(test)]
+    fn globals_snapshot(&self) -> HashMap<ValueId, Value> {
+        self.globals.values.iter().map(|(id, value)| (*id, value.snapshot())).collect()
+    }
+
+    /// Assert that an evaluation left the globals as [`Self::interpret_globals`] established
+    /// them. Interpreting a program must not change the program.
+    ///
+    /// This is a postcondition rather than a check at each write site so that a mutation
+    /// path added later is caught too, not only the ones known when it was written.
+    #[cfg(test)]
+    fn assert_globals_unchanged(&self, before: &HashMap<ValueId, Value>) {
+        for (id, value) in before {
+            assert_eq!(
+                self.globals.values.get(id),
+                Some(value),
+                "interpreting a function changed the value of global {id}"
+            );
+        }
     }
 
     /// Interpret an entry point, assuming the globals have already been interpreted.
     ///
-    /// This resets any previous call stack and step counter.
+    /// This starts from a fresh [`Evaluation`], so no call stack or step budget is
+    /// carried over from a previous top-level call.
+    ///
+    /// [`Interpreter::globals`] is deliberately not part of that reset: it is program
+    /// state established once by [`Interpreter::interpret_globals`], and no evaluation
+    /// may change it — see [`Interpreter::is_global_storage`].
     pub(crate) fn interpret_function(
         &mut self,
         function_id: FunctionId,
         arguments: Vec<Value>,
     ) -> IResults {
-        self.step_counter = 0;
-        self.call_stack.truncate(1);
+        self.evaluation = Evaluation::default();
         self.call_function(function_id, arguments)
     }
 
@@ -286,18 +430,59 @@ impl<'ssa, W: Write> Interpreter<'ssa, W> {
     ///
     /// Unlike `interpret_function` this does not reset the state;
     /// it is meant to be used for internal calls.
-    fn call_function(&mut self, function_id: FunctionId, mut arguments: Vec<Value>) -> IResults {
-        self.call_stack.push(CallContext::new(function_id));
+    ///
+    /// If the called function has a recorded purity, its behavior is checked against
+    /// the contract that purity promises: `Pure` and `PureWithPredicate` functions
+    /// must not mutate caller-visible memory (enforced at each in-place write via
+    /// [Self::check_purity_on_mutation]), and `Pure` functions additionally must not
+    /// fail, since passes are free to deduplicate or remove calls to them.
+    fn call_function(&mut self, function_id: FunctionId, arguments: Vec<Value>) -> IResults {
+        // The function's purity as its caller observes it; the innermost frame is
+        // still the caller here. For a top-level call there is no caller, so the
+        // callee's own runtime provides the (identity) projection.
+        let caller_id =
+            self.current_frame().and_then(|frame| frame.called_function).unwrap_or(function_id);
+        let purity = self.functions[&caller_id].dfg.purity_of(function_id);
 
-        if self.call_stack.len() >= MAX_INTERPRETER_CALL_STACK_SIZE {
+        let pure_scope = purity.filter(|purity| *purity != Purity::Impure).map(|purity| {
+            let mut argument_storage = HashSet::default();
+            for argument in &arguments {
+                argument.collect_storage_identities(&mut argument_storage);
+            }
+            PureScope { purity, argument_storage, _argument_keepalive: arguments.clone() }
+        });
+
+        let result = self.call_function_inner(function_id, arguments, pure_scope);
+
+        if purity == Some(Purity::Pure)
+            && let Err(error) = &result
+            && error.is_execution_failure()
+        {
+            return Err(self.purity_violation(
+                function_id,
+                Purity::Pure,
+                format!("it failed with: {error}"),
+            ));
+        }
+        result
+    }
+
+    fn call_function_inner(
+        &mut self,
+        function_id: FunctionId,
+        mut arguments: Vec<Value>,
+        pure_scope: Option<PureScope>,
+    ) -> IResults {
+        self.evaluation.call_stack.push(CallContext::new(function_id, pure_scope));
+
+        if self.evaluation.call_stack.len() >= MAX_INTERPRETER_CALL_STACK_SIZE {
             let call_stack = self
+                .evaluation
                 .call_stack
                 .iter()
-                .skip(1)
                 .map(|ctx| {
-                    let id = ctx
-                        .called_function
-                        .expect("all but the first global context has a called function");
+                    let id =
+                        ctx.called_function.expect("a call frame always has a called function");
                     let name = self.functions[&id].name().to_string();
                     (id, name)
                 })
@@ -392,10 +577,10 @@ impl<'ssa, W: Write> Interpreter<'ssa, W> {
             println!();
         }
 
-        self.call_stack.pop();
+        self.evaluation.call_stack.pop();
 
         if self.options.trace
-            && let Some(context) = self.call_stack.last()
+            && let Some(context) = self.current_frame()
             && let Some(function_id) = context.called_function
         {
             let function = &self.functions[&function_id];
@@ -405,18 +590,88 @@ impl<'ssa, W: Write> Interpreter<'ssa, W> {
         Ok(return_values)
     }
 
+    fn purity_violation(
+        &self,
+        function: FunctionId,
+        purity: Purity,
+        reason: String,
+    ) -> InterpreterError {
+        InterpreterError::PurityViolation {
+            function,
+            function_name: self.functions[&function].name().to_string(),
+            purity: purity.to_string(),
+            reason,
+        }
+    }
+
+    /// Whether `storage` is owned by one of the program's globals.
+    ///
+    /// An in-place write into a global is never a write the program itself can make. The
+    /// globals are established once, before any evaluation, and every evaluation shares
+    /// them; at run time each Brillig entry point re-initializes the globals region
+    /// (`brillig_ir/entry_point.rs`) and ACVM builds a fresh VM per `BrilligCall`, so no
+    /// invocation can observe another's write. The interpreter therefore treats global
+    /// storage the way it treats storage with a reference count above 1: it copies.
+    fn is_global_storage(&self, storage: StorageIdentity) -> bool {
+        self.globals.storage.contains(&storage)
+    }
+
+    /// Check an in-place write to `storage` against every active purity scope.
+    ///
+    /// Writing to storage reachable from a call's arguments (or from a global) is
+    /// observable by that call's caller, which both [Purity::Pure] and
+    /// [Purity::PureWithPredicate] forbid. Storage allocated during the call is not
+    /// in any scope's set, so local mutations pass freely.
+    ///
+    /// Callers only invoke this for writes that are genuinely observable under the
+    /// current runtime's semantics: constrained-context `array_set`s marked mutable
+    /// are exempt, since they merely reuse the backing store of an array value
+    /// proven dead, under ACIR's value semantics.
+    fn check_purity_on_mutation(&self, storage: StorageIdentity, what: &str) -> IResult<()> {
+        for context in self.evaluation.call_stack.iter().rev() {
+            let Some(scope) = &context.pure_scope else { continue };
+            if scope.argument_storage.contains(&storage) || self.is_global_storage(storage) {
+                let function = context
+                    .called_function
+                    .expect("purity scopes only exist on function call frames");
+                let reason = format!("it mutated caller-visible memory ({what})");
+                return Err(self.purity_violation(function, scope.purity, reason));
+            }
+        }
+        Ok(())
+    }
+
+    /// Check an executed foreign function call against every active purity scope.
+    ///
+    /// A foreign call is an observable side effect, so it is forbidden inside any
+    /// function whose recorded purity is not `Impure` (even a `#[pure]` oracle makes
+    /// its caller at most `PureWithPredicate`, and the only foreign function the
+    /// interpreter executes, `print`, is not a pure oracle).
+    fn check_purity_on_foreign_call(&self, name: &str) -> IResult<()> {
+        for context in self.evaluation.call_stack.iter().rev() {
+            let Some(scope) = &context.pure_scope else { continue };
+            let function =
+                context.called_function.expect("purity scopes only exist on function call frames");
+            let reason = format!("it called foreign function `{name}`");
+            return Err(self.purity_violation(function, scope.purity, reason));
+        }
+        Ok(())
+    }
+
     fn lookup(&self, id: ValueId) -> IResult<Value> {
-        if let Some(value) = self.call_context().scope.get(&id) {
+        if let Some(frame) = self.current_frame()
+            && let Some(value) = frame.scope.get(&id)
+        {
             return Ok(value.clone());
         }
 
-        if let Some(value) = self.global_scope().get(&id) {
+        if let Some(value) = self.globals.values.get(&id) {
             return Ok(value.clone());
         }
 
         Ok(match &self.dfg()[id] {
             super::ir::value::Value::NumericConstant { constant, typ } => {
-                Value::from_constant(*constant, *typ)?
+                Value::int_from_field(*constant, *typ)?
             }
             super::ir::value::Value::Function(id) => Value::Function(*id),
             super::ir::value::Value::Intrinsic(intrinsic) => Value::Intrinsic(*intrinsic),
@@ -502,58 +757,41 @@ impl<'ssa, W: Write> Interpreter<'ssa, W> {
         })
     }
 
-    fn lookup_bytes(&self, value_id: ValueId, instruction: &'static str) -> IResult<Vec<u8>> {
+    /// Looks up an array or vector and converts each of its elements with `convert`.
+    fn lookup_vec<T>(
+        &self,
+        value_id: ValueId,
+        instruction: &'static str,
+        expected_type: &'static str,
+        convert: impl Fn(&Value) -> Option<T>,
+    ) -> IResult<Vec<T>> {
         let array = self.lookup_array_or_vector(value_id, instruction)?;
         let array = array.elements.borrow();
         array
             .iter()
             .map(|v| {
-                v.as_u8().ok_or_else(|| {
+                convert(v).ok_or_else(|| {
                     internal(InternalError::TypeError {
                         value_id,
                         value: v.to_string(),
-                        expected_type: "u8",
+                        expected_type,
                         instruction,
                     })
                 })
             })
-            .collect::<Result<Vec<u8>, _>>()
+            .collect()
+    }
+
+    fn lookup_bytes(&self, value_id: ValueId, instruction: &'static str) -> IResult<Vec<u8>> {
+        self.lookup_vec(value_id, instruction, "u8", Value::as_u8)
     }
 
     fn lookup_vec_u32(&self, value_id: ValueId, instruction: &'static str) -> IResult<Vec<u32>> {
-        let array = self.lookup_array_or_vector(value_id, instruction)?;
-        let array = array.elements.borrow();
-        array
-            .iter()
-            .map(|v| {
-                v.as_u32().ok_or_else(|| {
-                    internal(InternalError::TypeError {
-                        value_id,
-                        value: v.to_string(),
-                        expected_type: "u32",
-                        instruction,
-                    })
-                })
-            })
-            .collect::<Result<Vec<u32>, _>>()
+        self.lookup_vec(value_id, instruction, "u32", Value::as_u32)
     }
 
     fn lookup_vec_u64(&self, value_id: ValueId, instruction: &'static str) -> IResult<Vec<u64>> {
-        let array = self.lookup_array_or_vector(value_id, instruction)?;
-        let array = array.elements.borrow();
-        array
-            .iter()
-            .map(|v| {
-                v.as_u64().ok_or_else(|| {
-                    internal(InternalError::TypeError {
-                        value_id,
-                        value: v.to_string(),
-                        expected_type: "u64",
-                        instruction,
-                    })
-                })
-            })
-            .collect::<Result<Vec<u64>, _>>()
+        self.lookup_vec(value_id, instruction, "u64", Value::as_u64)
     }
 
     fn lookup_vec_field(
@@ -561,21 +799,7 @@ impl<'ssa, W: Write> Interpreter<'ssa, W> {
         value_id: ValueId,
         instruction: &'static str,
     ) -> IResult<Vec<FieldElement>> {
-        let array = self.lookup_array_or_vector(value_id, instruction)?;
-        let array = array.elements.borrow();
-        array
-            .iter()
-            .map(|v| {
-                v.as_field().ok_or_else(|| {
-                    internal(InternalError::TypeError {
-                        value_id,
-                        value: v.to_string(),
-                        expected_type: "Field",
-                        instruction,
-                    })
-                })
-            })
-            .collect::<Result<Vec<FieldElement>, _>>()
+        self.lookup_vec(value_id, instruction, "Field", Value::as_field)
     }
 
     fn lookup_string(&self, value_id: ValueId, instruction: &'static str) -> IResult<String> {
@@ -637,8 +861,8 @@ impl<'ssa, W: Write> Interpreter<'ssa, W> {
                 Ok(())
             }
             Instruction::Not(id) => self.interpret_not(*id, results[0]),
-            Instruction::Truncate { value, bit_size, max_bit_size } => {
-                self.interpret_truncate(*value, *bit_size, *max_bit_size, results[0])
+            Instruction::Truncate { value, bit_size, max_bit_size: _ } => {
+                self.interpret_truncate(*value, *bit_size, results[0])
             }
             Instruction::Constrain(lhs_id, rhs_id, constrain_error) => {
                 let lhs = self.lookup(*lhs_id)?;
@@ -763,13 +987,16 @@ impl<'ssa, W: Write> Interpreter<'ssa, W> {
         &mut self,
         value_id: ValueId,
         bit_size: u32,
-        max_bit_size: u32,
         result: ValueId,
     ) -> IResult<()> {
         let value = self.lookup_numeric(value_id, "truncate")?;
         let typ = value.get_type();
+
+        // Keeping zero bits of a value leaves nothing, so the result is 0. This is what
+        // `truncate_field`, the simplifier, ACIR and Brillig all define it as.
         if bit_size == 0 {
-            return Err(internal(InternalError::TruncateToZeroBits { value_id, max_bit_size }));
+            let zero = NumericValue::int_from_field(FieldElement::zero(), typ)?;
+            return self.define(result, Value::Numeric(zero));
         }
 
         if value.as_bool().is_some() {
@@ -837,17 +1064,26 @@ impl<'ssa, W: Write> Interpreter<'ssa, W> {
         let new_results = if side_effects_enabled {
             match function {
                 Value::Function(id) => {
-                    // If we're crossing a constrained -> unconstrained boundary we have to wipe
-                    // any shared mutable fields in our arguments since brillig should conceptually
-                    // receive fresh array on each invocation.
-                    if !self.in_unconstrained_context()
-                        && self.functions[&id].runtime().is_brillig()
-                    {
+                    // A Brillig function called from constrained code, and an ACIR entry point
+                    // (a separate circuit), each receive fresh copies of their array arguments
+                    // and hand back freshly materialized outputs. Neither the callee's in-place
+                    // writes to its parameters nor the caller's in-place writes to one result
+                    // may be visible through another value.
+                    let runtime = self.functions[&id].runtime();
+                    let crosses_entry_point = !self.in_unconstrained_context()
+                        && (runtime.is_brillig() || runtime.is_entry_point());
+                    if crosses_entry_point {
                         for argument in &mut arguments {
                             Self::reset_array_state(argument)?;
                         }
                     }
-                    self.call_function(id, arguments)?
+                    let mut results = self.call_function(id, arguments)?;
+                    if crosses_entry_point {
+                        for result in &mut results {
+                            Self::reset_array_state(result)?;
+                        }
+                    }
+                    results
                 }
                 Value::Intrinsic(intrinsic) => {
                     self.call_intrinsic(intrinsic, argument_ids, results)?
@@ -855,7 +1091,10 @@ impl<'ssa, W: Write> Interpreter<'ssa, W> {
                 Value::ForeignFunction(name) if self.options.no_foreign_calls => {
                     return Err(InterpreterError::UnknownForeignFunctionCall { name });
                 }
-                Value::ForeignFunction(name) if name == "print" => self.call_print(arguments)?,
+                Value::ForeignFunction(name) if name == "print" => {
+                    self.check_purity_on_foreign_call(&name)?;
+                    self.call_print(arguments)?
+                }
                 Value::ForeignFunction(name) => {
                     return Err(InterpreterError::UnknownForeignFunctionCall { name });
                 }
@@ -897,52 +1136,30 @@ impl<'ssa, W: Write> Interpreter<'ssa, W> {
         argument_ids: &[ValueId],
         results: &[ValueId],
     ) -> IResult<Vec<Value>> {
-        use crate::ssa::ir::instruction::Intrinsic;
-        // Get the length of the vector
-        if let Value::Intrinsic(intrinsic) = function {
-            let input_vector_info = match intrinsic {
-                Intrinsic::VectorPushBack
-                | Intrinsic::VectorPushFront
-                | Intrinsic::VectorInsert
-                | Intrinsic::VectorPopBack
-                | Intrinsic::VectorPopFront
-                | Intrinsic::VectorRemove => {
-                    let vec = self.lookup_array_or_vector(
-                        argument_ids[1],
-                        "uninitialized vector intrinsic",
-                    )?;
-                    Some((vec.elements.borrow().len(), vec.element_types.clone()))
-                }
-                _ => None,
-            };
-
-            if let Some((input_len, element_types)) = input_vector_info {
-                let element_count = element_types.len();
-                let output_len = match intrinsic {
-                    Intrinsic::VectorPushBack
-                    | Intrinsic::VectorPushFront
-                    | Intrinsic::VectorInsert => input_len + element_count,
-                    Intrinsic::VectorPopBack
-                    | Intrinsic::VectorPopFront
-                    | Intrinsic::VectorRemove => input_len.saturating_sub(element_count),
-                    _ => unreachable!(),
-                };
-
-                return Ok(vecmap(results, |result| {
-                    let typ = self.dfg().type_of_value(*result);
-                    if matches!(*typ, Type::Vector(_)) {
-                        Value::uninitialized_vector(&element_types, output_len, *result)
-                    } else {
-                        Value::uninitialized(&typ, *result)
-                    }
-                }));
+        let flows = match function {
+            Value::Intrinsic(intrinsic) => {
+                vector_capacity_flows(self.dfg(), *intrinsic, argument_ids, results)
             }
-        }
+            _ => Vec::new(),
+        };
 
-        Ok(vecmap(results, |result| {
+        try_vecmap(results, |result| {
             let typ = self.dfg().type_of_value(*result);
-            Value::uninitialized(&typ, *result)
-        }))
+            // A vector intrinsic's result gets the backing capacity the enabled intrinsic would
+            // give it in this interpreter, so that a later merge can read it in full.
+            let Some(flow) = flows.iter().find(|flow| flow.output == *result) else {
+                return Ok(Value::uninitialized(&typ, *result));
+            };
+            let input =
+                self.lookup_array_or_vector(flow.input, "uninitialized vector intrinsic")?;
+            let width = input.element_types.len();
+            let slots = input.elements.borrow().len();
+            let capacity = slots.checked_div(width).unwrap_or(0);
+            let capacity = SemanticLength(assert_u32(capacity));
+            let capacity = flow.change.apply(capacity).expect("Vector capacity overflow");
+            let output_len = assert_usize(capacity.0) * width;
+            Ok(Value::uninitialized_vector(&input.element_types, output_len, *result))
+        })
     }
 
     /// Try to get a function's name or approximate it if it is not known
@@ -958,8 +1175,9 @@ impl<'ssa, W: Write> Interpreter<'ssa, W> {
         }
     }
 
-    /// Reset the value's `Shared` states in each array within. This is used to mimic each
-    /// invocation of the brillig vm receiving fresh values. No matter the history of this value
+    /// Reset the value's `SharedCell` states in each array within. This is used to mimic each
+    /// invocation of the brillig vm, or of a separate ACIR circuit, receiving and returning
+    /// fresh values. No matter the history of this value
     /// (e.g. even if they were previously returned from another brillig function) the reference
     /// count should always be 1 and it shouldn't alias any other arrays.
     fn reset_array_state(value: &mut Value) -> IResult<()> {
@@ -978,8 +1196,8 @@ impl<'ssa, W: Write> Interpreter<'ssa, W> {
                 for element in &mut elements {
                     Self::reset_array_state(element)?;
                 }
-                array_value.elements = Shared::new(elements);
-                array_value.rc = Shared::new(1);
+                array_value.elements = SharedCell::new(elements);
+                array_value.rc = SharedCell::new(1);
                 Ok(())
             }
         }
@@ -1019,6 +1237,13 @@ impl<'ssa, W: Write> Interpreter<'ssa, W> {
             println!("store {value} at {address}");
         }
 
+        let storage = reference_address.element.as_ptr() as StorageIdentity;
+        // A global is only ever a numeric constant or a `make_array`, so no reference is owned
+        // by one and this store cannot reach global storage. If that ever changes, the write
+        // would land in the shared global scope: see [`Self::is_global_storage`].
+        debug_assert!(!self.is_global_storage(storage), "store through a global reference");
+        self.check_purity_on_mutation(storage, "a store through a reference")?;
+
         *reference_address.element.borrow_mut() = Some(value);
 
         Ok(())
@@ -1027,14 +1252,14 @@ impl<'ssa, W: Write> Interpreter<'ssa, W> {
     /// In the ACIR runtime a nested array must be a fresh copy rather than a shared handle:
     /// `array_get` returns a fresh nested array and `array_set` stores a fresh copy of an
     /// array-valued element. Otherwise a later mutable array set on the source array would
-    /// also mutate the value produced here, since both would share the same `Shared` handle.
+    /// also mutate the value produced here, since both would share the same `SharedCell` handle.
     /// In the Brillig runtime this aliasing is expected, so the value is cloned as-is.
     fn copy_nested_array_in_acir(&self, value: &Value) -> Value {
         if !self.in_unconstrained_context()
             && let Some(array) = value.as_array_or_vector()
         {
             return Value::ArrayOrVector(ArrayValue {
-                elements: Shared::new(array.elements.borrow().to_vec()),
+                elements: SharedCell::new(array.elements.borrow().to_vec()),
                 rc: array.rc,
                 element_types: array.element_types,
                 length: array.length,
@@ -1137,14 +1362,36 @@ impl<'ssa, W: Write> Interpreter<'ssa, W> {
             let index = index - offset.to_u32();
             let value = self.copy_nested_array_in_acir(&self.lookup(value)?);
 
+            let storage = array.elements.as_ptr() as StorageIdentity;
             let is_rc_one = *array.rc.borrow() == 1;
-            let should_mutate = if self.in_unconstrained_context() { is_rc_one } else { mutable };
+            // A global is not the sole live reference to its storage even when its reference
+            // count says so, so `is_rc_one` alone is not license to write through it — see
+            // [`Self::is_global_storage`]. Nor is the `mutable` flag: each ACIR circuit
+            // materializes its own copy of the globals, so a write the pass allows in one
+            // circuit must not be visible to an entry point it calls.
+            let should_mutate = if self.in_unconstrained_context() {
+                is_rc_one && !self.is_global_storage(storage)
+            } else {
+                mutable && !self.is_global_storage(storage)
+            };
 
             if index >= length {
                 return Err(InterpreterError::IndexOutOfBounds { index: index.into(), length });
             }
 
             if should_mutate {
+                // In a constrained context arrays have value semantics: an in-place write
+                // here only reuses the backing store of an array value that the Mutable
+                // Array Set Optimizations pass proved dead within the current function, so
+                // it is not a caller-visible mutation and purity analysis rightly ignores it.
+                // That per-function proof covers parameters only because every ACIR function
+                // reaching that pass is an entry point that owns its inputs, which
+                // `interpret_call` models by copying arrays across the call boundary. Only in Brillig, where
+                // the reference count governs genuine sharing, is writing through
+                // argument-reachable storage observable by the caller.
+                if self.in_unconstrained_context() {
+                    self.check_purity_on_mutation(storage, "an in-place array_set")?;
+                }
                 array.elements.borrow_mut()[index as usize] = value;
                 Value::ArrayOrVector(array)
             } else {
@@ -1153,8 +1400,8 @@ impl<'ssa, W: Write> Interpreter<'ssa, W> {
                 }
                 let mut elements = array.elements.borrow().to_vec();
                 elements[index as usize] = value;
-                let elements = Shared::new(elements);
-                let rc = Shared::new(1);
+                let elements = SharedCell::new(elements);
+                let rc = SharedCell::new(1);
                 let element_types = array.element_types.clone();
                 let length = array.length;
                 Value::ArrayOrVector(ArrayValue { elements, rc, element_types, length })
@@ -1241,7 +1488,7 @@ impl<'ssa, W: Write> Interpreter<'ssa, W> {
 
     fn interpret_make_array(
         &mut self,
-        elements: &im::Vector<ValueId>,
+        elements: &imbl::Vector<ValueId>,
         result: ValueId,
         result_type: &Type,
     ) -> IResult<()> {
@@ -1271,7 +1518,7 @@ impl<'ssa, W: Write> Interpreter<'ssa, W> {
             elements.iter().zip(element_types.iter().cycle()).enumerate()
         {
             let actual_type = element.get_type();
-            if !actual_type.canonical_eq(expected_type) {
+            if !actual_type.can_be_used_as(expected_type) {
                 return Err(internal(InternalError::MakeArrayElementTypeMismatch {
                     result,
                     index,
@@ -1282,8 +1529,8 @@ impl<'ssa, W: Write> Interpreter<'ssa, W> {
         }
 
         let array = Value::ArrayOrVector(ArrayValue {
-            elements: Shared::new(elements),
-            rc: Shared::new(1),
+            elements: SharedCell::new(elements),
+            rc: SharedCell::new(1),
             element_types,
             length,
         });
@@ -1306,7 +1553,7 @@ impl<'ssa, W: Write> Interpreter<'ssa, W> {
 /// Evaluate an integer (non-`Field`, non-`u1`) binary operation in the field+type model.
 ///
 /// `lhs`/`rhs` are integer values of the same type whose stored field is the two's-complement bit
-/// pattern (which may be out of range in ACIR mode). The runtime selects overflow behaviour:
+/// pattern (which may be out of range in ACIR mode). The runtime selects overflow behavior:
 /// Brillig wraps in fixed-width registers, while ACIR carries the extended field and range-checks at
 /// checked operations. Comparisons, bitwise ops, shifts, div/mod and *signed* checked arithmetic
 /// reduce their operands and reuse [`eval_constant_binary_op`]; only unchecked arithmetic and
@@ -1357,14 +1604,25 @@ fn evaluate_integer_binary(
 
         // Unsigned checked arithmetic. ACIR computes in the field and range-checks the result, so an
         // out-of-range operand or an overflowing result is rejected; Brillig does true fixed-width
-        // checked arithmetic. (They only diverge once values can exceed the field modulus, i.e.
-        // `u128`, but keeping them separate is faithful to both.)
+        // checked arithmetic. The one place the range check is insufficient is a `u128` product,
+        // whose true value can exceed the field modulus and be reduced back below 2^128: the
+        // circuit rejects it via the constraint the `check_u128_mul_overflow` pass inserts, so the
+        // interpreter decides that overflow on the unreduced product.
         Add { unchecked: false } | Sub { unchecked: false } | Mul { unchecked: false }
             if !lhs.is_signed() =>
         {
             if is_brillig {
-                eval_via_constant_binary_op(lhs_field, rhs_field, operator, typ, binary, &overflow)
+                eval_via_constant_binary_op(
+                    lhs_field, rhs_field, operator, typ, is_brillig, binary, &overflow,
+                )
             } else {
+                if matches!(operator, Mul { .. }) && bit_size == 128 {
+                    let product = BigUint::from_bytes_be(&lhs_field.to_be_bytes())
+                        * BigUint::from_bytes_be(&rhs_field.to_be_bytes());
+                    if product.bits() > 128 {
+                        return Err(overflow());
+                    }
+                }
                 let value = NumericValue::int_from_field(field_arith(), typ)?;
                 if value.is_in_range() { Ok(value) } else { Err(overflow()) }
             }
@@ -1400,7 +1658,9 @@ fn evaluate_integer_binary(
 
         // Signed checked arithmetic, div/mod, comparisons and bitwise ops all reduce their
         // operands; reuse the constant-folder's semantics.
-        _ => eval_via_constant_binary_op(lhs_field, rhs_field, operator, typ, binary, &overflow),
+        _ => eval_via_constant_binary_op(
+            lhs_field, rhs_field, operator, typ, is_brillig, binary, &overflow,
+        ),
     }
 }
 
@@ -1412,6 +1672,7 @@ fn eval_via_constant_binary_op(
     rhs_field: FieldElement,
     operator: BinaryOp,
     typ: NumericType,
+    is_brillig: bool,
     binary: &Binary,
     overflow: &impl Fn() -> InterpreterError,
 ) -> IResult<NumericValue> {
@@ -1422,7 +1683,7 @@ fn eval_via_constant_binary_op(
     let lhs_field = truncate_field(lhs_field, bit_size);
     let rhs_field = truncate_field(rhs_field, bit_size);
 
-    match eval_constant_binary_op(lhs_field, rhs_field, operator, typ) {
+    match eval_constant_binary_op(lhs_field, rhs_field, operator, typ, is_brillig) {
         BinaryEvaluationResult::Success(field, result_type) => {
             NumericValue::int_from_field(field, result_type)
         }

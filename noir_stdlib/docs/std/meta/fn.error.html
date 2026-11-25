@@ -19,12 +19,16 @@
 <h1><a href="../../index.html">noir_stdlib</a></h1>
 <div><a href="../../all.html">All items</a></div>
 <h2 id="crate-name"><a href="../index.html">std</a></h2>
-<div id="crate-version">1.0.0-beta.26</div>
+<div id="crate-version">1.0.0</div>
 <h2>In module meta</h2>
 <h3>Modules</h3><ul class="item-list">
 <li><a href="ctstring/index.html">ctstring</a></div></li>
+<li><a href="expr/index.html">expr</a></div></li>
+<li><a href="function_def/index.html">function_def</a></div></li>
+<li><a href="item_visibility/index.html">item_visibility</a></div></li>
 <li><a href="op/index.html">op</a></div></li>
 <li><a href="typ/index.html">typ</a></div></li>
+<li><a href="type_def/index.html">type_def</a></div></li>
 </ul>
 <h3>Type aliases</h3><ul class="item-list">
 <li><a href="type.DeriveFunction.html">DeriveFunction</a></div></li>
@@ -55,10 +59,25 @@
 )</code></pre>
 
 <div class="comments">
-<p>Issues an error diagnostic at the given location with the given primary
-message and an optional secondary message. Unlike a comptime panic, current
-execution will continue allowing possibly multiple errors to be issued.</p>
-</div>
+<p>Issues an error diagnostic at <code>location</code>, with an optional secondary message.</p>
+<p>Unlike a comptime panic, current execution will continue, allowing multiple errors to be
+issued.</p>
+<p>Example:</p>
+<pre><code>#[requires_parameters]
+<span class="kw">pub</span> <span class="kw">fn</span> add(x: u32, y: u32) -&gt; u32 {
+    x + y
+}
+
+<span class="kw">comptime</span> <span class="kw">fn</span> requires_parameters(f: FunctionDefinition) {
+    <span class="kw">if</span> f.parameters().len() == <span class="number">0</span> {
+        <span class="kw">let</span> name = f.name();
+        std::meta::error(
+            <span class="string">f"</span><span class="string">`</span><span class="interpolation">{name}</span><span class="string">` must take parameters</span><span class="string">"</span>,
+            Option::some(<span class="string">f"</span><span class="string">add at least one parameter</span><span class="string">"</span>),
+            f.location(),
+        );
+    }
+}</code></pre></div>
 </div>
 </main>
 </span>

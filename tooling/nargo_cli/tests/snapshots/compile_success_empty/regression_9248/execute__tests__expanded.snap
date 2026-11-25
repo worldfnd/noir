@@ -9,7 +9,7 @@ pub trait Deserialize {
 }
 
 impl Deserialize for Field {
-    let N: u32 = 1;
+    let N: u32 = 1_u32;
 
     fn deserialize(fields: [Self; 1]) -> Self {
         fields[0_u32]
@@ -44,7 +44,7 @@ impl<let M: u32> Deserialize for Log<M> {
     let N: u32 = M;
 
     fn deserialize(serialized: [Field; M]) -> Self {
-        let fields: [Field; M] = <[Field; M] as Deserialize>::deserialize(serialized);
+        let fields: [Field; M] = <[Field; M] as Deserialize<N = M>>::deserialize(serialized);
         Self { fields: fields }
     }
 }

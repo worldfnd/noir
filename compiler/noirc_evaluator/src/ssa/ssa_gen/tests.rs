@@ -218,6 +218,64 @@ fn acir_no_access_check_on_array_assignment() {
 }
 
 #[test]
+fn acir_no_access_check_on_composite_array_read() {
+    // The memory op the read lowers to carries the bounds check, and reports it in the array's
+    // logical coordinates through the payload ACIR gen attaches to that op.
+    let src = "
+    fn main(mut array: [(u32, u32); 3], index: u32) -> pub u32 {
+        array[index].0
+    }
+    ";
+    let ssa = get_initial_ssa(src).unwrap();
+
+    let expected = "
+    acir(inline) fn main f0 {
+      b0(v0: [(u32, u32); 3], v1: u32):
+        v2 = allocate -> &mut [(u32, u32); 3]
+        store v0 at v2
+        v3 = load v2 -> [(u32, u32); 3]
+        v5 = unchecked_mul v1, u32 2
+        v6 = array_get v3, index v5 -> u32
+        v8 = unchecked_add v5, u32 1
+        v9 = array_get v3, index v8 -> u32
+        return v6
+    }
+    ";
+    assert_normalized_ssa_equals(ssa, expected);
+}
+
+#[test]
+fn acir_access_check_on_one_element_composite_array_read() {
+    // Zero is the only index in bounds, so the check determines the index rather than bounding
+    // it: later passes fold the access to a constant index and the memory op disappears, which
+    // the memory op's own bounds check cannot do for them.
+    let src = "
+    fn main(mut array: [(u32, u32); 1], index: u32) -> pub u32 {
+        array[index].0
+    }
+    ";
+    let ssa = get_initial_ssa(src).unwrap();
+
+    let expected = "
+    acir(inline) fn main f0 {
+      b0(v0: [(u32, u32); 1], v1: u32):
+        v2 = allocate -> &mut [(u32, u32); 1]
+        store v0 at v2
+        v3 = load v2 -> [(u32, u32); 1]
+        v27 = make_array b\"Index out of bounds, array has size 1, but index was {}\"
+        v29 = eq v1, u32 0
+        constrain v1 == u32 0, data v27, Field 1, v1
+        v32 = unchecked_mul v1, u32 2
+        v33 = array_get v3, index v32 -> u32
+        v35 = unchecked_add v32, u32 1
+        v36 = array_get v3, index v35 -> u32
+        return v33
+    }
+    ";
+    assert_normalized_ssa_equals(ssa, expected);
+}
+
+#[test]
 fn brillig_access_check_on_array_read() {
     let src = "
     unconstrained fn main(mut array: [u64; 3], index: u32) -> pub u64 {
@@ -343,15 +401,15 @@ fn oracle_wrapper_call_args_do_not_get_cloned() {
 
     let program = get_monomorphized_with_stdlib(src, &[stdlib_src::PRINT]).unwrap();
 
-    // The ownership pass wraps `a` in `.clone()` in `foo` because `a` is used again
-    // after the `println` call. The clone is unnecessary: the wrapper chain only
-    // forwards the argument to the `print` oracle, which cannot modify the array.
+    // Even though `a` is used again after the `println` call, the ownership pass does
+    // not wrap it in `.clone()`: the wrapper chain only forwards the argument to the
+    // `print` oracle, which cannot modify the array.
     insta::assert_snapshot!(program.to_string(), @r##"
     unconstrained fn main$f0() -> pub u64 {
         foo$f1([1])
     }
     unconstrained fn foo$f1(a$l0: [u64; 1]) -> u64 {
-        println$f2(a$l0.clone());;
+        println$f2(a$l0);;
         a$l0[0]
     }
     unconstrained fn println$f2(input$l1: [u64; 1]) -> () {
@@ -364,9 +422,9 @@ fn oracle_wrapper_call_args_do_not_get_cloned() {
 
     let ssa = generate_ssa(program).unwrap();
 
-    // `foo` does not emit `inc_rc v0` before the call to `println` even though the
-    // monomorphized AST contains `a.clone()`: the SSA-gen call lowering recognizes
-    // `println` as a thin wrapper around the `print` oracle and skips the clone.
+    // `foo` does not emit `inc_rc v0` before the call to `println`: the ownership
+    // pass recognizes `println` as a thin wrapper around the `print` oracle and
+    // skips the clone.
     assert_ssa_snapshot!(ssa, @r#"
     brillig(inline) fn main f0 {
       b0():
@@ -416,6 +474,80 @@ fn oracle_wrapper_with_mutating_arg_keeps_clone() {
 
     let results = ssa.interpret(vec![InterpreterValue::u32(1), InterpreterValue::u32(0)]).unwrap();
     assert_eq!(results, vec![InterpreterValue::u32(1)]);
+}
+
+#[test]
+fn pure_builtin_call_with_mutating_sibling_arg_keeps_clone() {
+    // `x` is passed by value to `sha256_compression`, so the intrinsic must digest it as it
+    // was before `bump` (evaluated as a later argument of the same call) writes 7 into it.
+    // Eliding the clone on `x` lets Brillig's copy-on-write mutate the buffer in place, and
+    // the intrinsic digests the mutated bytes.
+    let src = "
+    #[foreign(sha256_compression)]
+    fn sha256_compression(input: [u32; 16], state: [u32; 8]) -> [u32; 8] {}
+
+    unconstrained fn bump(x: &mut [u32; 16], i: u32) -> [u32; 8] {
+        (*x)[i] = 7;
+        [1, 2, 3, 4, 5, 6, 7, 8]
+    }
+
+    unconstrained fn main(i: u32) -> pub u64 {
+        let mut x = [i + 1; 16];
+        let out = sha256_compression(x, bump(&mut x, i));
+        out[0] as u64 + x[i] as u64
+    }
+    ";
+
+    let program = get_monomorphized_with_options(
+        src,
+        GetProgramOptions { root_and_stdlib: true, ..Default::default() },
+    )
+    .unwrap();
+
+    let ssa = generate_ssa(program).unwrap();
+
+    // For i = 0: word 0 of sha256_compression([1; 16], [1, ..., 8]) is 1620291495, and
+    // x[0] is 7 after `bump`, giving 1620291502. Digesting the mutated buffer instead
+    // yields 702624835 + 7 = 702624842.
+    let results = ssa.interpret(vec![InterpreterValue::u32(0)]).unwrap();
+    assert_eq!(results, vec![InterpreterValue::u64(1620291502)]);
+}
+
+/// The ownership pass decides clone elision in `noirc_frontend`, which cannot see
+/// [`Intrinsic`](crate::ssa::ir::instruction::Intrinsic): it keeps its own copy of
+/// the classification. This test pins the two together over every [`Builtin`] so a
+/// new or reclassified builtin cannot silently diverge from the frontend's view.
+#[test]
+fn ownership_clone_elision_list_matches_intrinsic_purity() {
+    use crate::ssa::ir::instruction::Intrinsic;
+    use crate::ssa::opt::pure::Purity;
+    use acvm::acir::BlackBoxFunc;
+    use noirc_frontend::ownership::builtin_supports_clone_elision;
+    use noirc_frontend::shared::Builtin;
+    use strum::IntoEnumIterator;
+
+    // `Builtin::iter` skips the strum-disabled `BlackBox` variant, so chain the
+    // callable black box functions explicitly.
+    let black_boxes = BlackBoxFunc::iter()
+        .filter(|func| Builtin::lookup(func.name()).is_some())
+        .map(Builtin::BlackBox);
+    for builtin in Builtin::iter().chain(black_boxes) {
+        // Builtins that never reach SSA generation have no runtime call whose clone
+        // could be elided; those that do must agree with `Intrinsic`'s purity and
+        // aliasing classification.
+        let elidable = match Intrinsic::from_builtin(builtin) {
+            Some(intrinsic) => {
+                !intrinsic.unsafe_for_clone_elision_in_brillig()
+                    && matches!(intrinsic.purity(), Purity::Pure | Purity::PureWithPredicate)
+            }
+            None => false,
+        };
+        assert_eq!(
+            builtin_supports_clone_elision(builtin),
+            elidable,
+            "`builtin_supports_clone_elision` disagrees with `Intrinsic`'s classification of `{builtin}`",
+        );
+    }
 }
 
 #[test]
@@ -469,38 +601,32 @@ fn for_loop_inclusive_max_value_without_break() {
 
     // - b1 is the loop header
     // - b2 is the loop body
-    // - b3 is the loop exit, but it performs a check to determine whether the final iteration
-    //   should be executed. In this case we check if no break was hit. The (start <= end)
-    //   condition is constant true and simplified away.
-    // - b4 is the final iteration where `index == end`
-    assert_ssa_snapshot!(ssa, @r"
+    // - b3 is the loop exit. The (start <= end) guard is constant true, so b3 runs the final
+    //   iteration (`index == end`) directly.
+    // - b4 is the block after the final iteration
+    assert_ssa_snapshot!(ssa, @"
     acir(inline) fn main f0 {
       b0():
         v1 = allocate -> &mut u8
         store u8 0 at v1
-        v3 = allocate -> &mut u1
-        store u1 1 at v3
         jmp b1(u8 0)
       b1(v0: u8):
-        v6 = lt v0, u8 255
-        jmpif v6 then: b2(), else: b3()
+        v4 = lt v0, u8 255
+        jmpif v4 then: b2(), else: b3()
       b2():
-        v7 = load v1 -> u8
-        v8 = add v7, v0
-        store v8 at v1
-        v10 = unchecked_add v0, u8 1
-        jmp b1(v10)
+        v5 = load v1 -> u8
+        v6 = add v5, v0
+        store v6 at v1
+        v8 = unchecked_add v0, u8 1
+        jmp b1(v8)
       b3():
-        v11 = load v3 -> u1
-        jmpif v11 then: b4(), else: b5()
+        v9 = load v1 -> u8
+        v10 = add v9, u8 255
+        store v10 at v1
+        jmp b4()
       b4():
-        v12 = load v1 -> u8
-        v13 = add v12, u8 255
-        store v13 at v1
-        jmp b5()
-      b5():
-        v14 = load v1 -> u8
-        return v14
+        v11 = load v1 -> u8
+        return v11
     }
     ");
 }
@@ -574,10 +700,11 @@ fn for_loop_inclusive_signed_negative_end_is_not_a_maximum() {
         v6 = add v5, v0
         store v6 at v1
         v8 = unchecked_add v0, i16 1
-        jmp b1(v8)
+        v9 = truncate v8 to 16 bits, max_bit_size: 17
+        jmp b1(v9)
       b3():
-        v9 = load v1 -> i16
-        return v9
+        v10 = load v1 -> i16
+        return v10
     }
     ");
 }
@@ -599,52 +726,42 @@ fn for_loop_inclusive_max_value_with_break() {
     let ssa = get_initial_ssa(assert_src).unwrap();
 
     // - b1 is the loop header
-    // - b2, b4  and b5 are the loop body
-    // - b4 has the logic that happens when a break is hit. In this case we store 0 at v3
-    //   to signal this.
-    // - b3 is the loop exit, but it performs a check to determine whether the final iteration
-    //   should be executed. In this case we check if no break was hit. It's multiplied by
-    //   one because that "one" is (start < end) which is true in this case.
-    // - b6 is the final loop iteration where `index == end`. Note that the code for
-    //   `if cond { break; }` now has the break take us to b8, which jumps to b7, which
-    //   exits main (that is, the break skips the final iteration).
-    assert_ssa_snapshot!(ssa, @r"
+    // - b2, b5 and b6 are the loop body
+    // - b5 is the `break`: it jumps to b4, the block after the final iteration, so a break
+    //   in the exclusive iterations skips the final iteration without any runtime flag.
+    // - b3 is the loop exit. The (start <= end) guard is constant true, so b3 starts the final
+    //   loop iteration (`index == end`) directly. Its `break` (b7) also jumps to b4.
+    assert_ssa_snapshot!(ssa, @"
     brillig(inline) fn main f0 {
       b0(v0: u1):
         v2 = allocate -> &mut u8
         store u8 0 at v2
-        v4 = allocate -> &mut u1
-        store u1 1 at v4
         jmp b1(u8 0)
       b1(v1: u8):
-        v7 = lt v1, u8 255
-        jmpif v7 then: b2(), else: b3()
+        v5 = lt v1, u8 255
+        jmpif v5 then: b2(), else: b3()
       b2():
-        jmpif v0 then: b4(), else: b5()
+        jmpif v0 then: b5(), else: b6()
       b3():
-        v13 = load v4 -> u1
-        jmpif v13 then: b6(), else: b7()
+        jmpif v0 then: b7(), else: b8()
       b4():
-        store u1 0 at v4
-        jmp b3()
+        v12 = load v2 -> u8
+        return v12
       b5():
-        v8 = load v2 -> u8
-        v9 = add v8, v1
-        store v9 at v2
-        v11 = unchecked_add v1, u8 1
-        jmp b1(v11)
+        jmp b4()
       b6():
-        jmpif v0 then: b8(), else: b9()
+        v6 = load v2 -> u8
+        v7 = add v6, v1
+        store v7 at v2
+        v9 = unchecked_add v1, u8 1
+        jmp b1(v9)
       b7():
-        v16 = load v2 -> u8
-        return v16
+        jmp b4()
       b8():
-        jmp b7()
-      b9():
-        v14 = load v2 -> u8
-        v15 = add v14, u8 255
-        store v15 at v2
-        jmp b7()
+        v10 = load v2 -> u8
+        v11 = add v10, u8 255
+        store v11 at v2
+        jmp b4()
     }
     ");
 }
@@ -665,53 +782,77 @@ fn for_loop_inclusive_unknown_range_with_break() {
     ";
     let ssa = get_initial_ssa(assert_src).unwrap();
 
-    // Here we can see in b3 that we do `lt v0, v1`, which is the condition that checks
-    // `start < end` to determine whether the final iteration should be executed
-    // (in addition to checking if a break was hit or not).
-    assert_ssa_snapshot!(ssa, @r"
+    // Here we can see in b3 that we do `lt v1, v0`, whose negation is the `start <= end`
+    // condition that determines whether the final iteration should be executed. A `break`
+    // jumps to b4, the block after the final iteration.
+    assert_ssa_snapshot!(ssa, @"
     brillig(inline) fn main f0 {
       b0(v0: u8, v1: u8):
         v3 = allocate -> &mut u8
         store u8 0 at v3
-        v5 = allocate -> &mut u1
-        store u1 1 at v5
         jmp b1(v0)
       b1(v2: u8):
-        v7 = lt v2, v1
-        jmpif v7 then: b2(), else: b3()
+        v5 = lt v2, v1
+        jmpif v5 then: b2(), else: b3()
       b2():
-        v9 = eq v2, u8 10
-        jmpif v9 then: b4(), else: b5()
+        v7 = eq v2, u8 10
+        jmpif v7 then: b5(), else: b6()
       b3():
-        v15 = load v5 -> u1
-        v16 = lt v1, v0
-        v17 = not v16
-        v18 = unchecked_mul v15, v17
-        jmpif v18 then: b6(), else: b7()
+        v12 = lt v1, v0
+        v13 = not v12
+        jmpif v13 then: b7(), else: b4()
       b4():
-        store u1 0 at v5
-        jmp b3()
+        v17 = load v3 -> u8
+        return v17
       b5():
-        v10 = load v3 -> u8
-        v11 = add v10, v2
-        store v11 at v3
-        v13 = unchecked_add v2, u8 1
-        jmp b1(v13)
+        jmp b4()
       b6():
-        v19 = eq v1, u8 10
-        jmpif v19 then: b8(), else: b9()
+        v8 = load v3 -> u8
+        v9 = add v8, v2
+        store v9 at v3
+        v11 = unchecked_add v2, u8 1
+        jmp b1(v11)
       b7():
-        v22 = load v3 -> u8
-        return v22
+        v14 = eq v1, u8 10
+        jmpif v14 then: b8(), else: b9()
       b8():
-        jmp b7()
+        jmp b4()
       b9():
-        v20 = load v3 -> u8
-        v21 = add v20, v1
-        store v21 at v3
-        jmp b7()
+        v15 = load v3 -> u8
+        v16 = add v15, v1
+        store v16 at v3
+        jmp b4()
     }
     ");
+}
+
+/// The ownership pass moves `a` into `g` because `break` follows the call, so no clone
+/// protects it. The inclusive range lowers the body twice (exclusive iterations plus a final
+/// iteration), so the RC-invariant verifier only accepts the moved argument if no CFG path
+/// leads from the `break` of the exclusive iterations into the final iteration's copy of the call.
+/// The verifier only exists in debug builds.
+#[test]
+#[cfg(debug_assertions)]
+fn for_loop_inclusive_break_after_moving_call_argument_keeps_rc_invariant() {
+    let src = "
+    unconstrained fn main(a: [u32; 1], n: u32) {
+        for _ in 0..=n {
+            let _ = g(a);
+            break;
+        }
+    }
+    unconstrained fn g(mut a: [u32; 1]) -> u32 {
+        a[0] = 5;
+        a[0]
+    }
+    ";
+    let ssa = get_initial_ssa(src)
+        .unwrap()
+        .mem2reg_brillig()
+        .remove_unused_instructions()
+        .remove_redundant_params();
+    crate::ssa::validation::rc_invariant::verify_all(&ssa)
+        .expect("a `break` in an inclusive range must not reach the final iteration's body");
 }
 
 #[test]
@@ -725,26 +866,21 @@ fn for_loop_inclusive_with_continue() {
     ";
     let ssa = get_initial_ssa(assert_src).unwrap();
 
-    // Here we can see that the `continue` in the final iteration jumps
-    // to the end of the loop (from b4 to b5).
-    assert_ssa_snapshot!(ssa, @r"
+    // Here we can see that the `continue` in the final iteration (b3) jumps
+    // to the end of the loop (b4).
+    assert_ssa_snapshot!(ssa, @"
     brillig(inline) fn main f0 {
       b0():
-        v1 = allocate -> &mut u1
-        store u1 1 at v1
         jmp b1(u8 0)
       b1(v0: u8):
-        v5 = lt v0, u8 255
-        jmpif v5 then: b2(), else: b3()
+        v3 = lt v0, u8 255
+        jmpif v3 then: b2(), else: b3()
       b2():
-        v7 = unchecked_add v0, u8 1
-        jmp b1(v7)
+        v5 = unchecked_add v0, u8 1
+        jmp b1(v5)
       b3():
-        v8 = load v1 -> u1
-        jmpif v8 then: b4(), else: b5()
+        jmp b4()
       b4():
-        jmp b5()
-      b5():
         return
     }
     ");
@@ -764,34 +900,29 @@ fn for_loop_inclusive_max_value_to_max_value() {
     let ssa = get_initial_ssa(assert_src).unwrap();
 
     // Check that the final iteration is included
-    assert_ssa_snapshot!(ssa, @r"
+    assert_ssa_snapshot!(ssa, @"
     acir(inline) fn main f0 {
       b0():
         v1 = allocate -> &mut u8
         store u8 0 at v1
-        v3 = allocate -> &mut u1
-        store u1 1 at v3
         jmp b1(u8 255)
       b1(v0: u8):
-        v6 = lt v0, u8 255
-        jmpif v6 then: b2(), else: b3()
+        v4 = lt v0, u8 255
+        jmpif v4 then: b2(), else: b3()
       b2():
-        v7 = load v1 -> u8
-        v8 = add v7, v0
-        store v8 at v1
-        v10 = unchecked_add v0, u8 1
-        jmp b1(v10)
+        v5 = load v1 -> u8
+        v6 = add v5, v0
+        store v6 at v1
+        v8 = unchecked_add v0, u8 1
+        jmp b1(v8)
       b3():
-        v11 = load v3 -> u1
-        jmpif v11 then: b4(), else: b5()
+        v9 = load v1 -> u8
+        v10 = add v9, u8 255
+        store v10 at v1
+        jmp b4()
       b4():
-        v12 = load v1 -> u8
-        v13 = add v12, u8 255
-        store v13 at v1
-        jmp b5()
-      b5():
-        v14 = load v1 -> u8
-        return v14
+        v11 = load v1 -> u8
+        return v11
     }
     ");
 }
@@ -811,13 +942,41 @@ fn for_loop_inclusive_no_mul_by_one() {
     ";
     let ssa = get_initial_ssa(src).unwrap();
 
-    // The `did_not_hit_break` load should be used directly in the jmpif,
-    // not multiplied by `u1 1`.
+    // The final-iteration guard is `start <= end` alone, not multiplied by `u1 1`.
     let ssa_string = ssa.to_string();
     assert!(
         !ssa_string.contains("unchecked_mul"),
         "Expected no `unchecked_mul` in initial SSA for inclusive range with known bounds,\
          but found:\n{ssa_string}"
+    );
+}
+
+/// The final-iteration guard of an inclusive range is constant whenever `start <= end` is known
+/// at compile time, including `0..=n` over an unsigned type with an unknown `n`. Such a guard
+/// must not become a `jmpif` on a constant.
+#[test]
+fn for_loop_inclusive_known_guard_has_no_constant_jmpif() {
+    let src = "
+    unconstrained fn main(n: u32, cond: bool) -> pub u32 {
+        let mut sum = 0;
+        for i in 0..=n {
+            if cond {
+                break;
+            }
+            sum += i;
+        }
+        for i in 0..=255_u8 {
+            sum += i as u32;
+        }
+        sum
+    }
+    ";
+    let ssa = get_initial_ssa(src).unwrap();
+
+    let ssa_string = ssa.to_string();
+    assert!(
+        !ssa_string.contains("jmpif u1"),
+        "Expected no `jmpif` on a constant condition in initial SSA, but found:\n{ssa_string}"
     );
 }
 
@@ -1098,16 +1257,12 @@ fn can_reborrow_through_immutable_ref() {
     ");
 }
 
-/// `&mut *p` where `p` is an immutable `&u64` bound to a variable must still reborrow
-/// as a writable reference aliasing the original location, just like the parenthesized
-/// `&mut (*p)` form. The re-borrow simplification must not collapse to `p` and inherit
-/// its immutable type, which previously rejected `*p1 = 15`.
 #[test]
-fn mut_reborrow_through_immutable_ref_variable() {
+fn mut_reborrow_through_mutable_ref_variable() {
     let src = "
     fn main() {
         let mut f: u64 = 10;
-        let p = &f;
+        let p = &mut f;
         let p1 = &mut *p;
         *p1 = 15;
         assert(f == 15);
@@ -1248,5 +1403,122 @@ fn enum_on_circuit_interface_rejects_malicious_tag_issue_754() {
          accepted. A malicious prover can force the last match arm and bypass every other arm's \
          constraints. Constrain the enum tag to a valid variant index before allowing enums to \
          cross the circuit interface."
+    );
+}
+
+#[test]
+fn immutable_borrow_allocates_mutable_cell() {
+    // `&x` over an immutable value is materialized as an allocation plus an
+    // initializing store. The allocation must be typed `&mut u32` even though
+    // the borrow's type is `&u32`: stores are only valid through mutable
+    // reference types, and a `&mut T` value may be used wherever `&T` is
+    // expected. `generate_ssa` validates the result, so a `&u32`-typed
+    // allocation would make this fail with a store-address validation error.
+    let src = "
+    unconstrained fn read_ref(r: &u32) -> u32 {
+        *r
+    }
+
+    fn main(x: u32) {
+        // Safety: reading through the reference has no side effects.
+        let result = unsafe { read_ref(&x) };
+        assert(result == x);
+    }
+    ";
+    let program = get_monomorphized(src).unwrap();
+    let ssa = generate_ssa(program).unwrap();
+    assert_ssa_snapshot!(ssa, @r"
+    acir(inline) fn main f0 {
+      b0(v0: u32):
+        v1 = allocate -> &mut u32
+        store v0 at v1
+        v3 = call f1(v1) -> u32
+        v4 = eq v3, v0
+        constrain v3 == v0
+        return
+    }
+    brillig(inline) fn read_ref f1 {
+      b0(v0: &u32):
+        v1 = load v0 -> u32
+        return v1
+    }
+    ");
+}
+
+#[test]
+fn mutable_let_cell_uses_declared_type_not_initializer_type() {
+    // `&a` over a mutable binding reuses the variable's `&mut u32` cell, so
+    // the initializer value is `&mut u32`-typed even though `s` is declared
+    // `&u32`. The cell for `s` must be allocated as `&mut &u32` (the
+    // declared type), not `&mut &mut u32` (the initializer's type):
+    // otherwise the later `s = r` stores a `&u32` value into a
+    // `&mut u32`-pointee slot, which directional validation rejects.
+    let src = "
+    unconstrained fn bar(r: &u32, mut a: u32) -> u32 {
+        let mut s: &u32 = &a;
+        s = r;
+        *s
+    }
+
+    unconstrained fn main(x: u32) {
+        let mut y = x;
+        assert(bar(&y, x) == x);
+    }
+    ";
+    let program = get_monomorphized(src).unwrap();
+    let _ = generate_ssa(program).unwrap();
+}
+
+#[test]
+fn borrowed_composite_cells_use_declared_types_not_value_types() {
+    // The tuple literal's first element is a borrow, so its value is
+    // `&mut u32`-typed while the declared element type is `&u32`. The
+    // cells materialized for `&mut (...)` must use the declared element types,
+    // or the later write through `a` stores a `&u32` value into a
+    // `&mut u32`-pointee slot.
+    let src = "
+    unconstrained fn foo(r: &u32, x: u32) -> u32 {
+        let a: &mut (&u32, u32) = &mut (&x, x);
+        *a = (r, x);
+        (*a).1
+    }
+
+    unconstrained fn main(x: u32) {
+        let mut y = x;
+        assert(foo(&y, x) == x);
+    }
+    ";
+    let program = get_monomorphized(src).unwrap();
+    let _ = generate_ssa(program).unwrap();
+}
+
+#[test]
+fn brillig_pop_front_empty_check_uses_the_vector_pop_message() {
+    // Popping from a conditionally-empty vector fails in both runtimes. The messages have to
+    // agree: ACIR emits "Attempt to pop from an empty vector" (see `vector_pop_new_length` in
+    // `acir/call/intrinsics/vector_ops.rs`), so the Brillig-only guard emitted by
+    // `codegen_intrinsic_call_checks` must not fall back to the generic "Index out of bounds"
+    // default of `codegen_access_check`. A differential run of the same program treats those two
+    // strings as non-equivalent failures.
+    let src = r#"
+    unconstrained fn main(x: u32, b: bool) -> pub u32 {
+        let mut v: [u32] = @[x];
+        if b {
+            v = @[];
+        }
+        let (elem, _rest) = pop_front(v);
+        elem
+    }
+    "#;
+    let stdlib = "
+        #[builtin(vector_pop_front)]
+        pub fn pop_front<T>(_v: [T]) -> (T, [T]) {}
+    ";
+    let program = get_monomorphized_with_stdlib(src, &[stdlib]).unwrap();
+    let ssa = generate_ssa(program).unwrap().to_string();
+    assert!(
+        ssa.contains(r#""Attempt to pop from an empty vector""#),
+        "Brillig empty-vector `pop` guard should use the same assertion message as ACIR, but the \
+         generated SSA still reads:\n{ssa}"
     );
 }

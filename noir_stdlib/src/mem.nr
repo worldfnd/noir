@@ -1,6 +1,19 @@
 /// For any type, return an instance of that type by initializing
 /// all of its fields to 0. This is considered to be unsafe since there
 /// is no guarantee that all zeroes is a valid bit pattern for every type.
+///
+/// It is useful as a placeholder for values that are overwritten before they are read, for example
+/// to fill an array before setting its elements.
+///
+/// Example:
+///
+/// ```noir
+/// let x: u32 = std::mem::zeroed();
+/// assert_eq(x, 0);
+///
+/// let pair: (bool, [u8; 2]) = std::mem::zeroed();
+/// assert_eq(pair, (false, [0, 0]));
+/// ```
 #[builtin(zeroed)]
 pub fn zeroed<T>() -> T {}
 
@@ -13,5 +26,18 @@ pub fn zeroed<T>() -> T {}
 /// which the compiler otherwise cannot prove equal during type checking.
 /// You can use this to obtain a value of the correct type while still asserting
 /// that it is equal to the previous.
+///
+/// Example:
+///
+/// ```noir
+/// // `concat` returns `[u8; N + N]`, which the type checker doesn't treat as `[u8; 2 * N]`.
+/// fn twice<let N: u32>(a: [u8; N]) -> [u8; 2 * N] {
+///     std::mem::checked_transmute(a.concat(a))
+/// }
+///
+/// fn main() {
+///     assert_eq(twice([1, 2]), [1, 2, 1, 2]);
+/// }
+/// ```
 #[builtin(checked_transmute)]
 pub fn checked_transmute<T, U>(value: T) -> U {}

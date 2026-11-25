@@ -1066,8 +1066,7 @@ impl Parser<'_> {
     }
 
     /// `ConstrainExpression`
-    ///     = 'constrain' Expression
-    ///     | 'assert' Arguments
+    ///     = 'assert' Arguments
     ///     | '`assert_eq`' Arguments
     pub(super) fn parse_constrain_expression(&mut self) -> Option<ConstrainExpression> {
         let start_location = self.current_token_location;
@@ -1087,19 +1086,6 @@ impl Parser<'_> {
                     location: self.location_since(start_location),
                 }
             }
-            ConstrainKind::Constrain => {
-                self.push_error(
-                    ParserErrorReason::ConstrainDeprecated,
-                    self.previous_token_location,
-                );
-
-                let expression = self.parse_expression_or_error();
-                ConstrainExpression {
-                    kind,
-                    arguments: vec![expression],
-                    location: self.location_since(start_location),
-                }
-            }
         })
     }
 
@@ -1108,8 +1094,6 @@ impl Parser<'_> {
             Some(ConstrainKind::Assert)
         } else if self.eat_keyword(Keyword::AssertEq) {
             Some(ConstrainKind::AssertEq)
-        } else if self.eat_keyword(Keyword::Constrain) {
-            Some(ConstrainKind::Constrain)
         } else {
             None
         }
@@ -1748,6 +1732,16 @@ mod tests {
     }
 
     #[test]
+    fn parses_call_with_turbofish_whose_first_argument_is_as_trait_path() {
+        let src = "load_array::<<T as Deserialize>::N>(input)";
+        let expr = parse_expression_no_errors(src);
+        let ExpressionKind::Call(call) = expr.kind else {
+            panic!("Expected call expression");
+        };
+        assert_eq!(call.func.to_string(), "load_array::<<T as Deserialize>::N>");
+    }
+
+    #[test]
     fn parses_macro_call() {
         let src = "foo!(1, 2)";
         let expr = parse_expression_no_errors(src);
@@ -1796,6 +1790,16 @@ mod tests {
         assert!(!method_call.is_macro_call);
         assert_eq!(method_call.arguments.len(), 2);
         assert_eq!(method_call.generics.unwrap().len(), 2);
+    }
+
+    #[test]
+    fn parses_method_call_with_turbofish_whose_first_argument_is_as_trait_path() {
+        let src = "foo.bar::<<T as Deserialize>::N>()";
+        let expr = parse_expression_no_errors(src);
+        let ExpressionKind::MethodCall(method_call) = expr.kind else {
+            panic!("Expected method call expression");
+        };
+        assert_eq!(method_call.generics.unwrap()[0].to_string(), "<T as Deserialize>::N");
     }
 
     #[test]
@@ -2231,6 +2235,40 @@ mod tests {
     }
 
     #[test]
+    fn parses_less_than_as_trait_path() {
+        let src = "1 < <U as Tr>::f(x)";
+        let expr = parse_expression_no_errors(src);
+        let ExpressionKind::Infix(infix) = expr.kind else {
+            panic!("Expected infix expression");
+        };
+        assert_eq!(infix.operator.contents, BinaryOpKind::Less);
+        assert_eq!(infix.rhs.to_string(), "<U as Tr>::f(x)");
+    }
+
+    #[test]
+    fn parses_as_trait_path_whose_type_is_as_trait_path() {
+        let src = "<<A as B>::C as D>::e";
+        let expr = parse_expression_no_errors(src);
+        let ExpressionKind::AsTraitPath(as_trait_path) = expr.kind else {
+            panic!("Expected as_trait_path")
+        };
+        assert_eq!(as_trait_path.typ.typ.to_string(), "<A as B>::C");
+        assert_eq!(as_trait_path.trait_path.to_string(), "D");
+        assert_eq!(as_trait_path.impl_item.to_string(), "e");
+    }
+
+    #[test]
+    fn parses_shift_left_as_trait_path() {
+        let src = "1 << <U as Tr>::f(x)";
+        let expr = parse_expression_no_errors(src);
+        let ExpressionKind::Infix(infix) = expr.kind else {
+            panic!("Expected infix expression");
+        };
+        assert_eq!(infix.operator.contents, BinaryOpKind::ShiftLeft);
+        assert_eq!(infix.rhs.to_string(), "<U as Tr>::f(x)");
+    }
+
+    #[test]
     fn parses_comptime_expression() {
         let src = "comptime { 1 }";
         let expr = parse_expression_no_errors(src);
@@ -2343,20 +2381,6 @@ mod tests {
         };
         assert_eq!(constrain.kind, ConstrainKind::AssertEq);
         assert_eq!(constrain.arguments.len(), 3);
-    }
-
-    #[test]
-    fn parses_constrain() {
-        let src = "
-        constrain 1
-        ^^^^^^^^^ Use of deprecated keyword 'constrain'
-        ";
-        let expression = check_errors(src, |parser| parser.parse_expression_or_error());
-        let ExpressionKind::Constrain(constrain) = expression.kind else {
-            panic!("Expected constrain expression");
-        };
-        assert_eq!(constrain.kind, ConstrainKind::Constrain);
-        assert_eq!(constrain.arguments.len(), 1);
     }
 
     #[test]

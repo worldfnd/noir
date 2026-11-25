@@ -81,8 +81,8 @@ of the given name.
 #include_code named_attribute_args noir_stdlib/src/meta/function_def.nr rust
 
 Returns the arguments of each occurrence of the attribute with the given name, as token
-streams. The outer slice has one entry per occurrence — empty when the attribute is absent,
-so this is a superset of `has_named_attribute` — and each inner slice holds that occurrence's
+streams. The outer vector has one entry per occurrence — empty when the attribute is absent,
+so this is a superset of `has_named_attribute` — and each inner vector holds that occurrence's
 argument expressions, which can be spliced into generated code with `quote`.
 
 ### has_builtin_attribute
@@ -124,7 +124,9 @@ Returns the name of the function.
 
 #include_code parameters noir_stdlib/src/meta/function_def.nr rust
 
-Returns each parameter of the function as a tuple of (parameter pattern, parameter type).
+Returns the function's declared parameters in source order as `FunctionParameter` values.
+Use `name()` to get a parameter's declared name as a `Quoted` identifier and `typ()` to get
+its `Type`.
 
 ### return_type
 
@@ -136,10 +138,8 @@ The return type of the function.
 
 #include_code visibility noir_stdlib/src/meta/function_def.nr rust
 
-Returns the function's visibility as a `Quoted` value, which will be one of:
-- `quote { }`: the function is private
-- `quote { pub }`: the function is `pub`
-- `quote { pub(crate) }`: the function is `pub(crate)`
+Returns the function's [`ItemVisibility`](./item_visibility.md). Use its predicate methods to
+inspect the visibility, or `as_quoted()` when generating code.
 
 ## Trait Implementations
 

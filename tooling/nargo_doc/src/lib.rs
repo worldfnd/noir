@@ -1,3 +1,5 @@
+#![cfg_attr(not(test), warn(unused_crate_dependencies, unused_extern_crates))]
+
 use std::collections::HashMap;
 
 use fm::FileManager;
@@ -29,6 +31,7 @@ use crate::items::{
 use crate::links::{CurrentType, LinkFinder};
 pub use html::to_html;
 
+pub mod code_blocks;
 mod html;
 mod ids;
 pub mod items;
@@ -257,8 +260,9 @@ impl DocItemBuilder<'_> {
                 let trait_impls = vecmap(item_trait.trait_impls, |trait_impl| {
                     self.convert_trait_impl(trait_impl)
                 });
-                let parent_bounds: Vec<_> = trait_.parent_bounds().cloned().collect();
-                let parents = vecmap(&parent_bounds, |bound| self.convert_trait_bound(bound));
+                let parents = vecmap(trait_.parent_bounds(), |bound| {
+                    self.convert_trait_bound(bound.as_written())
+                });
 
                 let mut associated_types = Vec::new();
                 let mut associated_constants = Vec::new();
@@ -266,8 +270,8 @@ impl DocItemBuilder<'_> {
                 for associated_type in &trait_.associated_types {
                     let name = associated_type.name.to_string();
 
-                    if let Kind::Numeric(numeric_type) = associated_type.kind() {
-                        let r#type = self.convert_type(&numeric_type);
+                    if let Kind::Numeric(numeric_type) = &*associated_type.kind() {
+                        let r#type = self.convert_type(numeric_type);
                         associated_constants.push(AssociatedConstant { name, r#type });
                     } else {
                         let bounds = if let Some(trait_bounds) =
@@ -395,9 +399,16 @@ impl DocItemBuilder<'_> {
     }
 
     fn convert_impl(&mut self, impl_: expand_items::Impl) -> Impl {
+        // Links in the impl's doc comments resolve against the module that declares the impl,
+        // which can differ from the module of its type: the impls of a primitive type are spread
+        // over the stdlib, and a struct's impl can live in another module of its crate.
+        let old_module_id = self.current_module_id;
+        if impl_.module_id.krate == self.crate_id {
+            self.current_module_id = impl_.module_id.local_id;
+        }
         let generics = vecmap(impl_.generics, |generic| {
             let name = generic.name.as_ref().clone();
-            let numeric = self.kind_to_numeric(generic.kind());
+            let numeric = self.kind_to_numeric(&generic.kind());
             Generic { name, numeric }
         });
         let r#type = self.convert_type(&impl_.typ);
@@ -413,6 +424,7 @@ impl DocItemBuilder<'_> {
             .map(|(_, func_id)| self.convert_function(func_id))
             .collect();
         self.trait_constraints.clear();
+        self.current_module_id = old_module_id;
         Impl { generics, r#type, where_clause, methods, comments }
     }
 
@@ -423,12 +435,12 @@ impl DocItemBuilder<'_> {
         let trait_impl = trait_impl.borrow();
 
         let generics = vecmap(item_trait_impl.generics, |(name, kind)| {
-            let numeric = self.kind_to_numeric(kind);
+            let numeric = self.kind_to_numeric(&kind);
             Generic { name, numeric }
         });
-        let where_clause = vecmap(&trait_impl.where_clause, |constraint| {
-            self.convert_trait_constraint(constraint)
-        });
+        let where_clause = self.interner.get_where_clause_for_impl(trait_impl_id);
+        let where_clause =
+            vecmap(where_clause, |constraint| self.convert_trait_constraint(constraint));
         self.trait_constraints = where_clause.clone();
         let methods = vecmap(item_trait_impl.methods, |func_id| self.convert_function(func_id));
         self.trait_constraints.clear();
@@ -551,7 +563,7 @@ impl DocItemBuilder<'_> {
                 Type::TypeAlias { id, name, generics }
             }
             noirc_frontend::Type::TypeVariable(type_var) => {
-                if let TypeBinding::Bound(typ) = &*type_var.borrow() {
+                if let TypeBinding::Bound(typ) = type_var.binding() {
                     self.convert_type(typ)
                 } else {
                     Type::Generic("_".to_string())
@@ -566,7 +578,7 @@ impl DocItemBuilder<'_> {
                 Type::TraitAsType { trait_id, trait_name, ordered_generics, named_generics }
             }
             noirc_frontend::Type::NamedGeneric(NamedGeneric { name, type_var, .. }) => {
-                if let TypeBinding::Bound(typ) = &*type_var.borrow() {
+                if let TypeBinding::Bound(typ) = type_var.binding() {
                     self.convert_type(typ)
                 } else {
                     Type::Generic(name.to_string())
@@ -633,17 +645,18 @@ impl DocItemBuilder<'_> {
         let params = vecmap(func_meta.parameters.iter(), |(pattern, typ, _visibility)| {
             let is_self = pattern.is_self(self.interner);
 
-            // `&mut self` is represented as a mutable reference type, not as a mutable pattern
-            let mut mut_ref = false;
-            let name = if is_self && matches!(typ, noirc_frontend::Type::Reference(..)) {
-                mut_ref = true;
+            // `&self` and `&mut self` are represented as a reference type, not as a mutable
+            // pattern, so the reference's own mutability is what tells the two apart.
+            let mut self_reference = None;
+            let name = if is_self && let noirc_frontend::Type::Reference(_, mutable) = typ {
+                self_reference = Some(*mutable);
                 "self".to_string()
             } else {
                 self.pattern_to_string(pattern)
             };
 
             let r#type = self.convert_type(typ);
-            FunctionParam { name, r#type, mut_ref }
+            FunctionParam { name, r#type, self_reference }
         });
         let return_type = self.convert_type(func_meta.return_type());
         let trait_constraints = func_meta.trait_constraints.clone();
@@ -678,15 +691,15 @@ impl DocItemBuilder<'_> {
     }
 
     fn convert_generic(&self, generic: &ResolvedGeneric) -> Generic {
-        let numeric = self.kind_to_numeric(generic.kind());
+        let numeric = self.kind_to_numeric(&generic.kind());
         let name = generic.name.to_string();
         Generic { name, numeric }
     }
 
-    fn kind_to_numeric(&self, kind: Kind) -> Option<Type> {
+    fn kind_to_numeric(&self, kind: &Kind) -> Option<Type> {
         match kind {
             Kind::Any | Kind::Normal | Kind::IntegerOrField | Kind::Integer => None,
-            Kind::Numeric(typ) => Some(self.convert_type(&typ)),
+            Kind::Numeric(typ) => Some(self.convert_type(typ)),
         }
     }
 

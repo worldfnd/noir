@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use acvm::{AcirField, FieldValue};
 use fm::FileManager;
@@ -14,6 +15,7 @@ use noirc_driver::gen_abi;
 use noirc_errors::{CustomDiagnostic, Location};
 use noirc_evaluator::ssa::interpreter::value::NumericValue;
 use noirc_evaluator::ssa::ir::types::NumericType;
+use noirc_frontend::Type;
 use noirc_frontend::hir::comptime::Value;
 use noirc_frontend::hir::def_collector::dc_crate::CompilationError;
 use noirc_frontend::hir::{Context, ParsedFiles};
@@ -21,7 +23,6 @@ use noirc_frontend::hir_def::function::FuncMeta;
 use noirc_frontend::hir_def::stmt::HirPattern;
 use noirc_frontend::node_interner::NodeInterner;
 use noirc_frontend::shared::Signedness;
-use noirc_frontend::{Shared, Type};
 
 use crate::cli::compile_cmd::parse_workspace;
 use crate::cli::execute_cmd::ExecuteCommand;
@@ -32,7 +33,7 @@ pub(super) fn run_comptime(args: ExecuteCommand, workspace: Workspace) -> Result
     let binary_packages = workspace.into_iter().filter(|package| package.is_binary());
 
     for package in binary_packages {
-        run_package_comptime(package, &args, &workspace, &file_manager, &parsed_files)?;
+        run_package_comptime(package, &args, &file_manager, &parsed_files)?;
     }
 
     Ok(())
@@ -41,9 +42,8 @@ pub(super) fn run_comptime(args: ExecuteCommand, workspace: Workspace) -> Result
 fn run_package_comptime(
     package: &Package,
     args: &ExecuteCommand,
-    workspace: &Workspace,
-    file_manager: &FileManager,
-    parsed_files: &ParsedFiles,
+    file_manager: &Arc<FileManager>,
+    parsed_files: &Arc<ParsedFiles>,
 ) -> Result<(), CliError> {
     // The ABI parser and the evaluator's numeric values carry the linked field, so the inputs
     // below can only be read for it.
@@ -51,9 +51,14 @@ fn run_package_comptime(
         .map_err(|error| CliError::Generic(CustomDiagnostic::from(error).message))?;
 
     let (mut context, crate_id) = nargo::prepare_package(file_manager, parsed_files, package);
-    context.package_build_path = workspace.package_build_path(package);
     noirc_driver::link_to_debug_crate(&mut context, crate_id);
-    let result = noirc_driver::check_crate(&mut context, crate_id, &args.compile_options);
+    let mut comptime_io = args.compile_options.comptime_io();
+    let (mut context, result) = noirc_driver::check_crate_with_comptime_io(
+        context,
+        crate_id,
+        &args.compile_options,
+        &mut comptime_io,
+    );
     match report_errors(
         result,
         &context.file_manager,
@@ -88,7 +93,7 @@ fn run_package_comptime(
         input_value_to_comptime_value(&return_value, func_meta.return_type(), location)
     });
 
-    match context.interpret_function(main_id, func_args) {
+    match context.interpret_function(main_id, func_args, &mut comptime_io) {
         Ok(result) => {
             let result_as_string = output_value_to_string(&result, &context);
 
@@ -230,10 +235,9 @@ fn input_value_to_comptime_value(input: &InputValue, typ: &Type, location: Locat
             };
             assert_eq!(inputs.len(), types.len(), "Tuple length does not match input length");
             let tuple = vecmap(inputs.iter().zip_eq(types.iter()), |(input, typ)| {
-                let value = input_value_to_comptime_value(input, typ, location);
-                Shared::new(value)
+                input_value_to_comptime_value(input, typ, location)
             });
-            Value::Tuple(tuple)
+            Value::tuple(tuple)
         }
         Type::DataType(data_type, generics) => {
             let fields = data_type
@@ -243,17 +247,14 @@ fn input_value_to_comptime_value(input: &InputValue, typ: &Type, location: Locat
             let InputValue::Struct(inputs) = input else {
                 panic!("expected struct input for data type");
             };
-            let fields = fields
-                .into_iter()
-                .map(|(name, typ, _)| {
-                    let input = inputs
-                        .get(&name)
-                        .unwrap_or_else(|| panic!("Expected to find field {name} in input"));
-                    let value = input_value_to_comptime_value(input, &typ, location);
-                    (Rc::new(name), Shared::new(value))
-                })
-                .collect();
-            Value::Struct(fields, typ.clone())
+            let fields = fields.into_iter().map(|(name, typ, _)| {
+                let input = inputs
+                    .get(&name)
+                    .unwrap_or_else(|| panic!("Expected to find field {name} in input"));
+                let value = input_value_to_comptime_value(input, &typ, location);
+                (name, value)
+            });
+            Value::struct_from_fields(fields, typ.clone())
         }
         Type::Alias(alias, generics) => {
             let typ = alias.borrow().get_type(generics);

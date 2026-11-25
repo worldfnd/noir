@@ -1,0 +1,18 @@
+---
+source: tooling/nargo_cli/tests/execute.rs
+expression: expanded_code
+---
+unconstrained fn hint(_x: [Field; 2]) {}
+
+fn main(x: [u8; 2]) {
+    let x: [Field; 2] = x.map(|v: u8| -> Field { <Field as From<u8>>::from(v) });
+    // Safety: comment added by `nargo expand`
+    unsafe {
+        hint(
+            x.map(|v: Field| -> Field {
+                assert(v == 7_Field, "v must be 7");
+                v
+            }),
+        );
+    }
+}

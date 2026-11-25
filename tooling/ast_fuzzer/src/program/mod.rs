@@ -185,7 +185,7 @@ impl Context {
         u: &mut Unstructured,
         i: usize,
     ) -> arbitrary::Result<(Name, Type, Expression)> {
-        let typ = self.gen_type(u, self.config.max_depth, true, false, true)?;
+        let typ = self.gen_type(u, self.config.max_type_depth, true, false, true)?;
         // By the time we get to the monomorphized AST the compiler will have already turned
         // complex global expressions into literals.
         let val = expr::gen_literal(u, &typ, &self.config)?;
@@ -230,7 +230,7 @@ impl Context {
         let return_type = if !(is_main || is_abi) && u.ratio(1, 5)? {
             Type::Unit
         } else {
-            self.gen_type(u, self.config.max_depth, false, is_main || is_abi, true)?
+            self.gen_type(u, self.config.max_type_depth, false, is_main || is_abi, true)?
         };
 
         // Which existing functions we could receive as parameters.
@@ -262,7 +262,7 @@ impl Context {
 
             let typ = if func_param_candidates.is_empty() || u.ratio(7, 10)? {
                 // Take some kind of data type.
-                self.gen_type(u, self.config.max_depth, false, is_main || is_abi, true)?
+                self.gen_type(u, self.config.max_type_depth, false, is_main || is_abi, true)?
             } else {
                 // Take a function type.
                 let callee_id = u.choose_iter(&func_param_candidates)?;
@@ -294,10 +294,13 @@ impl Context {
         let inline_type = if is_main {
             InlineType::default()
         } else {
-            // Automatically include any new inline type, except the ones we don't want: #[fold] is deprecated
+            // Automatically include any new inline type, except where the compiler does not
+            // support it: `#[fold]` compiles the function into a separate ACIR circuit, which
+            // has no meaning for an unconstrained function, and `#[no_predicates]` acts on the
+            // flattening pass that unconstrained code does not run.
             let choices = InlineType::iter()
                 .filter(|it| {
-                    *it != InlineType::Fold && !(*it == InlineType::NoPredicates && unconstrained)
+                    !(unconstrained && matches!(it, InlineType::Fold | InlineType::NoPredicates))
                 })
                 .collect::<Vec<_>>();
             *u.choose(&choices)?
@@ -452,9 +455,17 @@ impl Context {
                 4 | 5 => {
                     // 1-size tuples look strange, so let's make it minimum 2 fields.
                     let size = u.int_in_range(2..=self.config.max_tuple_size)?;
-                    let types = (0..size)
+                    let mut types = (0..size)
                         .map(|_| gen_inner_type(self, u, is_vector_allowed))
                         .collect::<Result<Vec<_>, _>>()?;
+                    // Bias: half the time force one field to be a string, so tuples
+                    // (and arrays of tuples) frequently have fields whose flattened
+                    // sizes differ - the layouts predicated array reads must handle.
+                    if u.ratio(1, 2)? {
+                        let i = u.choose_index(types.len())?;
+                        types[i] =
+                            Type::String(u.int_in_range(1..=self.config.max_array_size)? as u32);
+                    }
                     Type::Tuple(types)
                 }
                 6 if is_vector_allowed && !self.config.avoid_vectors => {

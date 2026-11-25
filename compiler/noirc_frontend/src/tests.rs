@@ -48,15 +48,15 @@ use acvm::FieldId;
 use noirc_errors::reporter::ReportedErrors;
 use noirc_errors::{CustomDiagnostic, Span};
 
-use crate::hir::Context;
 use crate::hir::def_collector::dc_crate::CompilationError;
+use crate::hir::{CheckedContext, Context};
 
 use crate::ParsedModule;
 
 pub(crate) fn get_program_using_features(
     src: &str,
     features: &[UnstableFeature],
-) -> (ParsedModule, Context<'static, 'static>, Vec<CompilationError>) {
+) -> (ParsedModule, CheckedContext, Vec<CompilationError>) {
     get_program_with_options(
         src,
         GetProgramOptions {
@@ -85,14 +85,14 @@ pub(crate) fn get_stdlib_errors_for_field(src: &str, field: FieldId) -> Vec<Comp
     get_program_with_options(src, options).2
 }
 
-pub(crate) fn assert_no_errors(src: &str) -> Context<'static, 'static> {
+pub(crate) fn assert_no_errors(src: &str) -> CheckedContext {
     assert_no_errors_using_features(src, FrontendOptions::test_default().enabled_unstable_features)
 }
 
 pub(crate) fn assert_no_errors_using_features(
     src: &str,
     features: &[UnstableFeature],
-) -> Context<'static, 'static> {
+) -> CheckedContext {
     let (_, context, errors) = get_program_using_features(src, features);
     if !errors.is_empty() {
         let errors = errors.iter().map(CustomDiagnostic::from).collect::<Vec<_>>();
@@ -102,14 +102,24 @@ pub(crate) fn assert_no_errors_using_features(
     context
 }
 
-pub fn assert_no_errors_without_report(src: &str) -> Context<'_, '_> {
+pub fn assert_no_errors_without_report(src: &str) -> CheckedContext {
     let (_, context, errors) = get_program(src);
     assert!(errors.is_empty(), "Expected no errors");
     context
 }
 
 fn assert_no_errors_and_to_string(src: &str) -> String {
-    let context = assert_no_errors(src);
+    assert_no_errors_and_to_string_using_features(
+        src,
+        FrontendOptions::test_default().enabled_unstable_features,
+    )
+}
+
+fn assert_no_errors_and_to_string_using_features(
+    src: &str,
+    features: &[UnstableFeature],
+) -> String {
+    let context = assert_no_errors_using_features(src, features);
     let expanded = display_crate(
         *context.crate_graph.root_crate_id(),
         &context.crate_graph,
@@ -124,7 +134,7 @@ fn assert_no_errors_and_to_string(src: &str) -> String {
     // its module and break access to a module-private item. Only hard errors are checked: the
     // printer can legitimately produce code whose warnings (e.g. unused imports) differ from the
     // original.
-    let errors = get_program_errors(&expanded);
+    let errors = get_program_using_features(&expanded, features).2;
     let errors: Vec<_> =
         errors.iter().map(CustomDiagnostic::from).filter(CustomDiagnostic::is_error).collect();
     if !errors.is_empty() {
@@ -185,6 +195,29 @@ fn check_errors_with_stdlib<'a>(src: &str, stdlib_src: impl IntoIterator<Item = 
             allow_elaborator_errors: true,
             root_and_stdlib: true,
             ..Default::default()
+        },
+    );
+}
+
+/// Like [`check_errors_with_stdlib`], with the given unstable features enabled.
+fn check_errors_with_stdlib_using_features<'a>(
+    src: &str,
+    stdlib_src: impl IntoIterator<Item = &'a str>,
+    features: &[UnstableFeature],
+) {
+    let stdlib_src: String = stdlib_src.into_iter().flat_map(|s| [s, "\n"]).collect();
+    let monomorphize = false;
+    check_errors_with_options(
+        &format!("{stdlib_src}\n\n{src}"),
+        monomorphize,
+        GetProgramOptions {
+            allow_parser_errors: false,
+            allow_elaborator_errors: true,
+            root_and_stdlib: true,
+            frontend_options: FrontendOptions {
+                enabled_unstable_features: features,
+                ..FrontendOptions::test_default()
+            },
         },
     );
 }
@@ -287,7 +320,7 @@ fn check_errors_with_options(src: &str, monomorphize: bool, options: GetProgramO
     let secondary_spans_with_errors = to_message_map(secondary_spans_with_errors);
 
     let src = code_lines.join("\n");
-    let (_, mut context, errors) = get_program_with_options(&src, options);
+    let (_, context, errors) = get_program_with_options(&src, options);
     let mut errors = errors.iter().map(CustomDiagnostic::from).collect::<Vec<_>>();
 
     if !options.allow_elaborator_errors && !errors.is_empty() {
@@ -300,12 +333,7 @@ fn check_errors_with_options(src: &str, monomorphize: bool, options: GetProgramO
             panic!("get_monomorphized: test program contains no 'main' function")
         });
 
-        let result = crate::monomorphization::monomorphize(
-            main,
-            &mut context.def_interner,
-            context.file_manager.as_file_map(),
-            false,
-        );
+        let result = crate::monomorphization::monomorphize(main, &context.def_interner, false);
         match result {
             Ok(_) => {
                 if primary_spans_with_errors.is_empty() {

@@ -12,7 +12,6 @@ pub enum MonomorphizationError {
     UnknownIntegerWidth { err: TypeCheckError, location: Location },
     IntegerLiteralDoesNotFitItsType { err: TypeCheckError, location: Location },
     UnsupportedIntegerWidth { signedness: crate::shared::Signedness, bits: u32, location: Location },
-    UnknownConstant { location: Location },
     NoDefaultType { location: Location },
     InternalError { message: &'static str, location: Location },
     InterpreterError(InterpreterError),
@@ -41,6 +40,7 @@ pub enum MonomorphizationError {
     ReturnSizeExceeded { num_bytes: u64, max_bytes: u64, location: Location },
     ComplexType { complexity: usize, max_complexity: usize, location: Location },
     CannotUseFunctionAsValue { name: String, location: Location },
+    UnknownBuiltin { name: String, location: Location },
     GlobalContainsFunctionPointer { typ: String, location: Location },
     CalledDisabledFunction { name: String, location: Location },
 }
@@ -52,7 +52,6 @@ impl MonomorphizationError {
             | MonomorphizationError::UnknownIntegerWidth { location, .. }
             | MonomorphizationError::IntegerLiteralDoesNotFitItsType { location, .. }
             | MonomorphizationError::UnsupportedIntegerWidth { location, .. }
-            | MonomorphizationError::UnknownConstant { location }
             | MonomorphizationError::InternalError { location, .. }
             | MonomorphizationError::ComptimeFnInRuntimeCode { location, .. }
             | MonomorphizationError::ComptimeTypeInRuntimeCode { location, .. }
@@ -86,6 +85,7 @@ impl MonomorphizationError {
             | MonomorphizationError::ReturnSizeExceeded { location, .. }
             | MonomorphizationError::ComplexType { location, .. }
             | MonomorphizationError::CannotUseFunctionAsValue { location, .. }
+            | MonomorphizationError::UnknownBuiltin { location, .. }
             | MonomorphizationError::GlobalContainsFunctionPointer { location, .. }
             | MonomorphizationError::CalledDisabledFunction { location, .. } => *location,
             MonomorphizationError::InterpreterError(error) => error.location(),
@@ -117,9 +117,6 @@ impl From<MonomorphizationError> for CustomDiagnostic {
                     *bits,
                     *location,
                 );
-            }
-            MonomorphizationError::UnknownConstant { .. } => {
-                "Could not resolve constant".to_string()
             }
             MonomorphizationError::CheckedTransmuteFailed { actual, expected, .. } => {
                 format!("checked_transmute failed: expected `{expected}` but found `{actual}`")
@@ -281,6 +278,11 @@ impl From<MonomorphizationError> for CustomDiagnostic {
                     "`{name}` cannot be used as a function value; it must be called directly"
                 );
                 let secondary = "Used as a value here".to_string();
+                return CustomDiagnostic::simple_error(message, secondary, *location);
+            }
+            MonomorphizationError::UnknownBuiltin { name, location } => {
+                let message = format!("`{name}` is not a builtin function known to the compiler");
+                let secondary = "Called here".to_string();
                 return CustomDiagnostic::simple_error(message, secondary, *location);
             }
             MonomorphizationError::GlobalContainsFunctionPointer { typ, location } => {

@@ -1,0 +1,40 @@
+---
+source: tooling/nargo_cli/tests/execute.rs
+expression: expanded_code
+---
+struct Inner {
+    a: u8,
+    b: Field,
+}
+
+struct Outer {
+    tag: u8,
+    items: [Inner; 2],
+}
+
+struct InputInner {
+    a: u8,
+    b: u32,
+}
+
+struct InputOuter {
+    tag: u8,
+    items: [InputInner; 2],
+}
+
+fn main(x: [InputOuter; 3], i: u32, c: bool) -> pub u8 {
+    let x: [Outer; 3] = x.map(|outer: InputOuter| -> Outer {
+        Outer {
+            tag: outer.tag,
+            items: outer.items.map(|inner: InputInner| -> Inner {
+                Inner { a: inner.a, b: <Field as From<u32>>::from(inner.b) }
+            }),
+        }
+    });
+    let mut r: u8 = 0_u8;
+    if c {
+        let items: [Inner; 2] = x[i].items;
+        r = items[1_u32].a & 15_u8;
+    };
+    r
+}

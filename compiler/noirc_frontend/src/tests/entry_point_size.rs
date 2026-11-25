@@ -208,10 +208,10 @@ fn monomorphize_function(
     src: &str,
     select: impl FnOnce(&Context) -> FuncId,
 ) -> Result<Program, MonomorphizationError> {
-    let (_, mut context, errors) = get_program(src);
+    let (_, context, errors) = get_program(src);
     assert!(errors.is_empty(), "`{src}`: {errors:?}");
     let function = select(&context);
-    monomorphize(function, &mut context.def_interner, context.file_manager.as_file_map(), false)
+    monomorphize(function, &context.def_interner, false)
 }
 
 /// A contract function is an entry point, so it has the byte limits of `main`.

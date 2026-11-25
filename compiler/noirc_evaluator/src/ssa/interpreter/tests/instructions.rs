@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
+use crate::ssa::interpreter::shared_cell::SharedCell;
 use acvm::FieldElement;
 use iter_extended::vecmap;
-use noirc_frontend::Shared;
 
 use crate::ssa::{
     interpreter::{
@@ -20,7 +20,7 @@ use crate::ssa::{
     },
 };
 
-use super::{Ssa, executes_with_no_errors, expect_error};
+use super::{Ssa, executes_with_no_errors, expect_error, expect_error_with_args};
 
 fn make_unfit(value: impl Into<FieldElement>, typ: NumericType) -> Value {
     Value::int_from_field(value.into(), typ).unwrap()
@@ -353,6 +353,75 @@ fn mul_overflow_signed() {
     ",
     );
     assert!(matches!(error, InterpreterError::Overflow { .. }));
+}
+
+#[test]
+fn mul_overflow_u128_wrapping_past_modulus() {
+    // a = 2^127 + 12345 and b = ⌊p/a⌋ + 1: both fit in a u128, and a·b is the smallest multiple
+    // of a exceeding the modulus, so (a·b) mod p = a - (p mod a) passes a 128-bit range check.
+    let a = 170141183460469231731687303715884118073_u128;
+    let b = 128647529226366354083724114970452069444_u128;
+    let args = vec![
+        from_constant(a.into(), NumericType::unsigned(128)),
+        from_constant(b.into(), NumericType::unsigned(128)),
+    ];
+    for runtime in ["acir(inline)", "brillig(inline)"] {
+        let src = format!(
+            "
+            {runtime} fn main f0 {{
+              b0(v0: u128, v1: u128):
+                v2 = mul v0, v1
+                return v2
+            }}
+        "
+        );
+        let error = expect_error_with_args(&src, args.clone());
+        assert!(matches!(error, InterpreterError::Overflow { .. }), "{runtime}: {error:?}");
+    }
+}
+
+// Companion to [`mul_overflow_u128_wrapping_past_modulus`] with constant operands
+// (`u128::MAX` and `MAX_NON_OVERFLOWING_CONST_ARG + 1` from `check_u128_mul_overflow`).
+#[test]
+fn mul_overflow_u128_wrapping_past_modulus_constants() {
+    let error = expect_error(
+        "
+        acir(inline) fn main f0 {
+          b0():
+            v0 = mul u128 340282366920938463463374607431768211455, u128 64323764613183177041862057485226039390
+            return v0
+        }
+    ",
+    );
+    assert!(matches!(error, InterpreterError::Overflow { .. }), "{error:?}");
+}
+
+// Companion to [`mul_overflow_u128_wrapping_past_modulus`] pinning the non-wrapping cases, so the
+// wrapping case cannot be fixed by rejecting every u128 multiplication: a product that overflows
+// 128 bits without exceeding the modulus still errors, and an in-range product still succeeds.
+#[test]
+fn mul_overflow_u128_non_wrapping() {
+    let error = expect_error(
+        "
+        acir(inline) fn main f0 {
+          b0():
+            v0 = mul u128 340282366920938463463374607431768211455, u128 2
+            return v0
+        }
+    ",
+    );
+    assert!(matches!(error, InterpreterError::Overflow { .. }), "{error:?}");
+
+    let value = expect_value(
+        "
+        acir(inline) fn main f0 {
+          b0():
+            v0 = mul u128 3, u128 5
+            return v0
+        }
+    ",
+    );
+    assert_eq!(value, from_constant(15_u128.into(), NumericType::unsigned(128)));
 }
 
 #[test]
@@ -732,6 +801,24 @@ fn truncate() {
     assert_eq!(value, from_constant(constant.into(), NumericType::unsigned(32)));
 }
 
+/// Keeping zero bits of a value leaves nothing, so the result is 0. `truncate_field`, the
+/// simplifier, ACIR and Brillig all agree on that, so the interpreter has to as well: Constant
+/// Folding rewrites `truncate u32 5 to 0 bits` to `u32 0`, and an interpreter that rejects the
+/// instruction disagrees with the SSA the compiler itself produces.
+#[test]
+fn truncate_to_zero_bits() {
+    let value = expect_value(
+        "
+        acir(inline) fn main f0 {
+          b0():
+            v0 = truncate u32 5 to 0 bits, max_bit_size: 32
+            return v0
+        }
+    ",
+    );
+    assert_eq!(value, from_constant(0_u128.into(), NumericType::unsigned(32)));
+}
+
 /// Truncating a *negative* signed value performs no sign-specific logic: it reduces the
 /// value's two's-complement field representation modulo `2^bit_size`, i.e. it keeps the
 /// low `bit_size` bits. The result keeps the original signed type, so it is the masked
@@ -806,7 +893,7 @@ fn truncate_then_cast_preserves_in_range_negative() {
     assert_eq!(value, from_constant(65436_u32.into(), NumericType::signed(16)));
 }
 
-/// The same behaviour holds for the smaller widths used by `i16 as i8`: `-1_i16 as i8 == -1`.
+/// The same behavior holds for the smaller widths used by `i16 as i8`: `-1_i16 as i8 == -1`.
 #[test]
 fn truncate_then_cast_recovers_negative_i16_to_i8() {
     let value = expect_value(
@@ -954,7 +1041,7 @@ fn allocate() {
     );
     let expected = Value::Reference(ReferenceValue {
         original_id: ValueId::test_new(0),
-        element: Shared::new(None),
+        element: SharedCell::new(None),
         element_type: Arc::new(Type::field()),
         mutable: true,
     });
@@ -991,7 +1078,7 @@ fn store() {
     );
     let expected = Value::Reference(ReferenceValue {
         original_id: ValueId::test_new(0),
-        element: Shared::new(Some(Value::bool(true))),
+        element: SharedCell::new(Some(Value::bool(true))),
         element_type: Arc::new(Type::bool()),
         mutable: true,
     });
@@ -1021,7 +1108,7 @@ fn enable_side_effects() {
     let field_zero = from_constant(0u128.into(), NumericType::NativeField);
     let expected = Value::Reference(ReferenceValue {
         original_id: ValueId::test_new(1),
-        element: Shared::new(Some(field_zero.clone())),
+        element: SharedCell::new(Some(field_zero.clone())),
         element_type: Arc::new(Type::field()),
         mutable: true,
     });
@@ -1240,7 +1327,7 @@ fn array_set_with_offset() {
 #[test]
 fn array_set_nested_array_value_is_not_shared() {
     // Regression test: an array-valued `value` stored by `array_set` must not keep
-    // sharing its nested `Shared` handle with the source array. Otherwise a later
+    // sharing its nested `SharedCell` handle with the source array. Otherwise a later
     // `array_set mut` on that source array would also mutate the earlier stored value,
     // diverging from ACIR (which copies array-set values).
     let values = expect_values_with_args(
@@ -1391,13 +1478,12 @@ fn make_array() {
 }
 
 #[test]
-fn make_array_allows_reference_mutability_mismatch() {
-    // Reference mutability is a frontend concern with no meaning at the SSA
-    // level: the validator accepts a `&mut T` value in a `&T` MakeArray slot,
-    // and the interpreter must agree so that running the post-validation SSA
-    // doesn't fail with `MakeArrayElementTypeMismatch`. The unconstrained
-    // SSA-gen pattern this guards is a tuple `[&mut T, &T]` constructed from
-    // a mutable allocate alongside an immutable one — exactly what the
+fn make_array_allows_mutable_reference_element_in_immutable_slot() {
+    // The validator accepts a `&mut T` value in a `&T` MakeArray slot (array
+    // element types are covariant), and the interpreter must agree so that
+    // running post-validation SSA doesn't fail with
+    // `MakeArrayElementTypeMismatch`. This is the SSA-gen pattern for `&a`
+    // over a `mut a` binding placed alongside other references, which the
     // `pass_vs_prev` fuzzer surfaces when it interprets intermediate SSA
     // between passes.
     executes_with_no_errors(
@@ -1406,7 +1492,7 @@ fn make_array_allows_reference_mutability_mismatch() {
           b0():
             v0 = allocate -> &mut Field
             store Field 1 at v0
-            v1 = allocate -> &Field
+            v1 = allocate -> &mut Field
             store Field 2 at v1
             v2 = make_array [v0, v1] : [&Field; 2]
             return
