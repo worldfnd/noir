@@ -871,6 +871,7 @@ tooling/nargo_cli/src/cli/interpret_cmd.rs
 tooling/nargo_cli/src/cli/noir_template_files/contract.nr
 tooling/nargo_cli/tests/comptime_correctness.rs
 tooling/nargo_cli/tests/execute.rs
+tooling/nargo_cli/tests/interpret.rs
 tooling/nargo_cli/tests/snapshots/compile_failure/assert_constant_dynamic_struct_array/execute__tests__stderr.snap
 tooling/nargo_cli/tests/snapshots/compile_failure/assert_constant_dynamic_struct_field/execute__tests__stderr.snap
 tooling/nargo_cli/tests/snapshots/compile_failure/assert_constant_dynamic_struct_vector/execute__tests__stderr.snap

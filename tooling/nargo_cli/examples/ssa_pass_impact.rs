@@ -23,7 +23,7 @@ use nargo_toml::{
 };
 use noirc_driver::{
     CompilationResult, CompileOptions, CrateName, NOIR_ARTIFACT_VERSION_STRING,
-    check_crate_with_comptime_io, ensure_field_is_linked,
+    check_crate_with_comptime_io, ensure_field_is_linked, ensure_integer_widths_are_lowerable,
 };
 use noirc_errors::CustomDiagnostic;
 use noirc_evaluator::{
@@ -252,6 +252,9 @@ fn compile_into_program(
         return Ok((None, warnings));
     };
     let program = monomorphize(main, &context.def_interner, false)
+        .map_err(|error| vec![CustomDiagnostic::from(error)])?;
+    // The SSA has a numeric type for the widths the circuit backend lowers and for no other.
+    ensure_integer_widths_are_lowerable(&program)
         .map_err(|error| vec![CustomDiagnostic::from(error)])?;
     Ok((Some(program), warnings))
 }

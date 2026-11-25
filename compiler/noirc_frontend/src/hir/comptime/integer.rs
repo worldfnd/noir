@@ -129,7 +129,7 @@ impl Integer {
     }
 
     /// Keeps the low `bits` bits, interpreted as two's complement when signed.
-    pub(crate) fn wrapping_int(signed: bool, bits: u32, value: BigInt) -> Integer {
+    pub fn wrapping_int(signed: bool, bits: u32, value: BigInt) -> Integer {
         let mut value = twos_complement_pattern(&value, bits);
         if signed && value >= (BigInt::one() << (bits - 1)) {
             value -= BigInt::one() << bits;

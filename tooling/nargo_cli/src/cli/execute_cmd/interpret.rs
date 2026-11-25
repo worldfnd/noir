@@ -13,16 +13,13 @@ use noirc_abi::InputMap;
 use noirc_abi::input_parser::InputValue;
 use noirc_driver::gen_abi;
 use noirc_errors::{CustomDiagnostic, Location};
-use noirc_evaluator::ssa::interpreter::value::NumericValue;
-use noirc_evaluator::ssa::ir::types::NumericType;
 use noirc_frontend::Type;
-use noirc_frontend::hir::comptime::Value;
+use noirc_frontend::hir::comptime::{Integer, Value};
 use noirc_frontend::hir::def_collector::dc_crate::CompilationError;
 use noirc_frontend::hir::{Context, ParsedFiles};
 use noirc_frontend::hir_def::function::FuncMeta;
 use noirc_frontend::hir_def::stmt::HirPattern;
 use noirc_frontend::node_interner::NodeInterner;
-use noirc_frontend::shared::Signedness;
 
 use crate::cli::compile_cmd::parse_workspace;
 use crate::cli::execute_cmd::ExecuteCommand;
@@ -164,41 +161,21 @@ fn input_value_to_comptime_value(input: &InputValue, typ: &Type, location: Locat
             };
             Value::Bool(!value.is_zero())
         }
-        Type::Integer(signedness, bit_size) => {
+        Type::Integer(signedness, width) => {
             let InputValue::Field(value) = input else {
-                panic!("expected field input for bool type");
+                panic!("expected field input for integer type");
             };
-
-            // Here we reuse the logic of converting an input into an SSA numeric value,
-            // which is not ideal but avoids duplicating the conversion logic.
-            let bit_size = bit_size
+            let bits = width
                 .evaluate_to_u32(location)
                 .expect("an entry point parameter has a concrete width");
-            let numeric_type = match signedness {
-                Signedness::Unsigned => NumericType::Unsigned { bit_size },
-                Signedness::Signed => NumericType::Signed { bit_size },
-            };
-            let numeric_value = NumericValue::from_constant(*value, numeric_type)
-                .expect("Could not convert field value to integer");
-            // `from_constant` guarantees the value is in range, so its stored field is the
-            // type's bit pattern and fits in `u128`. Reinterpret it as the native (signed/
-            // unsigned) integer.
-            let bits =
-                || numeric_value.to_field().try_into_u128().expect("in-range value fits in u128");
-            match numeric_type {
-                NumericType::NativeField => panic!("Field should not happen here"),
-                NumericType::Unsigned { bit_size: 1 } => Value::Bool(bits() == 1),
-                NumericType::Unsigned { bit_size: 8 } => Value::u8(bits() as u8),
-                NumericType::Unsigned { bit_size: 16 } => Value::u16(bits() as u16),
-                NumericType::Unsigned { bit_size: 32 } => Value::u32(bits() as u32),
-                NumericType::Unsigned { bit_size: 64 } => Value::u64(bits() as u64),
-                NumericType::Unsigned { bit_size: 128 } => Value::u128(bits()),
-                NumericType::Signed { bit_size: 8 } => Value::i8(bits() as u8 as i8),
-                NumericType::Signed { bit_size: 16 } => Value::i16(bits() as u16 as i16),
-                NumericType::Signed { bit_size: 32 } => Value::i32(bits() as u32 as i32),
-                NumericType::Signed { bit_size: 64 } => Value::i64(bits() as u64 as i64),
-                typ => panic!("unsupported numeric type {typ}"),
-            }
+            // The input holds the bit pattern of the integer, which a signed type reads as
+            // two's complement.
+            let pattern = FieldValue::from_linked_element(*value).to_bigint();
+            assert!(
+                pattern.bits() <= u64::from(bits),
+                "an input is checked against its ABI type when it is read"
+            );
+            Value::Integer(Integer::wrapping_int(signedness.is_signed(), bits, pattern))
         }
         Type::FieldElement => {
             let InputValue::Field(value) = input else {

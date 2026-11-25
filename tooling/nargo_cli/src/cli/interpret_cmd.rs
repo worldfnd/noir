@@ -282,6 +282,10 @@ fn compile_into_program(
         println!("{program}");
     }
 
+    // The SSA has a numeric type for the widths the circuit backend lowers and for no other.
+    noirc_driver::ensure_integer_widths_are_lowerable(&program)
+        .map_err(|error| vec![CustomDiagnostic::from(error)])?;
+
     let error_types = BTreeMap::default();
     let abi = gen_abi(&context, &main_id, program.return_visibility(), error_types);
 
