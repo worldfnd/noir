@@ -544,13 +544,14 @@ pub fn ensure_integer_widths_are_lowerable(program: &AstProgram) -> Result<(), C
             if found.is_some() {
                 return false;
             }
-            // Every typed node reports its own type; the loop index is the one type an
-            // expression's own type does not cover.
-            let index_type = match expr {
+            // Every typed node reports its own type. A loop's index and the binding of a `let`
+            // have types no expression reports as its own.
+            let unreported_type = match expr {
                 Expression::For(for_loop) => Some(&for_loop.index_type),
+                Expression::Let(let_) => Some(&let_.typ),
                 _ => None,
             };
-            for typ in index_type.into_iter().chain(expr.return_type().as_deref()) {
+            for typ in unreported_type.into_iter().chain(expr.return_type().as_deref()) {
                 if let Some((typ, rule)) = first_unlowerable_integer(typ) {
                     found = Some((typ.clone(), rule));
                     return false;

@@ -6,7 +6,10 @@ use std::path::Path;
 
 use acvm::FieldConfig;
 use fm::FileManager;
-use noirc_driver::{CompileOptions, check_crate, compile_no_check, prepare_crate};
+use noirc_driver::{
+    CompileOptions, check_crate, compile_no_check, ensure_integer_widths_are_lowerable,
+    prepare_crate,
+};
 use noirc_errors::CustomDiagnostic;
 use noirc_frontend::graph::CrateId;
 use noirc_frontend::hir::def_map::parse_file;
@@ -154,6 +157,49 @@ fn unlowerable_widths_are_refused_inside_types_and_bodies() {
         let message = CustomDiagnostic::from(error).message;
         assert!(message.contains("`u34`"), "{source}: {message}");
     }
+}
+
+/// A `let` holds the type its binding declares, which no expression reports as its own type, so
+/// the check reads it from the `let`.
+#[test]
+fn an_unlowerable_width_declared_on_a_let_is_refused() {
+    use noirc_frontend::monomorphization::ast::{
+        Expression, FuncId, Function, InlineType, Let, Literal, LocalId, Program,
+    };
+    use noirc_frontend::shared::Visibility;
+
+    let body = Expression::Let(Let {
+        id: LocalId(0),
+        mutable: false,
+        name: "wide".to_string(),
+        expression: Box::new(Expression::Literal(Literal::Unit)),
+        typ: Type::Integer(Signedness::Unsigned, 34),
+    });
+    let main = Function {
+        id: FuncId(0),
+        name: "main".to_string(),
+        parameters: Vec::new(),
+        body,
+        return_type: Type::Unit,
+        return_visibility: Visibility::Private,
+        unconstrained: false,
+        inline_type: InlineType::default(),
+        is_entry_point: true,
+        allow_constant_return: false,
+    };
+    let program = Program::new(
+        vec![main],
+        None,
+        Default::default(),
+        Default::default(),
+        Default::default(),
+        Default::default(),
+    );
+
+    let error = ensure_integer_widths_are_lowerable(&program)
+        .expect_err("the backend has no lowering for u34");
+    let message = CustomDiagnostic::from(error).message;
+    assert!(message.contains("function `main` uses `u34`"), "{message}");
 }
 
 /// An alias of unit still means no return, including while building the entry ABI before
