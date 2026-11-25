@@ -129,6 +129,30 @@ fn numeric_traits_and_limits_work_for_configured_fields() {
     }
 }
 
+/// `Type::as_integer` describes an integer type of every width the language has: `IntegerType`
+/// holds the width in a `u32`, which the widest type needs.
+#[test]
+fn as_integer_describes_an_integer_type_of_every_width() {
+    let source = "
+        fn main() {
+            comptime {
+                let narrow = quote { u34 }.as_type().as_integer().unwrap();
+                assert(!narrow.is_signed());
+                assert(narrow.bits() == 34);
+                let wide = quote { i<256> }.as_type().as_integer().unwrap();
+                assert(wide.is_signed());
+                assert(wide.bits() == 256);
+                assert(quote { u16384 }.as_type().as_integer().unwrap().bits() == 16384);
+                assert(quote { Field }.as_type().as_integer().is_none());
+            }
+        }
+    ";
+    for field in FieldId::ALL {
+        let errors = elaborate(source, field);
+        assert!(errors.is_empty(), "{field}: {}", errors.join("\n"));
+    }
+}
+
 /// Checks that hold when the field-generic halves of `Field::lt`, the wide `Hash` impls and the
 /// wrapping ops are the ones compiled; `is_bn254` says which field the checks expect to run under.
 fn generic_halves_source(is_bn254: bool) -> String {
